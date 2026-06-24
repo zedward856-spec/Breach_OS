@@ -189,7 +189,7 @@ void drawSplash() {
     
     canvas.setTextColor(CP_DIM);
     canvas.setCursor(125, 60);
-    canvas.print("VERSION: v3.2");
+    canvas.print("VERSION: v4.0stable");
     
     int maxLogs = 7;
     int y = 35;
