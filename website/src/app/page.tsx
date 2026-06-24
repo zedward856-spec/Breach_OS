@@ -14,8 +14,8 @@ export default function Leaderboard() {
   const fetchScores = async () => {
     try {
       const res = await fetch('/api/leaderboard');
-      const data = await res.json();
-      setScores(data);
+      const json = await res.json();
+      setScores(json.data || []);
     } catch (e) {
       console.error("Failed to fetch leaderboard");
     } finally {
@@ -64,7 +64,7 @@ export default function Leaderboard() {
           )}
         </div>
         <div style={{ marginTop: '20px', textAlign: 'center', color: 'var(--cp-dim)', fontSize: '0.8rem', letterSpacing: '2px' }}>
-          VERSION: v3.2
+          VERSION: v4.0stable
         </div>
       </div>
     </>
