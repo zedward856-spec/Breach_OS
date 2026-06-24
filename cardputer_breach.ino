@@ -5,6 +5,10 @@
 #include <vector>
 #include <ArduinoJson.h>
 
+#define API_URL "http://192.168.0.176:3000/api"
+
+M5Canvas canvas(&M5Cardputer.Display);
+
 // --- AUDIO PLACEHOLDERS ---
 const unsigned char* sound_hover = nullptr;
 size_t sound_hover_size = 0;
@@ -23,13 +27,13 @@ void playSound(const unsigned char* soundData, size_t soundSize) {
 // --------------------------
 
 // Cyberpunk Colors in RGB565
-#define CP_YELLOW M5Cardputer.Display.color565(220, 244, 27)
-#define CP_CYAN M5Cardputer.Display.color565(56, 190, 201)
-#define CP_RED M5Cardputer.Display.color565(255, 0, 60)
-#define CP_BG M5Cardputer.Display.color565(14, 17, 21)
-#define CP_PANEL M5Cardputer.Display.color565(14, 17, 21)
-#define CP_ACTIVE_LINE M5Cardputer.Display.color565(44, 53, 71)
-#define CP_DIM M5Cardputer.Display.color565(88, 97, 10)
+#define CP_YELLOW canvas.color565(220, 244, 27)
+#define CP_CYAN canvas.color565(56, 190, 201)
+#define CP_RED canvas.color565(255, 0, 60)
+#define CP_BG canvas.color565(14, 17, 21)
+#define CP_PANEL canvas.color565(14, 17, 21)
+#define CP_ACTIVE_LINE canvas.color565(44, 53, 71)
+#define CP_DIM canvas.color565(88, 97, 10)
 
 String hexCodes[] = {"1C", "55", "BD", "E9", "FF", "7A", "42"};
 
@@ -69,6 +73,9 @@ enum AppState {
     STATE_MAIN_MENU,
     STATE_LEADERBOARD,
     STATE_ACCOUNT,
+    STATE_GRID_SELECT,
+    STATE_PHASE_TRANSITION,
+    STATE_FAILED_SCREEN,
     STATE_PLAYING
 };
 AppState appState = STATE_SPLASH;
@@ -77,6 +84,7 @@ bool isGuest = false;
 String authUser = "";
 String authPass = "";
 int authFocus = 0; 
+bool rememberMe = false;
 String savedSSID = "";
 String savedWifiPass = "";
 
@@ -87,15 +95,34 @@ String wifiPass = "";
 struct LeaderboardEntry {
     String username;
     int score;
+    int grid;
+    int phase;
+    String date;
 };
 std::vector<LeaderboardEntry> globalLeaderboard;
+int totalLeaderboardSize = 0;
+int leaderboardCursor = 0;
+int leaderboardScrollOffset = 0;
 int mainMenuFocus = 0; // 0: PLAY, 1: LEADERBOARD, 2: ACCOUNT
 
 int accountFocus = 0;
 String newAccountName = "";
 String newAccountPass = "";
 int accountHighScore = 0;
+int accountRank = 0;
+int accountHighGrid = 0;
+int accountHighPhase = 0;
 bool accountStatsFetched = false;
+
+int currentPhase = 1;
+int accumulatedScore = 0;
+int phaseTimes[] = {34000, 21000, 13000, 8000, 5000, 3000, 2000, 1000};
+int selectedGridSize = 5;
+int phaseMenuFocus = 0;
+int gridMenuFocus = 0;
+
+int lastPhaseScore = 0;
+float lastTimeRatio = 0.0;
 
 // Forward declarations
 void initGame(bool keepDiff = false);
@@ -107,15 +134,23 @@ void drawWifiPass();
 void drawMainMenu();
 void drawLeaderboard();
 void drawAccountMenu();
-void fetchLeaderboard();
+void drawGridSelect();
+void drawPhaseTransition();
+void drawGameOverFailed();
+void fetchLeaderboard(int offset = 0, int limit = 10);
 
-void drawMessage(String msg) {
-    M5Cardputer.Display.startWrite();
-    M5Cardputer.Display.fillScreen(CP_BG);
-    M5Cardputer.Display.setTextColor(CP_YELLOW);
-    M5Cardputer.Display.setTextSize(2);
-    M5Cardputer.Display.drawCenterString(msg, 120, 60);
-    M5Cardputer.Display.endWrite();
+void drawMessage(String msg, String line2 = "") {
+    canvas.startWrite();
+    canvas.fillScreen(CP_BG);
+    canvas.setTextColor(CP_YELLOW);
+    canvas.setTextSize(2);
+    if (line2 == "") {
+        canvas.drawCenterString(msg, 120, 60);
+    } else {
+        canvas.drawCenterString(msg, 120, 45);
+        canvas.drawCenterString(line2, 120, 70);
+    }
+    canvas.pushSprite(0, 0); canvas.endWrite();
 }
 
 std::vector<String> dummyLogs = {
@@ -135,44 +170,44 @@ int logOffset = 0;
 unsigned long lastLogUpdate = 0;
 
 void drawSplash() {
-    M5Cardputer.Display.startWrite();
-    M5Cardputer.Display.fillScreen(CP_BG);
+    canvas.startWrite();
+    canvas.fillScreen(CP_BG);
     
-    M5Cardputer.Display.setTextColor(CP_CYAN);
-    M5Cardputer.Display.setTextSize(2);
-    M5Cardputer.Display.drawCenterString("Breach_Protocol", 120, 5);
+    canvas.setTextColor(CP_CYAN);
+    canvas.setTextSize(2);
+    canvas.drawCenterString("Breach_Protocol", 120, 5);
     
-    M5Cardputer.Display.setTextSize(1);
-    M5Cardputer.Display.setCursor(125, 40);
+    canvas.setTextSize(1);
+    canvas.setCursor(125, 40);
     if (WiFi.status() == WL_CONNECTED) {
-        M5Cardputer.Display.setTextColor(CP_YELLOW);
-        M5Cardputer.Display.print("WIFI: CONNECTED");
+        canvas.setTextColor(CP_YELLOW);
+        canvas.print("WIFI: CONNECTED");
     } else {
-        M5Cardputer.Display.setTextColor(CP_DIM);
-        M5Cardputer.Display.print("WIFI: CONNECTING");
+        canvas.setTextColor(CP_DIM);
+        canvas.print("WIFI: CONNECTING");
     }
     
-    M5Cardputer.Display.setTextColor(CP_DIM);
-    M5Cardputer.Display.setCursor(125, 60);
-    M5Cardputer.Display.print("VERSION: v3.2");
+    canvas.setTextColor(CP_DIM);
+    canvas.setCursor(125, 60);
+    canvas.print("VERSION: v3.2");
     
     int maxLogs = 7;
     int y = 35;
-    M5Cardputer.Display.setTextColor(CP_ACTIVE_LINE);
+    canvas.setTextColor(CP_ACTIVE_LINE);
     for (int i = 0; i < maxLogs; i++) {
         int logIdx = (logOffset + i) % dummyLogs.size();
-        M5Cardputer.Display.setCursor(5, y);
-        M5Cardputer.Display.print(dummyLogs[logIdx]);
+        canvas.setCursor(5, y);
+        canvas.print(dummyLogs[logIdx]);
         y += 11;
     }
     
     if (blinkState) {
-        M5Cardputer.Display.setTextColor(WHITE);
-        M5Cardputer.Display.setCursor(5, 120);
-        M5Cardputer.Display.print("> Press ENTER");
+        canvas.setTextColor(WHITE);
+        canvas.setCursor(5, 120);
+        canvas.print("> Press ENTER");
     }
     
-    M5Cardputer.Display.endWrite();
+    canvas.pushSprite(0, 0); canvas.endWrite();
 }
 
 void handleSplashInput(Keyboard_Class::KeysState status) {
@@ -189,7 +224,7 @@ void handleSplashInput(Keyboard_Class::KeysState status) {
 
 void startWifiScan() {
     if (savedSSID != "" && savedWifiPass != "") {
-        drawMessage("CONNECTING " + savedSSID + "...");
+        drawMessage("CONNECTING TO:", savedSSID);
         WiFi.begin(savedSSID.c_str(), savedWifiPass.c_str());
         int attempts = 0;
         while (WiFi.status() != WL_CONNECTED && attempts < 40) {
@@ -217,37 +252,40 @@ void startWifiScan() {
     drawWifiScan();
 }
 
-void submitScore() {
+void submitScore(int scoreToSubmit) {
     if (WiFi.status() == WL_CONNECTED && !isGuest) {
         HTTPClient http;
-        http.begin("http://192.168.0.176:3000/api/leaderboard");
+        http.begin(String(API_URL) + "/leaderboard");
         http.addHeader("Content-Type", "application/json");
-        String payload = "{\"username\":\"" + authUser + "\",\"score\":" + String(currentScore) + "}";
+        String payload = "{\"username\":\"" + authUser + "\",\"score\":" + String(scoreToSubmit) + ",\"grid\":" + String(selectedGridSize) + ",\"phase\":" + String(currentPhase) + "}";
         http.POST(payload);
         http.end();
     }
 }
 
-void fetchLeaderboard() {
-    globalLeaderboard.clear();
+void fetchLeaderboard(int offset, int limit) {
+    if (offset == 0) {
+        globalLeaderboard.clear();
+    }
     if (WiFi.status() == WL_CONNECTED) {
         HTTPClient http;
-        http.begin("http://192.168.0.176:3000/api/leaderboard");
+        http.begin(String(API_URL) + "/leaderboard?offset=" + String(offset) + "&limit=" + String(limit));
         int httpCode = http.GET();
         if (httpCode == HTTP_CODE_OK) {
             String payload = http.getString();
             JsonDocument doc;
             DeserializationError error = deserializeJson(doc, payload);
             if (!error) {
-                JsonArray array = doc.as<JsonArray>();
-                int count = 0;
+                totalLeaderboardSize = doc["total"].as<int>();
+                JsonArray array = doc["data"].as<JsonArray>();
                 for (JsonVariant v : array) {
-                    if (count >= 5) break;
                     LeaderboardEntry entry;
                     entry.username = v["username"].as<String>();
                     entry.score = v["score"].as<int>();
+                    entry.grid = v["grid"].as<int>();
+                    entry.phase = v["phase"].as<int>();
+                    entry.date = v["date"].as<String>();
                     globalLeaderboard.push_back(entry);
-                    count++;
                 }
             }
         }
@@ -256,52 +294,61 @@ void fetchLeaderboard() {
 }
 
 void drawAuthMenu() {
-    M5Cardputer.Display.startWrite();
-    M5Cardputer.Display.fillScreen(CP_BG);
-    M5Cardputer.Display.setTextColor(CP_CYAN);
-    M5Cardputer.Display.setTextSize(1);
-    M5Cardputer.Display.setCursor(10, 10);
-    M5Cardputer.Display.print("ACCOUNT NAME:");
+    canvas.startWrite();
+    canvas.fillScreen(CP_BG);
+    canvas.setTextColor(CP_CYAN);
+    canvas.setTextSize(1);
+    canvas.setCursor(10, 10);
+    canvas.print("ACCOUNT NAME:");
     
     uint16_t colorUser = (authFocus == 0) ? CP_YELLOW : WHITE;
-    M5Cardputer.Display.drawRect(10, 25, 220, 20, colorUser);
-    M5Cardputer.Display.setTextColor(colorUser);
-    M5Cardputer.Display.setCursor(15, 30);
-    M5Cardputer.Display.print(authUser + ((authFocus == 0 && blinkState) ? "_" : ""));
+    canvas.drawRect(10, 25, 220, 20, colorUser);
+    canvas.setTextColor(colorUser);
+    canvas.setCursor(15, 30);
+    canvas.print(authUser + ((authFocus == 0 && blinkState) ? "_" : ""));
 
-    M5Cardputer.Display.setTextColor(CP_CYAN);
-    M5Cardputer.Display.setCursor(10, 55);
-    M5Cardputer.Display.print("PASSWORD:");
+    canvas.setTextColor(CP_CYAN);
+    canvas.setCursor(10, 55);
+    canvas.print("PASSWORD:");
 
     uint16_t colorPass = (authFocus == 1) ? CP_YELLOW : WHITE;
-    M5Cardputer.Display.drawRect(10, 70, 220, 20, colorPass);
-    M5Cardputer.Display.setTextColor(colorPass);
-    M5Cardputer.Display.setCursor(15, 75);
+    canvas.drawRect(10, 70, 220, 20, colorPass);
+    canvas.setTextColor(colorPass);
+    canvas.setCursor(15, 75);
     String starPass = "";
     for(int i=0; i<authPass.length(); i++) starPass += "*";
-    M5Cardputer.Display.print(starPass + ((authFocus == 1 && blinkState) ? "_" : ""));
+    canvas.print(starPass + ((authFocus == 1 && blinkState) ? "_" : ""));
 
-    uint16_t colorBtn1 = (authFocus == 2) ? CP_YELLOW : WHITE;
-    M5Cardputer.Display.drawRect(10, 105, 100, 20, colorBtn1);
-    M5Cardputer.Display.setTextColor(colorBtn1);
-    M5Cardputer.Display.drawCenterString("LOGIN", 60, 110);
+    uint16_t colorRem = (authFocus == 2) ? CP_YELLOW : WHITE;
+    canvas.setTextColor(colorRem);
+    canvas.setCursor(10, 95);
+    canvas.print(rememberMe ? "[X] REMEMBER ME" : "[ ] REMEMBER ME");
+
+    uint16_t colorBtn1 = (authFocus == 3) ? CP_YELLOW : WHITE;
+    canvas.drawRect(10, 110, 100, 20, colorBtn1);
+    canvas.setTextColor(colorBtn1);
+    canvas.drawCenterString("LOGIN", 60, 115);
     
-    uint16_t colorBtn2 = (authFocus == 3) ? CP_YELLOW : WHITE;
-    M5Cardputer.Display.drawRect(130, 105, 100, 20, colorBtn2);
-    M5Cardputer.Display.setTextColor(colorBtn2);
-    M5Cardputer.Display.drawCenterString("GUEST", 180, 110);
-    M5Cardputer.Display.endWrite();
+    uint16_t colorBtn2 = (authFocus == 4) ? CP_YELLOW : WHITE;
+    canvas.drawRect(130, 110, 100, 20, colorBtn2);
+    canvas.setTextColor(colorBtn2);
+    canvas.drawCenterString("GUEST", 180, 115);
+    canvas.pushSprite(0, 0); canvas.endWrite();
 }
 
 void handleAuthInput(Keyboard_Class::KeysState status) {
     if (status.enter) {
         playSound(sound_select, sound_select_size);
         if (authFocus == 2) {
+            rememberMe = !rememberMe;
+            drawAuthMenu();
+            return;
+        } else if (authFocus == 3) {
             if (authUser == "") return;
             drawMessage("AUTHENTICATING...");
             
             HTTPClient http;
-            http.begin("http://192.168.0.176:3000/api/auth");
+            http.begin(String(API_URL) + "/auth");
             http.addHeader("Content-Type", "application/json");
             String payload = "{\"username\":\"" + authUser + "\",\"password\":\"" + authPass + "\"}";
             int httpCode = http.POST(payload);
@@ -320,6 +367,14 @@ void handleAuthInput(Keyboard_Class::KeysState status) {
                 http.end();
                 delay(1500);
                 
+                if (rememberMe) {
+                    prefs.putString("user", authUser);
+                    prefs.putString("pass", authPass);
+                } else {
+                    prefs.putString("user", "");
+                    prefs.putString("pass", "");
+                }
+                
                 isGuest = false;
                 appState = STATE_MAIN_MENU;
                 drawMainMenu();
@@ -330,14 +385,14 @@ void handleAuthInput(Keyboard_Class::KeysState status) {
                 drawAuthMenu();
             }
             return;
-        } else if (authFocus == 3) {
+        } else if (authFocus == 4) {
             isGuest = true;
             appState = STATE_MAIN_MENU;
             drawMainMenu();
             return;
         }
         authFocus++;
-        if (authFocus > 3) authFocus = 0;
+        if (authFocus > 4) authFocus = 0;
         return;
     }
     
@@ -349,13 +404,13 @@ void handleAuthInput(Keyboard_Class::KeysState status) {
     
     if (hasUp) {
         authFocus--;
-        if (authFocus < 0) authFocus = 3;
+        if (authFocus < 0) authFocus = 4;
         playSound(sound_hover, sound_hover_size);
         return;
     }
     if (hasDown) {
         authFocus++;
-        if (authFocus > 3) authFocus = 0;
+        if (authFocus > 4) authFocus = 0;
         playSound(sound_hover, sound_hover_size);
         return;
     }
@@ -375,25 +430,25 @@ void handleAuthInput(Keyboard_Class::KeysState status) {
 }
 
 void drawWifiScan() {
-    M5Cardputer.Display.startWrite();
-    M5Cardputer.Display.fillScreen(CP_BG);
-    M5Cardputer.Display.setTextColor(CP_YELLOW);
-    M5Cardputer.Display.setTextSize(1);
-    M5Cardputer.Display.setCursor(5, 5);
-    M5Cardputer.Display.print("SELECT WIFI NETWORK:");
+    canvas.startWrite();
+    canvas.fillScreen(CP_BG);
+    canvas.setTextColor(CP_YELLOW);
+    canvas.setTextSize(1);
+    canvas.setCursor(5, 5);
+    canvas.print("SELECT WIFI NETWORK:");
     
     for (int i = 0; i < wifiList.size(); i++) {
         int y = 25 + i * 12;
         if (i == wifiSelection) {
-            M5Cardputer.Display.fillRect(5, y - 1, 230, 11, CP_CYAN);
-            M5Cardputer.Display.setTextColor(BLACK, CP_CYAN);
+            canvas.fillRect(5, y - 1, 230, 11, CP_CYAN);
+            canvas.setTextColor(BLACK, CP_CYAN);
         } else {
-            M5Cardputer.Display.setTextColor(WHITE, CP_BG);
+            canvas.setTextColor(WHITE, CP_BG);
         }
-        M5Cardputer.Display.setCursor(10, y);
-        M5Cardputer.Display.print(wifiList[i]);
+        canvas.setCursor(10, y);
+        canvas.print(wifiList[i]);
     }
-    M5Cardputer.Display.endWrite();
+    canvas.pushSprite(0, 0); canvas.endWrite();
 }
 
 void handleWifiScanInput(Keyboard_Class::KeysState status) {
@@ -425,28 +480,28 @@ void handleWifiScanInput(Keyboard_Class::KeysState status) {
 }
 
 void drawWifiPass() {
-    M5Cardputer.Display.startWrite();
-    M5Cardputer.Display.fillScreen(CP_BG);
-    M5Cardputer.Display.setTextColor(CP_YELLOW);
-    M5Cardputer.Display.setTextSize(1);
-    M5Cardputer.Display.setCursor(10, 10);
-    M5Cardputer.Display.print("NETWORK: " + wifiList[wifiSelection]);
+    canvas.startWrite();
+    canvas.fillScreen(CP_BG);
+    canvas.setTextColor(CP_YELLOW);
+    canvas.setTextSize(1);
+    canvas.setCursor(10, 10);
+    canvas.print("NETWORK: " + wifiList[wifiSelection]);
     
-    M5Cardputer.Display.setTextColor(CP_CYAN);
-    M5Cardputer.Display.setCursor(10, 40);
-    M5Cardputer.Display.print("ENTER PASSWORD:");
+    canvas.setTextColor(CP_CYAN);
+    canvas.setCursor(10, 40);
+    canvas.print("ENTER PASSWORD:");
     
-    M5Cardputer.Display.drawRect(10, 55, 220, 20, WHITE);
-    M5Cardputer.Display.setTextColor(WHITE);
-    M5Cardputer.Display.setCursor(15, 60);
-    M5Cardputer.Display.print(wifiPass + (blinkState ? "_" : ""));
-    M5Cardputer.Display.endWrite();
+    canvas.drawRect(10, 55, 220, 20, WHITE);
+    canvas.setTextColor(WHITE);
+    canvas.setCursor(15, 60);
+    canvas.print(wifiPass + (blinkState ? "_" : ""));
+    canvas.pushSprite(0, 0); canvas.endWrite();
 }
 
 void handleWifiPassInput(Keyboard_Class::KeysState status) {
     if (status.enter) {
         playSound(sound_select, sound_select_size);
-        drawMessage("CONNECTING...");
+        drawMessage("CONNECTING TO:", wifiList[wifiSelection]);
         WiFi.begin(wifiList[wifiSelection].c_str(), wifiPass.c_str());
         
         int attempts = 0;
@@ -480,48 +535,49 @@ void handleWifiPassInput(Keyboard_Class::KeysState status) {
 }
 
 void drawMainMenu() {
-    M5Cardputer.Display.startWrite();
-    M5Cardputer.Display.fillScreen(CP_BG);
-    M5Cardputer.Display.setTextColor(CP_CYAN);
-    M5Cardputer.Display.setTextSize(2);
-    M5Cardputer.Display.drawCenterString("NETWORK NODE", 120, 15);
+    canvas.startWrite();
+    canvas.fillScreen(CP_BG);
+    canvas.setTextColor(CP_CYAN);
+    canvas.setTextSize(2);
+    canvas.drawCenterString("NETWORK NODE", 120, 15);
     
-    M5Cardputer.Display.setTextSize(1);
-    M5Cardputer.Display.setTextColor(CP_DIM);
-    M5Cardputer.Display.drawCenterString("OPERATIVE: " + (isGuest ? String("GUEST") : authUser), 120, 40);
+    canvas.setTextSize(1);
+    canvas.setTextColor(CP_DIM);
+    canvas.drawCenterString("OPERATIVE: " + (isGuest ? String("GUEST") : authUser), 120, 40);
     
     uint16_t colorPlay = (mainMenuFocus == 0) ? CP_YELLOW : WHITE;
-    M5Cardputer.Display.drawRect(70, 65, 100, 20, colorPlay);
-    M5Cardputer.Display.setTextColor(colorPlay);
-    M5Cardputer.Display.drawCenterString("HACK", 120, 70);
+    canvas.drawRect(70, 60, 100, 20, colorPlay);
+    canvas.setTextColor(colorPlay);
+    canvas.drawCenterString("HACK", 120, 65);
     
     uint16_t colorLDB = (mainMenuFocus == 1) ? CP_YELLOW : WHITE;
-    M5Cardputer.Display.drawRect(70, 85, 100, 20, colorLDB);
-    M5Cardputer.Display.setTextColor(colorLDB);
-    M5Cardputer.Display.drawCenterString("LEADERBOARD", 120, 90);
+    canvas.drawRect(70, 85, 100, 20, colorLDB);
+    canvas.setTextColor(colorLDB);
+    canvas.drawCenterString("LEADERBOARD", 120, 90);
     
     uint16_t colorAccount = (mainMenuFocus == 2) ? CP_YELLOW : WHITE;
     if (!isGuest) {
-        M5Cardputer.Display.drawRect(70, 110, 100, 20, colorAccount);
-        M5Cardputer.Display.setTextColor(colorAccount);
-        M5Cardputer.Display.drawCenterString("ACCOUNT", 120, 115);
+        canvas.drawRect(70, 110, 100, 20, colorAccount);
+        canvas.setTextColor(colorAccount);
+        canvas.drawCenterString("ACCOUNT", 120, 115);
     }
     
-    M5Cardputer.Display.endWrite();
+    canvas.pushSprite(0, 0); canvas.endWrite();
 }
 
 void handleMainMenuInput(Keyboard_Class::KeysState status) {
     if (status.enter) {
         playSound(sound_select, sound_select_size);
         if (mainMenuFocus == 0) {
-            appState = STATE_PLAYING;
-            currentScore = 0;
-            initGame();
-            drawScreen();
-        } else if (mainMenuFocus == 1) {
+            appState = STATE_GRID_SELECT;
+            gridMenuFocus = 0;
+            drawGridSelect();
+        } else if (mainMenuFocus == 1) { // LEADERBOARD
             appState = STATE_LEADERBOARD;
             drawMessage("FETCHING DATABANK...");
-            fetchLeaderboard();
+            fetchLeaderboard(0, 10);
+            leaderboardCursor = 0;
+            leaderboardScrollOffset = 0;
             drawLeaderboard();
         } else if (mainMenuFocus == 2 && !isGuest) {
             appState = STATE_ACCOUNT;
@@ -549,51 +605,189 @@ void handleMainMenuInput(Keyboard_Class::KeysState status) {
     }
 }
 
-void drawLeaderboard() {
-    M5Cardputer.Display.startWrite();
-    M5Cardputer.Display.fillScreen(CP_BG);
-    M5Cardputer.Display.setTextColor(CP_CYAN);
-    M5Cardputer.Display.setTextSize(2);
-    M5Cardputer.Display.drawCenterString("GLOBAL SCORES", 120, 10);
+void drawGridSelect() {
+    canvas.startWrite();
+    canvas.fillScreen(CP_BG);
+    canvas.setTextColor(CP_CYAN);
+    canvas.setTextSize(2);
+    canvas.drawCenterString("SELECT GRID SIZE", 120, 30);
     
-    M5Cardputer.Display.setTextSize(1);
+    uint16_t c1 = (gridMenuFocus == 0) ? CP_YELLOW : WHITE;
+    canvas.drawRect(20, 80, 60, 20, c1);
+    canvas.setTextColor(c1);
+    canvas.drawCenterString("3x3", 50, 85);
+    
+    uint16_t c2 = (gridMenuFocus == 1) ? CP_YELLOW : WHITE;
+    canvas.drawRect(90, 80, 60, 20, c2);
+    canvas.setTextColor(c2);
+    canvas.drawCenterString("4x4", 120, 85);
+    
+    uint16_t c3 = (gridMenuFocus == 2) ? CP_YELLOW : WHITE;
+    canvas.drawRect(160, 80, 60, 20, c3);
+    canvas.setTextColor(c3);
+    canvas.drawCenterString("5x5", 190, 85);
+    
+    canvas.pushSprite(0, 0); canvas.endWrite();
+}
+
+void handleGridSelectInput(Keyboard_Class::KeysState status) {
+    if (status.enter) {
+        playSound(sound_select, sound_select_size);
+        if (gridMenuFocus == 0) selectedGridSize = 3;
+        else if (gridMenuFocus == 1) selectedGridSize = 4;
+        else selectedGridSize = 5;
+        
+        currentPhase = 1;
+        accumulatedScore = 0;
+        appState = STATE_PLAYING;
+        initGame();
+        drawScreen();
+        return;
+    }
+    bool hasLeft = false, hasRight = false;
+    for (char c : status.word) {
+        if (c == ',') hasLeft = true;
+        if (c == '/') hasRight = true;
+    }
+    if (hasLeft) { playSound(sound_hover, sound_hover_size); gridMenuFocus--; if (gridMenuFocus < 0) gridMenuFocus = 2; }
+    if (hasRight) { playSound(sound_hover, sound_hover_size); gridMenuFocus++; if (gridMenuFocus > 2) gridMenuFocus = 0; }
+}
+
+void drawPhaseTransition() {
+    canvas.startWrite();
+    canvas.fillScreen(CP_BG);
+    canvas.setTextColor(CP_CYAN);
+    canvas.setTextSize(2);
+    canvas.drawCenterString("PHASE " + String(currentPhase) + " COMPLETE", 120, 15);
+    
+    canvas.setTextSize(1);
+    canvas.setTextColor(CP_DIM);
+    String formulaStr = "1000*" + String(selectedGridSize) + "*" + String(currentPhase) + "*(" + String(1.0 + lastTimeRatio, 4) + ")=" + String(lastPhaseScore);
+    canvas.drawCenterString(formulaStr, 120, 35);
+    
+    canvas.setTextColor(CP_YELLOW);
+    canvas.drawCenterString("ACCUMULATED SCORE: " + String(accumulatedScore), 120, 50);
+    
+    if (currentPhase < 8) {
+        canvas.setTextColor(CP_RED);
+        canvas.drawCenterString("NEXT PHASE TIME: " + String(phaseTimes[currentPhase]/1000) + "s", 120, 70);
+        
+        uint16_t colCont = (phaseMenuFocus == 0) ? CP_YELLOW : WHITE;
+        canvas.drawRect(20, 95, 90, 20, colCont);
+        canvas.setTextColor(colCont);
+        canvas.drawCenterString("CONTINUE", 65, 100);
+        
+        uint16_t colSave = (phaseMenuFocus == 1) ? CP_YELLOW : WHITE;
+        canvas.drawRect(130, 95, 90, 20, colSave);
+        canvas.setTextColor(colSave);
+        canvas.drawCenterString("SAVE & EXIT", 175, 100);
+    } else {
+        canvas.setTextColor(CP_YELLOW);
+        canvas.drawCenterString("ALL PHASES COMPLETE!", 120, 70);
+        uint16_t colSave = CP_YELLOW;
+        canvas.drawRect(75, 95, 90, 20, colSave);
+        canvas.setTextColor(colSave);
+        canvas.drawCenterString("SAVE SCORE", 120, 100);
+    }
+    
+    canvas.pushSprite(0, 0); canvas.endWrite();
+}
+
+void handlePhaseTransitionInput(Keyboard_Class::KeysState status) {
+    if (status.enter) {
+        playSound(sound_select, sound_select_size);
+        if (currentPhase >= 8 || phaseMenuFocus == 1) {
+            drawMessage("SAVING SCORE...");
+            submitScore(accumulatedScore);
+            appState = STATE_MAIN_MENU;
+            drawMainMenu();
+        } else {
+            currentPhase++;
+            initGame();
+            appState = STATE_PLAYING;
+            drawScreen();
+        }
+        return;
+    }
+    if (currentPhase < 8) {
+        bool hasLeft = false, hasRight = false;
+        for (char c : status.word) {
+            if (c == ',') hasLeft = true;
+            if (c == '/') hasRight = true;
+        }
+        if (hasLeft || hasRight) {
+            phaseMenuFocus = (phaseMenuFocus == 0) ? 1 : 0;
+            playSound(sound_hover, sound_hover_size);
+        }
+    }
+}
+
+void drawGameOverFailed() {
+    canvas.startWrite();
+    canvas.fillScreen(CP_BG);
+    canvas.setTextColor(CP_RED);
+    canvas.setTextSize(2);
+    canvas.drawCenterString("SYSTEM LOCKED", 120, 30);
+    canvas.setTextSize(1);
+    canvas.drawCenterString("ALL ACCUMULATED SCORE LOST", 120, 60);
+    canvas.setTextColor(WHITE);
+    if (blinkState) canvas.drawCenterString("> Press ENTER", 120, 100);
+    canvas.pushSprite(0, 0); canvas.endWrite();
+}
+
+void drawLeaderboard() {
+    canvas.startWrite();
+    canvas.fillScreen(CP_BG);
+    canvas.setTextColor(CP_CYAN);
+    canvas.setTextSize(2);
+    canvas.drawCenterString("GLOBAL SCORES", 120, 10);
+    
+    canvas.setTextSize(1);
     
     if (globalLeaderboard.size() == 0) {
-        M5Cardputer.Display.setTextColor(CP_DIM);
-        M5Cardputer.Display.drawCenterString("[ NO NETWORK DATA ]", 120, 60);
+        canvas.setTextColor(CP_DIM);
+        canvas.drawCenterString("[ NO NETWORK DATA ]", 120, 60);
     } else {
-        int y = 45;
-        for (int i = 0; i < globalLeaderboard.size(); i++) {
-            M5Cardputer.Display.setTextColor(CP_RED);
-            M5Cardputer.Display.setCursor(20, y);
-            M5Cardputer.Display.print("#" + String(i + 1));
+        int y = 35;
+        for (int i = leaderboardScrollOffset; i < min(leaderboardScrollOffset + 3, (int)globalLeaderboard.size()); i++) {
+            if (i == leaderboardCursor) {
+                canvas.fillRect(0, y - 2, 240, 24, canvas.color565(40, 40, 40));
+            }
+            canvas.setTextColor(CP_RED);
+            canvas.setCursor(5, y);
+            canvas.print("#" + String(i + 1));
             
-            M5Cardputer.Display.setTextColor(WHITE);
-            M5Cardputer.Display.setCursor(60, y);
-            M5Cardputer.Display.print(globalLeaderboard[i].username);
+            canvas.setTextColor(WHITE);
+            canvas.setCursor(30, y);
+            canvas.print(globalLeaderboard[i].username);
             
-            M5Cardputer.Display.setTextColor(CP_YELLOW);
-            M5Cardputer.Display.setCursor(180, y);
-            M5Cardputer.Display.print(globalLeaderboard[i].score);
-            y += 15;
+            canvas.setTextColor(CP_DIM);
+            canvas.setCursor(135, y);
+            canvas.print(globalLeaderboard[i].date);
+            
+            canvas.setTextColor(CP_CYAN);
+            canvas.setCursor(30, y + 10);
+            canvas.print(String(globalLeaderboard[i].grid) + "x" + String(globalLeaderboard[i].grid) + " Phase " + String(globalLeaderboard[i].phase));
+            
+            canvas.setTextColor(CP_YELLOW);
+            canvas.setCursor(135, y + 10);
+            canvas.print("SCORE: " + String(globalLeaderboard[i].score));
+            
+            y += 25;
         }
     }
     
-    M5Cardputer.Display.setTextColor(WHITE);
-    M5Cardputer.Display.drawCenterString("Press ENTER to return", 120, 120);
-    M5Cardputer.Display.endWrite();
+    canvas.setTextColor(WHITE);
+    canvas.drawCenterString("Press ENTER to return", 120, 115);
+    canvas.pushSprite(0, 0); canvas.endWrite();
 }
 
 void initGame(bool keepDiff) {
-    if (!keepDiff) {
-        int sizes[] = {3, 4, 5};
-        gridSize = sizes[random(3)];
-        if (gridSize == 3) maxTime = 1500;
-        else if (gridSize == 4) maxTime = 2000;
-        else maxTime = 2500;
-        
-        targetSize = random(4, 7);
-    }
+    gridSize = selectedGridSize;
+    maxTime = phaseTimes[currentPhase - 1];
+    
+    if (gridSize == 3) targetSize = 3;
+    else targetSize = 4;
 
     for(int i=0; i<gridSize; i++) {
         for(int j=0; j<gridSize; j++) {
@@ -627,7 +821,7 @@ void initGame(bool keepDiff) {
     }
     
     bufferIndex = 0;
-    for(int i=0; i<targetSize; i++) buffer[i] = "";
+    for(int i=0; i<gridSize; i++) buffer[i] = "";
     
     isRowActive = true;
     activeRow = 0;
@@ -646,6 +840,7 @@ void setup() {
     auto cfg = M5.config();
     M5Cardputer.begin(cfg);
     M5Cardputer.Display.setRotation(1);
+    canvas.createSprite(240, 135);
     
     M5Cardputer.Speaker.setVolume(128);
     
@@ -653,6 +848,9 @@ void setup() {
     highScore = prefs.getInt("highscore", 0);
     savedSSID = prefs.getString("wifi_ssid", "");
     savedWifiPass = prefs.getString("wifi_pass", "");
+    authUser = prefs.getString("user", "");
+    authPass = prefs.getString("pass", "");
+    if (authUser != "") rememberMe = true;
     
     if (savedSSID != "") {
         WiFi.begin(savedSSID.c_str(), savedWifiPass.c_str());
@@ -672,59 +870,69 @@ void drawTimer(bool forceRedraw = false) {
     
     if (barWidth == lastBarWidth && timeLeft == lastTimeLeft) return;
     
-    M5Cardputer.Display.startWrite();
+    canvas.startWrite();
     
     if (timeLeft != lastTimeLeft) {
-        int secs = timeLeft / 100;
-        int centis = timeLeft % 100;
+        int secs = timeLeft / 1000;
+        int centis = (timeLeft % 1000) / 10;
         char timeStr[10];
         snprintf(timeStr, sizeof(timeStr), "%02d:%02d", secs, centis);
-        M5Cardputer.Display.setTextColor(CP_YELLOW, CP_PANEL);
-        M5Cardputer.Display.setTextSize(1);
-        M5Cardputer.Display.setCursor(95, 5);
-        M5Cardputer.Display.print(timeStr);
+        canvas.setTextColor(CP_YELLOW, CP_PANEL);
+        canvas.setTextSize(1);
+        canvas.setCursor(95, 5);
+        canvas.print(timeStr);
+        // Clear any ghosting after the timer string
+        canvas.print("  ");
     }
 
     if (barWidth != lastBarWidth) {
         if (lastBarWidth == -1 || barWidth > lastBarWidth) {
-            M5Cardputer.Display.fillRect(146, 6, barWidth, 6, CP_YELLOW);
-            M5Cardputer.Display.fillRect(146 + barWidth, 6, 80 - barWidth, 6, CP_PANEL);
+            canvas.fillRect(146, 6, barWidth, 6, CP_YELLOW);
+            canvas.fillRect(146 + barWidth, 6, 80 - barWidth, 6, CP_PANEL);
         } else {
-            M5Cardputer.Display.fillRect(146 + barWidth, 6, lastBarWidth - barWidth, 6, CP_PANEL);
+            canvas.fillRect(146 + barWidth, 6, lastBarWidth - barWidth, 6, CP_PANEL);
         }
     }
-    M5Cardputer.Display.endWrite();
+    canvas.pushSprite(0, 0); canvas.endWrite();
     
     lastBarWidth = barWidth;
     lastTimeLeft = timeLeft;
 }
 
 void drawScreen() {
-    M5Cardputer.Display.startWrite();
-    M5Cardputer.Display.fillScreen(CP_BG);
+    canvas.startWrite();
+    canvas.fillScreen(CP_BG);
     
-    M5Cardputer.Display.fillRect(0, 0, 240, 18, CP_PANEL);
-    M5Cardputer.Display.setTextColor(CP_YELLOW, CP_PANEL);
-    M5Cardputer.Display.setTextSize(1);
-    M5Cardputer.Display.setCursor(5, 5);
-    M5Cardputer.Display.print("SCORE: ");
-    M5Cardputer.Display.print(currentScore);
+    canvas.fillRect(0, 0, 240, 18, CP_PANEL);
+    canvas.setTextColor(CP_YELLOW, CP_PANEL);
+    canvas.setTextSize(1);
+    canvas.setCursor(5, 5);
+    canvas.print("PHASE: " + String(currentPhase));
     
-    M5Cardputer.Display.drawRect(144, 4, 84, 10, CP_YELLOW);
+    canvas.drawRect(144, 4, 84, 10, CP_YELLOW);
     drawTimer(true);
 
     // TARGET
-    M5Cardputer.Display.setTextColor(WHITE, CP_BG);
-    M5Cardputer.Display.setCursor(120, 25);
-    M5Cardputer.Display.print("SEQUENCE REQUIRED");
+    canvas.setTextColor(WHITE, CP_BG);
+    canvas.setCursor(120, 25);
+    canvas.print("SEQUENCE REQUIRED");
     
     int matchLen = 0;
-    for (int i=0; i<bufferIndex; i++) {
-        if (buffer[i] == targetSeq[i]) matchLen++;
-        else break;
+    for (int len = min(bufferIndex, targetSize); len > 0; len--) {
+        bool match = true;
+        for (int i = 0; i < len; i++) {
+            if (buffer[bufferIndex - len + i] != targetSeq[i]) {
+                match = false;
+                break;
+            }
+        }
+        if (match) {
+            matchLen = len;
+            break;
+        }
     }
     
-    int boxW = min(22, (120 / targetSize) - 2);
+    int boxW = min(22, (120 / gridSize) - 2);
     int boxStep = boxW + 2;
     int txtOff = (boxW - 12) / 2;
     if (txtOff < 0) txtOff = 0;
@@ -734,46 +942,46 @@ void drawScreen() {
         int ty = 38;
         
         if (i < matchLen) {
-            M5Cardputer.Display.drawRect(tx, ty, boxW, 18, CP_CYAN);
-            M5Cardputer.Display.setTextColor(CP_CYAN, CP_BG);
+            canvas.drawRect(tx, ty, boxW, 18, CP_CYAN);
+            canvas.setTextColor(CP_CYAN, CP_BG);
         } else {
-            M5Cardputer.Display.drawRect(tx, ty, boxW, 18, CP_DIM);
-            M5Cardputer.Display.setTextColor(WHITE, CP_BG);
+            canvas.drawRect(tx, ty, boxW, 18, CP_DIM);
+            canvas.setTextColor(WHITE, CP_BG);
         }
-        M5Cardputer.Display.setCursor(tx + txtOff, ty + 5);
-        M5Cardputer.Display.print(targetSeq[i]);
+        canvas.setCursor(tx + txtOff, ty + 5);
+        canvas.print(targetSeq[i]);
     }
     
     // BUFFER
-    M5Cardputer.Display.setTextColor(CP_YELLOW, CP_BG);
-    M5Cardputer.Display.setCursor(120, 70);
-    M5Cardputer.Display.print("BUFFER");
+    canvas.setTextColor(CP_YELLOW, CP_BG);
+    canvas.setCursor(120, 70);
+    canvas.print("BUFFER");
     
-    for(int i=0; i<targetSize; i++) {
+    for(int i=0; i<gridSize; i++) {
         int bx = 120 + i*boxStep;
         int by = 83;
         
         if (i < bufferIndex) {
-            M5Cardputer.Display.fillRect(bx, by, boxW, 18, CP_CYAN);
-            M5Cardputer.Display.setTextColor(BLACK, CP_CYAN);
-            M5Cardputer.Display.setCursor(bx + txtOff, by + 5);
-            M5Cardputer.Display.print(buffer[i]);
+            canvas.fillRect(bx, by, boxW, 18, CP_CYAN);
+            canvas.setTextColor(BLACK, CP_CYAN);
+            canvas.setCursor(bx + txtOff, by + 5);
+            canvas.print(buffer[i]);
         } else if (i == bufferIndex) {
-            M5Cardputer.Display.drawRect(bx, by, boxW, 18, blinkState ? CP_CYAN : CP_DIM);
+            canvas.drawRect(bx, by, boxW, 18, blinkState ? CP_CYAN : CP_DIM);
         } else {
-            M5Cardputer.Display.drawRect(bx, by, boxW, 18, CP_DIM);
+            canvas.drawRect(bx, by, boxW, 18, CP_DIM);
         }
     }
     
     if (gameOver && !isAnimating) {
-        uint16_t color = hackSuccess ? M5Cardputer.Display.color565(66, 245, 84) : CP_RED;
-        M5Cardputer.Display.setTextSize(2);
-        M5Cardputer.Display.setTextColor(color, CP_BG);
-        M5Cardputer.Display.drawCenterString(hackSuccess ? "SUCCESS" : "FAILED", 170, 106);
-        M5Cardputer.Display.setTextSize(1);
-        M5Cardputer.Display.setTextColor(WHITE, CP_BG);
-        M5Cardputer.Display.drawCenterString("Press ENTER", 170, 125);
-        M5Cardputer.Display.fillRect(120, 102, 100, 2, color);
+        uint16_t color = hackSuccess ? canvas.color565(66, 245, 84) : CP_RED;
+        canvas.setTextSize(2);
+        canvas.setTextColor(color, CP_BG);
+        canvas.drawCenterString(hackSuccess ? "SUCCESS" : "FAILED", 170, 106);
+        canvas.setTextSize(1);
+        canvas.setTextColor(WHITE, CP_BG);
+        canvas.drawCenterString("Press ENTER", 170, 125);
+        canvas.fillRect(120, 102, 100, 2, color);
     }
     
     // MATRIX
@@ -781,9 +989,9 @@ void drawScreen() {
     int startY = 30 + (5 - gridSize) * 10;
     
     if (isRowActive) {
-        M5Cardputer.Display.fillRect(startX, startY + activeRow*20, gridSize*22, 18, CP_ACTIVE_LINE);
+        canvas.fillRect(startX, startY + activeRow*20, gridSize*22, 18, CP_ACTIVE_LINE);
     } else {
-        M5Cardputer.Display.fillRect(startX + activeCol*22, startY, 20, gridSize*20, CP_ACTIVE_LINE);
+        canvas.fillRect(startX + activeCol*22, startY, 20, gridSize*20, CP_ACTIVE_LINE);
     }
     
     for(int i=0; i<gridSize; i++) {
@@ -795,9 +1003,9 @@ void drawScreen() {
             uint16_t bgColor = isActiveLine ? CP_ACTIVE_LINE : CP_BG;
             
             if (matrix[i][j] == "") {
-                M5Cardputer.Display.setTextColor(CP_DIM, bgColor);
-                M5Cardputer.Display.setCursor(cx + 4, cy + 5);
-                M5Cardputer.Display.print("[]");
+                canvas.setTextColor(CP_DIM, bgColor);
+                canvas.setCursor(cx + 4, cy + 5);
+                canvas.print("[]");
                 continue;
             }
             
@@ -805,76 +1013,81 @@ void drawScreen() {
                              (!isRowActive && j == activeCol && i == cursorIdx);
             
             if (isHovered) {
-                M5Cardputer.Display.fillRect(cx, cy, 20, 18, CP_CYAN);
-                M5Cardputer.Display.setTextColor(BLACK, CP_CYAN);
+                canvas.fillRect(cx, cy, 20, 18, CP_CYAN);
+                canvas.setTextColor(BLACK, CP_CYAN);
             } else if (isActiveLine) {
-                M5Cardputer.Display.setTextColor(CP_YELLOW, CP_ACTIVE_LINE);
+                canvas.setTextColor(CP_YELLOW, CP_ACTIVE_LINE);
             } else {
-                M5Cardputer.Display.setTextColor(WHITE, CP_BG);
+                canvas.setTextColor(WHITE, CP_BG);
             }
-            M5Cardputer.Display.setCursor(cx + 4, cy + 5);
-            M5Cardputer.Display.print(matrix[i][j]);
+            canvas.setCursor(cx + 4, cy + 5);
+            canvas.print(matrix[i][j]);
         }
     }
-    M5Cardputer.Display.endWrite();
+    canvas.pushSprite(0, 0); canvas.endWrite();
 }
 
 void updateAnimation() {
     unsigned long t = millis() - animStartTime;
-    M5Cardputer.Display.startWrite();
-    uint16_t color = hackSuccess ? M5Cardputer.Display.color565(66, 245, 84) : CP_RED;
+    canvas.startWrite();
+    uint16_t color = hackSuccess ? canvas.color565(66, 245, 84) : CP_RED;
     
-    int boxW = min(22, (120 / targetSize) - 2);
+    int boxW = min(22, (120 / gridSize) - 2);
     int boxStep = boxW + 2;
     int txtOff = (boxW - 12) / 2;
     if (txtOff < 0) txtOff = 0;
+    
+    int bufferCenter = 120 + (gridSize * boxStep) / 2;
 
-    for(int i=0; i<targetSize; i++) {
+    for(int i=0; i<gridSize; i++) {
         int bx = 120 + i*boxStep;
         int by = 83;
-        long delayStart = i * 100;
+        
+        float distFromCenter = abs(i - (gridSize - 1.0) / 2.0);
+        long delayStart = distFromCenter * 150;
+        
         if (t > delayStart) {
             int fillHeight = map(t - delayStart, 0, 300, 0, 18);
             if (fillHeight > 18) fillHeight = 18;
-            M5Cardputer.Display.fillRect(bx, by + 18 - fillHeight, boxW, fillHeight, color);
+            canvas.fillRect(bx, by + 18 - fillHeight, boxW, fillHeight, color);
             if (i < bufferIndex) {
-                M5Cardputer.Display.setTextColor(BLACK);
-                M5Cardputer.Display.setCursor(bx + txtOff, by + 5);
-                M5Cardputer.Display.print(buffer[i]);
+                canvas.setTextColor(BLACK);
+                canvas.setCursor(bx + txtOff, by + 5);
+                canvas.print(buffer[i]);
             }
         }
     }
     
     int barWidth = map(t, 0, 600, 0, 100);
     if (barWidth > 100) barWidth = 100;
-    M5Cardputer.Display.fillRect(170 - barWidth/2, 102, barWidth, 2, color);
+    canvas.fillRect(bufferCenter - barWidth/2, 105, barWidth, 2, color);
     
     if (t > 600 && t < 650) {
-        M5Cardputer.Display.setTextSize(2);
-        M5Cardputer.Display.setTextColor(color, CP_BG);
-        M5Cardputer.Display.drawCenterString(hackSuccess ? "SUCCESS" : "FAILED", 170, 106);
-        M5Cardputer.Display.setTextSize(1);
-        M5Cardputer.Display.setTextColor(WHITE, CP_BG);
-        M5Cardputer.Display.drawCenterString("Press ENTER", 170, 125);
+        canvas.setTextSize(2);
+        canvas.setTextColor(color, CP_BG);
+        canvas.drawCenterString(hackSuccess ? "SUCCESS" : "FAILED", bufferCenter, 110);
+        canvas.setTextSize(1);
+        canvas.setTextColor(WHITE, CP_BG);
+        canvas.drawCenterString("Press ENTER", bufferCenter, 125);
     }
-    M5Cardputer.Display.endWrite();
+    canvas.pushSprite(0, 0); canvas.endWrite();
 }
 
 void drawAccountMenu() {
-    M5Cardputer.Display.startWrite();
-    M5Cardputer.Display.fillScreen(CP_BG);
-    M5Cardputer.Display.setTextColor(CP_CYAN);
-    M5Cardputer.Display.setTextSize(2);
-    M5Cardputer.Display.drawCenterString("OPERATIVE PROFILE", 120, 10);
+    canvas.startWrite();
+    canvas.fillScreen(CP_BG);
+    canvas.setTextColor(CP_CYAN);
+    canvas.setTextSize(2);
+    canvas.drawCenterString("OPERATIVE PROFILE", 120, 10);
     
     if (!accountStatsFetched) {
-        M5Cardputer.Display.setTextSize(1);
-        M5Cardputer.Display.setTextColor(CP_DIM);
-        M5Cardputer.Display.drawCenterString("FETCHING DATA...", 120, 40);
-        M5Cardputer.Display.endWrite();
+        canvas.setTextSize(1);
+        canvas.setTextColor(CP_DIM);
+        canvas.drawCenterString("FETCHING DATA...", 120, 40);
+        canvas.pushSprite(0, 0); canvas.endWrite();
         
         HTTPClient http;
-        http.begin("http://192.168.0.176:3000/api/account");
+        http.begin(String(API_URL) + "/account");
         http.addHeader("Content-Type", "application/json");
         String payload = "{\"action\":\"get_stats\",\"username\":\"" + authUser + "\",\"password\":\"" + authPass + "\"}";
         int httpCode = http.POST(payload);
@@ -882,38 +1095,58 @@ void drawAccountMenu() {
             JsonDocument doc;
             deserializeJson(doc, http.getString());
             accountHighScore = doc["highScore"].as<int>();
+            accountRank = doc["rank"].as<int>();
+            accountHighGrid = doc["grid"].as<int>();
+            accountHighPhase = doc["phase"].as<int>();
         }
         http.end();
         accountStatsFetched = true;
         newAccountName = authUser;
         newAccountPass = authPass;
         
-        M5Cardputer.Display.startWrite();
-        M5Cardputer.Display.fillScreen(CP_BG);
-        M5Cardputer.Display.setTextColor(CP_CYAN);
-        M5Cardputer.Display.setTextSize(2);
-        M5Cardputer.Display.drawCenterString("OPERATIVE PROFILE", 120, 10);
+        canvas.startWrite();
+        canvas.fillScreen(CP_BG);
+        canvas.setTextColor(CP_CYAN);
+        canvas.setTextSize(2);
+        canvas.drawCenterString("OPERATIVE PROFILE", 120, 10);
     }
     
-    M5Cardputer.Display.setTextSize(1);
-    M5Cardputer.Display.setTextColor(CP_YELLOW);
-    M5Cardputer.Display.drawCenterString("HIGH SCORE: " + String(accountHighScore), 120, 35);
+    canvas.setTextSize(1);
+    canvas.setTextColor(WHITE);
+    canvas.setCursor(10, 35);
+    canvas.print("NAME: ");
+    canvas.setTextColor(CP_CYAN);
+    canvas.print(authUser);
     
-    M5Cardputer.Display.setTextColor(accountFocus == 0 ? CP_RED : CP_DIM);
-    M5Cardputer.Display.drawString("> NAME: " + newAccountName + (accountFocus == 0 && blinkState ? "_" : ""), 20, 60);
+    canvas.setTextColor(WHITE);
+    canvas.setCursor(10, 50);
+    canvas.print("HIGHSCORE: ");
+    canvas.setTextColor(CP_YELLOW);
+    if (accountRank > 0) {
+        canvas.print(String(accountHighScore) + " (" + String(accountHighGrid) + "x" + String(accountHighGrid) + " P" + String(accountHighPhase) + ") R:#" + String(accountRank));
+    } else {
+        canvas.print("NO DATA (RANK: N/A)");
+    }
     
-    M5Cardputer.Display.setTextColor(accountFocus == 1 ? CP_RED : CP_DIM);
+    uint16_t c0 = (accountFocus == 0) ? CP_YELLOW : WHITE;
+    canvas.setTextColor(c0);
+    canvas.drawString("> NAME:   " + newAccountName + (accountFocus == 0 && blinkState ? "_" : ""), 10, 70);
+    
+    uint16_t c1 = (accountFocus == 1) ? CP_YELLOW : WHITE;
+    canvas.setTextColor(c1);
     String stars = "";
     for (int i=0; i<newAccountPass.length(); i++) stars += "*";
-    M5Cardputer.Display.drawString("> PASS: " + stars + (accountFocus == 1 && blinkState ? "_" : ""), 20, 80);
+    canvas.drawString("> PASS:   " + stars + (accountFocus == 1 && blinkState ? "_" : ""), 10, 85);
     
-    M5Cardputer.Display.setTextColor(accountFocus == 2 ? WHITE : CP_DIM);
-    M5Cardputer.Display.drawString(accountFocus == 2 ? "[ UPDATE ]" : "  UPDATE  ", 20, 110);
+    uint16_t c2 = (accountFocus == 2) ? CP_YELLOW : WHITE;
+    canvas.setTextColor(c2);
+    canvas.drawString("> UPDATE", 10, 100);
     
-    M5Cardputer.Display.setTextColor(accountFocus == 3 ? WHITE : CP_DIM);
-    M5Cardputer.Display.drawString(accountFocus == 3 ? "[ BACK ]" : "  BACK  ", 140, 110);
+    uint16_t c3 = (accountFocus == 3) ? CP_YELLOW : WHITE;
+    canvas.setTextColor(c3);
+    canvas.drawString("> BACK", 10, 115);
     
-    M5Cardputer.Display.endWrite();
+    canvas.pushSprite(0, 0); canvas.endWrite();
 }
 
 void handleAccountInput(Keyboard_Class::KeysState status) {
@@ -926,11 +1159,15 @@ void handleAccountInput(Keyboard_Class::KeysState status) {
     if (status.enter) {
         playSound(sound_select, sound_select_size);
         if (accountFocus == 2) {
+            if (newAccountName == authUser && newAccountPass == authPass) {
+                accountFocus = 3;
+                return;
+            }
             if (newAccountName == "") return;
             drawMessage("UPDATING...");
             
             HTTPClient http;
-            http.begin("http://192.168.0.176:3000/api/account");
+            http.begin(String(API_URL) + "/account");
             http.addHeader("Content-Type", "application/json");
             String payload = "{\"action\":\"update_account\",\"username\":\"" + authUser + "\",\"password\":\"" + authPass + "\",\"newUsername\":\"" + newAccountName + "\",\"newPassword\":\"" + newAccountPass + "\"}";
             int httpCode = http.POST(payload);
@@ -1042,6 +1279,35 @@ void loop() {
     if (appState == STATE_LEADERBOARD) {
         if (M5Cardputer.Keyboard.isChange() && M5Cardputer.Keyboard.isPressed()) {
             Keyboard_Class::KeysState status = M5Cardputer.Keyboard.keysState();
+            
+            bool hasUp = false, hasDown = false;
+            for (char c : status.word) {
+                if (c == ';') hasUp = true;
+                if (c == '.') hasDown = true;
+            }
+            
+            if (hasDown && leaderboardCursor < totalLeaderboardSize - 1) {
+                playSound(sound_hover, sound_hover_size);
+                leaderboardCursor++;
+                if (leaderboardCursor >= globalLeaderboard.size()) {
+                    drawMessage("LOADING MORE...");
+                    fetchLeaderboard(globalLeaderboard.size(), 10);
+                }
+                if (leaderboardCursor > leaderboardScrollOffset + 2) {
+                    leaderboardScrollOffset = leaderboardCursor - 2;
+                }
+                drawLeaderboard();
+            }
+            
+            if (hasUp && leaderboardCursor > 0) {
+                playSound(sound_hover, sound_hover_size);
+                leaderboardCursor--;
+                if (leaderboardCursor < leaderboardScrollOffset) {
+                    leaderboardScrollOffset = leaderboardCursor;
+                }
+                drawLeaderboard();
+            }
+            
             if (status.enter || status.del) {
                 playSound(sound_select, sound_select_size);
                 appState = STATE_MAIN_MENU;
@@ -1061,8 +1327,48 @@ void loop() {
         return;
     }
     
+    if (appState == STATE_GRID_SELECT) {
+        if (M5Cardputer.Keyboard.isChange() && M5Cardputer.Keyboard.isPressed()) {
+            handleGridSelectInput(M5Cardputer.Keyboard.keysState());
+            if (appState == STATE_GRID_SELECT) drawGridSelect();
+        }
+        delay(10);
+        return;
+    }
+    
+    if (appState == STATE_PHASE_TRANSITION) {
+        if (now - lastBlink > 500) {
+            blinkState = !blinkState;
+            lastBlink = now;
+            drawPhaseTransition();
+        }
+        if (M5Cardputer.Keyboard.isChange() && M5Cardputer.Keyboard.isPressed()) {
+            handlePhaseTransitionInput(M5Cardputer.Keyboard.keysState());
+            if (appState == STATE_PHASE_TRANSITION) drawPhaseTransition();
+        }
+        delay(10);
+        return;
+    }
+    
+    if (appState == STATE_FAILED_SCREEN) {
+        if (now - lastBlink > 500) {
+            blinkState = !blinkState;
+            lastBlink = now;
+            drawGameOverFailed();
+        }
+        if (M5Cardputer.Keyboard.isChange() && M5Cardputer.Keyboard.isPressed()) {
+            if (M5Cardputer.Keyboard.keysState().enter) {
+                playSound(sound_select, sound_select_size);
+                appState = STATE_MAIN_MENU;
+                drawMainMenu();
+            }
+        }
+        delay(10);
+        return;
+    }
+    
     if (!gameOver && now - lastUpdate > 10) {
-        timeLeft -= (now - lastUpdate) / 10;
+        timeLeft -= (now - lastUpdate);
         lastUpdate = now;
         if (timeLeft <= 0) {
             timeLeft = 0;
@@ -1085,9 +1391,9 @@ void loop() {
             int boxStep = boxW + 2;
             int bx = 120 + bufferIndex*boxStep;
             int by = 83;
-            M5Cardputer.Display.startWrite();
-            M5Cardputer.Display.drawRect(bx, by, boxW, 18, blinkState ? CP_CYAN : CP_DIM);
-            M5Cardputer.Display.endWrite();
+            canvas.startWrite();
+            canvas.drawRect(bx, by, boxW, 18, blinkState ? CP_CYAN : CP_DIM);
+            canvas.pushSprite(0, 0); canvas.endWrite();
         }
     }
     
@@ -1105,12 +1411,13 @@ void loop() {
             if (status.enter) {
                 if (hackSuccess) {
                     playSound(sound_select, sound_select_size);
-                    initGame(false); // next level
-                    drawScreen();
+                    appState = STATE_PHASE_TRANSITION;
+                    phaseMenuFocus = 0;
+                    drawPhaseTransition();
                 } else {
                     playSound(sound_select, sound_select_size);
-                    appState = STATE_MAIN_MENU;
-                    drawMainMenu();
+                    appState = STATE_FAILED_SCREEN;
+                    drawGameOverFailed();
                 }
             }
             return;
@@ -1189,28 +1496,26 @@ void loop() {
                 cursorIdx = (newCursor != -1) ? newCursor : oldIdx;
                 
                 bool isPrefix = true;
-                for(int i=0; i<bufferIndex; i++) {
+                for (int i = 0; i < bufferIndex; i++) {
                     if (buffer[i] != targetSeq[i]) {
                         isPrefix = false;
                         break;
                     }
                 }
                 
-                if (!isPrefix || bufferIndex >= targetSize) {
+                if (!isPrefix) {
                     gameOver = true;
-                    if (isPrefix && bufferIndex == targetSize) {
-                        hackSuccess = true;
-                        currentScore += 100 + (timeLeft / 10);
-                        if (currentScore > highScore) {
-                            highScore = currentScore;
-                            prefs.putInt("highscore", highScore);
-                        }
-                        submitScore();
-                        playSound(sound_success, sound_success_size);
-                    } else {
-                        hackSuccess = false;
-                        playSound(sound_fail, sound_fail_size);
-                    }
+                    hackSuccess = false;
+                    playSound(sound_fail, sound_fail_size);
+                    isAnimating = true;
+                    animStartTime = millis();
+                } else if (bufferIndex >= targetSize) {
+                    gameOver = true;
+                    hackSuccess = true;
+                    lastTimeRatio = (float)timeLeft / (float)maxTime;
+                    lastPhaseScore = 1000 * gridSize * currentPhase * (1.0 + lastTimeRatio);
+                    accumulatedScore += lastPhaseScore;
+                    playSound(sound_success, sound_success_size);
                     isAnimating = true;
                     animStartTime = millis();
                 }

@@ -13,6 +13,12 @@ A perfectly faithful, standalone port of the iconic Cyberpunk 2077 Breach Protoc
 - **Custom Cyberpunk Aesthetics:** Colors precisely match the in-game UI. Includes smooth cascading animations, blinking cursors, and text fades.
 - **Flicker-Free Rendering:** 60FPS differential rendering means the progress bar and timer update perfectly smoothly with zero screen tearing.
 
+## What's New in v4.0 (The Cloud Update)
+- **Global Online Leaderboard:** Connect to Wi-Fi and compete for the top score globally. The UI dynamically paginates and scrolls to support unlimited players.
+- **Persistent User Accounts:** Secure registration/login system with Cloud saves for your highest score, global rank, and grid/phase data.
+- **Custom Backend Architecture:** Integrates seamlessly with an external Next.js backend for high-speed score transmission.
+*(Note: Server/Backend website source files are deliberately kept private as per project requirements. The `API_URL` macro can be updated to point to your own compatible REST API.)*
+
 ## Installation
 You can flash the provided firmware directly to your M5Cardputer using M5Burner or `esptool`.
 
