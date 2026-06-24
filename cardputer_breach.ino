@@ -4,6 +4,10 @@
 #include <HTTPClient.h>
 #include <vector>
 #include <ArduinoJson.h>
+#include <WiFiClientSecure.h>
+
+WiFiClientSecure secureClient;
+bool secureClientInit = false;
 
 #define API_URL "http://192.168.0.176:3000/api"
 
@@ -254,8 +258,12 @@ void startWifiScan() {
 
 void submitScore(int scoreToSubmit) {
     if (WiFi.status() == WL_CONNECTED && !isGuest) {
+        if (!secureClientInit) { secureClient.setInsecure(); secureClientInit = true; }
         HTTPClient http;
-        http.begin(String(API_URL) + "/leaderboard");
+        String url = String(API_URL) + "/leaderboard";
+        if (url.startsWith("https")) http.begin(secureClient, url);
+        else http.begin(url);
+        
         http.addHeader("Content-Type", "application/json");
         String payload = "{\"username\":\"" + authUser + "\",\"score\":" + String(scoreToSubmit) + ",\"grid\":" + String(selectedGridSize) + ",\"phase\":" + String(currentPhase) + "}";
         http.POST(payload);
@@ -268,8 +276,12 @@ void fetchLeaderboard(int offset, int limit) {
         globalLeaderboard.clear();
     }
     if (WiFi.status() == WL_CONNECTED) {
+        if (!secureClientInit) { secureClient.setInsecure(); secureClientInit = true; }
         HTTPClient http;
-        http.begin(String(API_URL) + "/leaderboard?offset=" + String(offset) + "&limit=" + String(limit));
+        String url = String(API_URL) + "/leaderboard?offset=" + String(offset) + "&limit=" + String(limit);
+        if (url.startsWith("https")) http.begin(secureClient, url);
+        else http.begin(url);
+        
         int httpCode = http.GET();
         if (httpCode == HTTP_CODE_OK) {
             String payload = http.getString();
@@ -346,9 +358,12 @@ void handleAuthInput(Keyboard_Class::KeysState status) {
         } else if (authFocus == 3) {
             if (authUser == "") return;
             drawMessage("AUTHENTICATING...");
-            
+            if (!secureClientInit) { secureClient.setInsecure(); secureClientInit = true; }
             HTTPClient http;
-            http.begin(String(API_URL) + "/auth");
+            String url = String(API_URL) + "/auth";
+            if (url.startsWith("https")) http.begin(secureClient, url);
+            else http.begin(url);
+            
             http.addHeader("Content-Type", "application/json");
             String payload = "{\"username\":\"" + authUser + "\",\"password\":\"" + authPass + "\"}";
             int httpCode = http.POST(payload);
@@ -1085,9 +1100,12 @@ void drawAccountMenu() {
         canvas.setTextColor(CP_DIM);
         canvas.drawCenterString("FETCHING DATA...", 120, 40);
         canvas.pushSprite(0, 0); canvas.endWrite();
-        
+        if (!secureClientInit) { secureClient.setInsecure(); secureClientInit = true; }
         HTTPClient http;
-        http.begin(String(API_URL) + "/account");
+        String url = String(API_URL) + "/account";
+        if (url.startsWith("https")) http.begin(secureClient, url);
+        else http.begin(url);
+        
         http.addHeader("Content-Type", "application/json");
         String payload = "{\"action\":\"get_stats\",\"username\":\"" + authUser + "\",\"password\":\"" + authPass + "\"}";
         int httpCode = http.POST(payload);
@@ -1165,9 +1183,12 @@ void handleAccountInput(Keyboard_Class::KeysState status) {
             }
             if (newAccountName == "") return;
             drawMessage("UPDATING...");
-            
+            if (!secureClientInit) { secureClient.setInsecure(); secureClientInit = true; }
             HTTPClient http;
-            http.begin(String(API_URL) + "/account");
+            String url = String(API_URL) + "/account";
+            if (url.startsWith("https")) http.begin(secureClient, url);
+            else http.begin(url);
+            
             http.addHeader("Content-Type", "application/json");
             String payload = "{\"action\":\"update_account\",\"username\":\"" + authUser + "\",\"password\":\"" + authPass + "\",\"newUsername\":\"" + newAccountName + "\",\"newPassword\":\"" + newAccountPass + "\"}";
             int httpCode = http.POST(payload);
