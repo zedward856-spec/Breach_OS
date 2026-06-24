@@ -9,7 +9,7 @@
 WiFiClientSecure secureClient;
 bool secureClientInit = false;
 
-#define API_URL "http://192.168.0.176:3000/api"
+#define API_URL "https://m5cardputer-cyberpunk-breach-protoc.vercel.app/api"
 
 M5Canvas canvas(&M5Cardputer.Display);
 
