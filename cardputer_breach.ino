@@ -68,6 +68,7 @@ enum AppState {
     STATE_WIFI_PASS,
     STATE_MAIN_MENU,
     STATE_LEADERBOARD,
+    STATE_ACCOUNT,
     STATE_PLAYING
 };
 AppState appState = STATE_SPLASH;
@@ -88,7 +89,13 @@ struct LeaderboardEntry {
     int score;
 };
 std::vector<LeaderboardEntry> globalLeaderboard;
-int mainMenuFocus = 0; // 0: PLAY, 1: LEADERBOARD
+int mainMenuFocus = 0; // 0: PLAY, 1: LEADERBOARD, 2: ACCOUNT
+
+int accountFocus = 0;
+String newAccountName = "";
+String newAccountPass = "";
+int accountHighScore = 0;
+bool accountStatsFetched = false;
 
 // Forward declarations
 void initGame(bool keepDiff = false);
@@ -99,6 +106,7 @@ void drawWifiScan();
 void drawWifiPass();
 void drawMainMenu();
 void drawLeaderboard();
+void drawAccountMenu();
 void fetchLeaderboard();
 
 void drawMessage(String msg) {
@@ -488,9 +496,16 @@ void drawMainMenu() {
     M5Cardputer.Display.drawCenterString("HACK", 120, 70);
     
     uint16_t colorLDB = (mainMenuFocus == 1) ? CP_YELLOW : WHITE;
-    M5Cardputer.Display.drawRect(70, 95, 100, 20, colorLDB);
+    M5Cardputer.Display.drawRect(70, 85, 100, 20, colorLDB);
     M5Cardputer.Display.setTextColor(colorLDB);
-    M5Cardputer.Display.drawCenterString("LEADERBOARD", 120, 100);
+    M5Cardputer.Display.drawCenterString("LEADERBOARD", 120, 90);
+    
+    uint16_t colorAccount = (mainMenuFocus == 2) ? CP_YELLOW : WHITE;
+    if (!isGuest) {
+        M5Cardputer.Display.drawRect(70, 110, 100, 20, colorAccount);
+        M5Cardputer.Display.setTextColor(colorAccount);
+        M5Cardputer.Display.drawCenterString("ACCOUNT", 120, 115);
+    }
     
     M5Cardputer.Display.endWrite();
 }
@@ -503,11 +518,15 @@ void handleMainMenuInput(Keyboard_Class::KeysState status) {
             currentScore = 0;
             initGame();
             drawScreen();
-        } else {
+        } else if (mainMenuFocus == 1) {
             appState = STATE_LEADERBOARD;
             drawMessage("FETCHING DATABANK...");
             fetchLeaderboard();
             drawLeaderboard();
+        } else if (mainMenuFocus == 2 && !isGuest) {
+            appState = STATE_ACCOUNT;
+            accountFocus = 0;
+            accountStatsFetched = false;
         }
         return;
     }
@@ -518,8 +537,14 @@ void handleMainMenuInput(Keyboard_Class::KeysState status) {
         if (c == '.') hasDown = true;
     }
     
-    if (hasUp || hasDown) {
-        mainMenuFocus = (mainMenuFocus == 0) ? 1 : 0;
+    if (hasUp) {
+        mainMenuFocus--;
+        if (mainMenuFocus < 0) mainMenuFocus = isGuest ? 1 : 2;
+        playSound(sound_hover, sound_hover_size);
+    }
+    if (hasDown) {
+        mainMenuFocus++;
+        if (mainMenuFocus > (isGuest ? 1 : 2)) mainMenuFocus = 0;
         playSound(sound_hover, sound_hover_size);
     }
 }
@@ -835,6 +860,119 @@ void updateAnimation() {
     M5Cardputer.Display.endWrite();
 }
 
+void drawAccountMenu() {
+    M5Cardputer.Display.startWrite();
+    M5Cardputer.Display.fillScreen(CP_BG);
+    M5Cardputer.Display.setTextColor(CP_CYAN);
+    M5Cardputer.Display.setTextSize(2);
+    M5Cardputer.Display.drawCenterString("OPERATIVE PROFILE", 120, 10);
+    
+    if (!accountStatsFetched) {
+        M5Cardputer.Display.setTextSize(1);
+        M5Cardputer.Display.setTextColor(CP_DIM);
+        M5Cardputer.Display.drawCenterString("FETCHING DATA...", 120, 40);
+        M5Cardputer.Display.endWrite();
+        
+        HTTPClient http;
+        http.begin("http://192.168.0.176:3000/api/account");
+        http.addHeader("Content-Type", "application/json");
+        String payload = "{\"action\":\"get_stats\",\"username\":\"" + authUser + "\",\"password\":\"" + authPass + "\"}";
+        int httpCode = http.POST(payload);
+        if (httpCode == 200) {
+            JsonDocument doc;
+            deserializeJson(doc, http.getString());
+            accountHighScore = doc["highScore"].as<int>();
+        }
+        http.end();
+        accountStatsFetched = true;
+        newAccountName = authUser;
+        newAccountPass = authPass;
+        
+        M5Cardputer.Display.startWrite();
+        M5Cardputer.Display.fillScreen(CP_BG);
+        M5Cardputer.Display.setTextColor(CP_CYAN);
+        M5Cardputer.Display.setTextSize(2);
+        M5Cardputer.Display.drawCenterString("OPERATIVE PROFILE", 120, 10);
+    }
+    
+    M5Cardputer.Display.setTextSize(1);
+    M5Cardputer.Display.setTextColor(CP_YELLOW);
+    M5Cardputer.Display.drawCenterString("HIGH SCORE: " + String(accountHighScore), 120, 35);
+    
+    M5Cardputer.Display.setTextColor(accountFocus == 0 ? CP_RED : CP_DIM);
+    M5Cardputer.Display.drawString("> NAME: " + newAccountName + (accountFocus == 0 && blinkState ? "_" : ""), 20, 60);
+    
+    M5Cardputer.Display.setTextColor(accountFocus == 1 ? CP_RED : CP_DIM);
+    String stars = "";
+    for (int i=0; i<newAccountPass.length(); i++) stars += "*";
+    M5Cardputer.Display.drawString("> PASS: " + stars + (accountFocus == 1 && blinkState ? "_" : ""), 20, 80);
+    
+    M5Cardputer.Display.setTextColor(accountFocus == 2 ? WHITE : CP_DIM);
+    M5Cardputer.Display.drawString(accountFocus == 2 ? "[ UPDATE ]" : "  UPDATE  ", 20, 110);
+    
+    M5Cardputer.Display.setTextColor(accountFocus == 3 ? WHITE : CP_DIM);
+    M5Cardputer.Display.drawString(accountFocus == 3 ? "[ BACK ]" : "  BACK  ", 140, 110);
+    
+    M5Cardputer.Display.endWrite();
+}
+
+void handleAccountInput(Keyboard_Class::KeysState status) {
+    if (status.del) {
+        if (accountFocus == 0 && newAccountName.length() > 0) newAccountName.remove(newAccountName.length()-1);
+        if (accountFocus == 1 && newAccountPass.length() > 0) newAccountPass.remove(newAccountPass.length()-1);
+        return;
+    }
+    
+    if (status.enter) {
+        playSound(sound_select, sound_select_size);
+        if (accountFocus == 2) {
+            if (newAccountName == "") return;
+            drawMessage("UPDATING...");
+            
+            HTTPClient http;
+            http.begin("http://192.168.0.176:3000/api/account");
+            http.addHeader("Content-Type", "application/json");
+            String payload = "{\"action\":\"update_account\",\"username\":\"" + authUser + "\",\"password\":\"" + authPass + "\",\"newUsername\":\"" + newAccountName + "\",\"newPassword\":\"" + newAccountPass + "\"}";
+            int httpCode = http.POST(payload);
+            http.end();
+            
+            if (httpCode == 200) {
+                authUser = newAccountName;
+                authPass = newAccountPass;
+                drawMessage("UPDATE SUCCESS!");
+            } else {
+                drawMessage("UPDATE FAILED!");
+            }
+            delay(1500);
+            accountStatsFetched = false;
+            appState = STATE_MAIN_MENU;
+            drawMainMenu();
+            return;
+        } else if (accountFocus == 3) {
+            accountStatsFetched = false;
+            appState = STATE_MAIN_MENU;
+            drawMainMenu();
+            return;
+        }
+        accountFocus++;
+        if (accountFocus > 3) accountFocus = 0;
+        return;
+    }
+    
+    bool hasUp = false, hasDown = false;
+    for (char c : status.word) {
+        if (c == ';') hasUp = true;
+        if (c == '.') hasDown = true;
+        if (c >= 32 && c <= 126 && c != ';' && c != '.') {
+            if (accountFocus == 0 && newAccountName.length() < 16) newAccountName += c;
+            if (accountFocus == 1 && newAccountPass.length() < 16) newAccountPass += c;
+        }
+    }
+    
+    if (hasUp) { playSound(sound_hover, sound_hover_size); accountFocus--; if (accountFocus < 0) accountFocus = 3; }
+    if (hasDown) { playSound(sound_hover, sound_hover_size); accountFocus++; if (accountFocus > 3) accountFocus = 0; }
+}
+
 void loop() {
     M5Cardputer.update();
     unsigned long now = millis();
@@ -862,6 +1000,7 @@ void loop() {
         lastBlink = now;
         if (appState == STATE_AUTH_MENU) drawAuthMenu();
         if (appState == STATE_WIFI_PASS) drawWifiPass();
+        if (appState == STATE_ACCOUNT) drawAccountMenu();
     }
     
     if (appState == STATE_AUTH_MENU) {
@@ -908,6 +1047,15 @@ void loop() {
                 appState = STATE_MAIN_MENU;
                 drawMainMenu();
             }
+        }
+        delay(10);
+        return;
+    }
+    
+    if (appState == STATE_ACCOUNT) {
+        if (M5Cardputer.Keyboard.isChange() && M5Cardputer.Keyboard.isPressed()) {
+            handleAccountInput(M5Cardputer.Keyboard.keysState());
+            if (appState == STATE_ACCOUNT) drawAccountMenu();
         }
         delay(10);
         return;
