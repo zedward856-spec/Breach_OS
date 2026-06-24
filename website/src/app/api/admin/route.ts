@@ -1,9 +1,5 @@
 import { NextResponse } from 'next/server';
-import fs from 'fs';
-import path from 'path';
-
-const usersFile = path.join(process.cwd(), 'data', 'users.json');
-const leaderboardFile = path.join(process.cwd(), 'data', 'leaderboard.json');
+import { getUsers, getLeaderboard } from '@/lib/kv';
 
 export async function POST(req: Request) {
     try {
@@ -14,15 +10,8 @@ export async function POST(req: Request) {
             return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
         }
 
-        let users = {};
-        if (fs.existsSync(usersFile)) {
-            users = JSON.parse(fs.readFileSync(usersFile, 'utf-8'));
-        }
-
-        let leaderboard = [];
-        if (fs.existsSync(leaderboardFile)) {
-            leaderboard = JSON.parse(fs.readFileSync(leaderboardFile, 'utf-8'));
-        }
+        const users = await getUsers();
+        const leaderboard = await getLeaderboard();
 
         return NextResponse.json({ success: true, users, leaderboard });
     } catch (e) {
