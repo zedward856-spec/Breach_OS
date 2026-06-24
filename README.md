@@ -1,7 +1,7 @@
 # M5Cardputer Cyberpunk 2077 Breach Protocol
 
 
-![Gameplay Screenshot](screenshot_v2.jpg)
+![Gameplay Screenshot](screenshot_v4.jpg)
 
 A perfectly faithful, standalone port of the iconic Cyberpunk 2077 Breach Protocol minigame for the **M5Stack Cardputer**, written in pure C++.
 
