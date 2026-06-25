@@ -1454,13 +1454,17 @@ void loop() {
             lastInsane = now;
             nextInsane = random(50, 1200);
         }
-    } else if (appState == STATE_MAIN_MENU) {
-        static unsigned long lastMenuGlitch = 0;
-        static unsigned long nextMenuGlitch = 500;
-        if (now - lastMenuGlitch > nextMenuGlitch) {
-            drawMainMenu();
-            lastMenuGlitch = now;
-            nextMenuGlitch = random(50, 1200);
+    }
+    
+    if (appState == STATE_MAIN_MENU) {
+        if (!insaneMode) {
+            static unsigned long lastMenuGlitch = 0;
+            static unsigned long nextMenuGlitch = 500;
+            if (now - lastMenuGlitch > nextMenuGlitch) {
+                drawMainMenu();
+                lastMenuGlitch = now;
+                nextMenuGlitch = random(50, 1200);
+            }
         }
         
         if (keyChanged && keyPressed) {
