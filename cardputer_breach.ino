@@ -1450,10 +1450,7 @@ void loop() {
             else if (appState == STATE_GRID_SELECT) drawGridSelect();
             else if (appState == STATE_PHASE_TRANSITION) drawPhaseTransition();
             else if (appState == STATE_FAILED_SCREEN) drawGameOverFailed();
-            else if (appState == STATE_PLAYING) {
-                // To redraw game without breaking logic, we just drawScreen
-                drawScreen();
-            }
+
             lastInsane = now;
             nextInsane = random(50, 1200);
         }
