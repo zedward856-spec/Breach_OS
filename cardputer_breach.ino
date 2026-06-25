@@ -667,13 +667,13 @@ void drawGridSelect() {
         canvas.setTextColor(c);
         canvas.setTextSize(2);
         String label = (i == 0) ? "3x3" : ((i == 1) ? "4x4" : "5x5");
-        canvas.setCursor(startX + 10, y + 5);
+        canvas.setCursor(startX + 15, y + 10);
         canvas.print(label);
         
         canvas.setTextSize(1);
         canvas.setTextColor(CP_DIM);
         String desc = (i == 0) ? "Base Points Payout" : ((i == 1) ? "Higher Points Payout" : "Maximum Points Payout");
-        canvas.setCursor(startX + 10, y + 21);
+        canvas.setCursor(startX + 65, y + 13);
         canvas.print(desc);
     }
     
