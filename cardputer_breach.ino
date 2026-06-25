@@ -196,7 +196,19 @@ void drawSplash() {
     canvas.setTextSize(2);
     canvas.drawCenterString("Breach_Protocol", 120, 5);
     
+    int maxLogs = 7;
+    int y = 35;
+    canvas.setTextColor(CP_ACTIVE_LINE);
     canvas.setTextSize(1);
+    for (int i = 0; i < maxLogs; i++) {
+        int logIdx = (logOffset + i) % dummyLogs.size();
+        canvas.setCursor(5, y);
+        canvas.print(dummyLogs[logIdx]);
+        y += 11;
+    }
+
+    canvas.fillRect(125, 40, 115, 30, CP_BG);
+    
     canvas.setCursor(125, 40);
     if (WiFi.status() == WL_CONNECTED) {
         canvas.setTextColor(CP_YELLOW);
@@ -206,19 +218,9 @@ void drawSplash() {
         canvas.print("WIFI: CONNECTING");
     }
     
-    canvas.setTextColor(CP_DIM);
+    canvas.setTextColor(CP_YELLOW);
     canvas.setCursor(125, 60);
     canvas.print("VERSION: v4.0stable");
-    
-    int maxLogs = 7;
-    int y = 35;
-    canvas.setTextColor(CP_ACTIVE_LINE);
-    for (int i = 0; i < maxLogs; i++) {
-        int logIdx = (logOffset + i) % dummyLogs.size();
-        canvas.setCursor(5, y);
-        canvas.print(dummyLogs[logIdx]);
-        y += 11;
-    }
     
     if (blinkState) {
         canvas.setTextColor(WHITE);
@@ -1283,9 +1285,11 @@ void loop() {
     
     if (appState == STATE_SPLASH) {
         if (now - lastLogUpdate > 200) {
-            logOffset++;
+            if (logOffset < dummyLogs.size() - 7) {
+                logOffset++;
+                drawSplash();
+            }
             lastLogUpdate = now;
-            drawSplash();
         }
         if (now - lastBlink > 500) {
             blinkState = !blinkState;
