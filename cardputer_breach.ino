@@ -645,22 +645,30 @@ void drawGridSelect() {
     canvas.fillScreen(CP_BG);
     canvas.setTextColor(CP_CYAN);
     canvas.setTextSize(2);
-    canvas.drawCenterString("SELECT GRID SIZE", 120, 30);
+    canvas.drawCenterString("SELECT GRID SIZE", 120, 15);
     
-    uint16_t c1 = (gridMenuFocus == 0) ? CP_YELLOW : WHITE;
-    canvas.drawRect(20, 80, 60, 20, c1);
-    canvas.setTextColor(c1);
-    canvas.drawCenterString("3x3", 50, 85);
+    int btnW = 120;
+    int btnH = 26;
+    int startX = 60;
+    int startY = 45;
+    int spacing = 32;
+    int chip = 6;
     
-    uint16_t c2 = (gridMenuFocus == 1) ? CP_YELLOW : WHITE;
-    canvas.drawRect(90, 80, 60, 20, c2);
-    canvas.setTextColor(c2);
-    canvas.drawCenterString("4x4", 120, 85);
-    
-    uint16_t c3 = (gridMenuFocus == 2) ? CP_YELLOW : WHITE;
-    canvas.drawRect(160, 80, 60, 20, c3);
-    canvas.setTextColor(c3);
-    canvas.drawCenterString("5x5", 190, 85);
+    for (int i = 0; i < 3; i++) {
+        uint16_t c = (gridMenuFocus == i) ? CP_YELLOW : WHITE;
+        int y = startY + i * spacing;
+        
+        canvas.drawLine(startX, y, startX + btnW, y, c);
+        canvas.drawLine(startX, y, startX, y + btnH, c);
+        canvas.drawLine(startX, y + btnH, startX + btnW - chip, y + btnH, c);
+        canvas.drawLine(startX + btnW, y, startX + btnW, y + btnH - chip, c);
+        canvas.drawLine(startX + btnW, y + btnH - chip, startX + btnW - chip, y + btnH, c);
+        
+        canvas.setTextColor(c);
+        canvas.setTextSize(2);
+        String label = (i == 0) ? "3x3" : ((i == 1) ? "4x4" : "5x5");
+        canvas.drawCenterString(label, 120, y + 5);
+    }
     
     canvas.pushSprite(0, 0); canvas.endWrite();
 }
@@ -679,13 +687,13 @@ void handleGridSelectInput(Keyboard_Class::KeysState status) {
         drawScreen();
         return;
     }
-    bool hasLeft = false, hasRight = false;
+    bool hasUp = false, hasDown = false;
     for (char c : status.word) {
-        if (c == ',') hasLeft = true;
-        if (c == '/') hasRight = true;
+        if (c == ',' || c == ';') hasUp = true;
+        if (c == '/' || c == '.') hasDown = true;
     }
-    if (hasLeft) { playSound(sound_hover, sound_hover_size); gridMenuFocus--; if (gridMenuFocus < 0) gridMenuFocus = 2; }
-    if (hasRight) { playSound(sound_hover, sound_hover_size); gridMenuFocus++; if (gridMenuFocus > 2) gridMenuFocus = 0; }
+    if (hasUp) { playSound(sound_hover, sound_hover_size); gridMenuFocus--; if (gridMenuFocus < 0) gridMenuFocus = 2; }
+    if (hasDown) { playSound(sound_hover, sound_hover_size); gridMenuFocus++; if (gridMenuFocus > 2) gridMenuFocus = 0; }
 }
 
 void drawPhaseTransition() {
