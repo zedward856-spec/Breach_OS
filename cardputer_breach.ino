@@ -251,7 +251,6 @@ void startWifiScan() {
             attempts++;
         }
         if (WiFi.status() == WL_CONNECTED) {
-            playSound(wifi_finished_wav, wifi_finished_wav_len);
             appState = STATE_AUTH_MENU;
             drawAuthMenu();
             return;
@@ -390,6 +389,8 @@ void handleAuthInput(Keyboard_Class::KeysState status) {
                 deserializeJson(doc, response);
                 String action = doc["action"].as<String>();
                 
+                playSound(wifi_finished_wav, wifi_finished_wav_len);
+                
                 if (action == "signup") {
                     drawMessage("NEW OPERATIVE REGISTERED!");
                 } else {
@@ -418,6 +419,7 @@ void handleAuthInput(Keyboard_Class::KeysState status) {
             return;
         } else if (authFocus == 4) {
             isGuest = true;
+            playSound(wifi_finished_wav, wifi_finished_wav_len);
             appState = STATE_MAIN_MENU;
             drawMainMenu();
             return;
@@ -546,7 +548,6 @@ void handleWifiPassInput(Keyboard_Class::KeysState status) {
             prefs.putString("wifi_pass", wifiPass);
             savedSSID = wifiList[wifiSelection];
             savedWifiPass = wifiPass;
-            playSound(wifi_finished_wav, wifi_finished_wav_len);
             appState = STATE_AUTH_MENU;
             drawAuthMenu();
         } else {
