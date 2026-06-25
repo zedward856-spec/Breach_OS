@@ -192,7 +192,7 @@ void drawGlitchText(String text, int x, int y, int size, uint16_t color, bool ce
     }
 }
 
-void drawMessage(String msg, String line2 = "") {
+void drawMessage(String msg, String line2) {
     canvas.startWrite();
     canvas.fillScreen(CP_BG);
     canvas.setTextColor(CP_YELLOW);
