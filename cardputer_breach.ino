@@ -1200,14 +1200,14 @@ void drawAccountMenu() {
     canvas.drawString("> PASS:   " + stars + (accountFocus == 1 && blinkState ? "_" : ""), 10, 85);
     
     uint16_t c2 = (accountFocus == 2) ? CP_YELLOW : WHITE;
-    drawChippedButton(10, 98, 80, 14, c2);
+    drawChippedButton(10, 110, 100, 20, c2);
     canvas.setTextColor(c2);
-    canvas.drawString("UPDATE", 16, 101);
+    canvas.drawCenterString("UPDATE", 60, 115);
     
     uint16_t c3 = (accountFocus == 3) ? CP_YELLOW : WHITE;
-    drawChippedButton(10, 115, 80, 14, c3);
+    drawChippedButton(130, 110, 100, 20, c3);
     canvas.setTextColor(c3);
-    canvas.drawString("BACK", 16, 118);
+    canvas.drawCenterString("BACK", 180, 115);
     
     canvas.pushSprite(0, 0); canvas.endWrite();
 }
@@ -1262,18 +1262,34 @@ void handleAccountInput(Keyboard_Class::KeysState status) {
         return;
     }
     
-    bool hasUp = false, hasDown = false;
+    bool hasUp = false, hasDown = false, hasLeft = false, hasRight = false;
     for (char c : status.word) {
         if (c == ';') hasUp = true;
         if (c == '.') hasDown = true;
-        if (c >= 32 && c <= 126 && c != ';' && c != '.') {
+        if (c == ',') hasLeft = true;
+        if (c == '/') hasRight = true;
+        if (c >= 32 && c <= 126 && c != ';' && c != '.' && c != ',' && c != '/') {
             if (accountFocus == 0 && newAccountName.length() < 16) newAccountName += c;
             if (accountFocus == 1 && newAccountPass.length() < 16) newAccountPass += c;
         }
     }
     
-    if (hasUp) { playSound(sound_hover, sound_hover_size); accountFocus--; if (accountFocus < 0) accountFocus = 3; }
-    if (hasDown) { playSound(sound_hover, sound_hover_size); accountFocus++; if (accountFocus > 3) accountFocus = 0; }
+    if (hasUp) { 
+        playSound(sound_hover, sound_hover_size); 
+        if (accountFocus == 2 || accountFocus == 3) accountFocus = 1;
+        else if (accountFocus == 1) accountFocus = 0;
+        else if (accountFocus == 0) accountFocus = 2; 
+    }
+    if (hasDown) { 
+        playSound(sound_hover, sound_hover_size); 
+        if (accountFocus == 0) accountFocus = 1;
+        else if (accountFocus == 1) accountFocus = 2;
+        else if (accountFocus == 2 || accountFocus == 3) accountFocus = 0;
+    }
+    if (hasLeft || hasRight) {
+        if (accountFocus == 2) { accountFocus = 3; playSound(sound_hover, sound_hover_size); }
+        else if (accountFocus == 3) { accountFocus = 2; playSound(sound_hover, sound_hover_size); }
+    }
 }
 
 void loop() {
