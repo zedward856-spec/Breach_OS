@@ -1200,14 +1200,14 @@ void drawAccountMenu() {
     canvas.drawString("> PASS:   " + stars + (accountFocus == 1 && blinkState ? "_" : ""), 10, 85);
     
     uint16_t c2 = (accountFocus == 2) ? CP_YELLOW : WHITE;
-    drawChippedButton(10, 110, 100, 20, c2);
+    drawChippedButton(10, 98, 80, 14, c2);
     canvas.setTextColor(c2);
-    canvas.drawCenterString("UPDATE", 60, 115);
+    canvas.drawString("UPDATE", 16, 101);
     
     uint16_t c3 = (accountFocus == 3) ? CP_YELLOW : WHITE;
-    drawChippedButton(130, 110, 100, 20, c3);
+    drawChippedButton(10, 115, 80, 14, c3);
     canvas.setTextColor(c3);
-    canvas.drawCenterString("BACK", 180, 115);
+    canvas.drawString("BACK", 16, 118);
     
     canvas.pushSprite(0, 0); canvas.endWrite();
 }
@@ -1501,6 +1501,15 @@ void loop() {
     
     if (keyChanged && keyPressed) {
         Keyboard_Class::KeysState status = globalStatus;
+        
+        for (char c : status.word) {
+            if (c == 27 || c == '`') {
+                playSound(sound_select, sound_select_size);
+                appState = STATE_GRID_SELECT;
+                drawGridSelect();
+                return;
+            }
+        }
         
         if (gameOver) {
             if (status.enter) {
