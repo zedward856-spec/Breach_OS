@@ -14,14 +14,16 @@ bool secureClientInit = false;
 M5Canvas canvas(&M5Cardputer.Display);
 
 // --- AUDIO PLACEHOLDERS ---
-const unsigned char* sound_hover = nullptr;
-size_t sound_hover_size = 0;
-const unsigned char* sound_select = nullptr;
-size_t sound_select_size = 0;
-const unsigned char* sound_success = nullptr;
-size_t sound_success_size = 0;
-const unsigned char* sound_fail = nullptr;
-size_t sound_fail_size = 0;
+#include "sounds.h"
+
+const unsigned char* sound_hover = buffer_wav;
+size_t sound_hover_size = buffer_wav_len;
+const unsigned char* sound_select = button_wav;
+size_t sound_select_size = button_wav_len;
+const unsigned char* sound_success = leaderboard_wav;
+size_t sound_success_size = leaderboard_wav_len;
+const unsigned char* sound_fail = error_wav;
+size_t sound_fail_size = error_wav_len;
 
 void playSound(const unsigned char* soundData, size_t soundSize) {
     if (soundData != nullptr && soundSize > 0) {
@@ -236,6 +238,7 @@ void startWifiScan() {
             attempts++;
         }
         if (WiFi.status() == WL_CONNECTED) {
+            playSound(wifi_finished_wav, wifi_finished_wav_len);
             appState = STATE_AUTH_MENU;
             drawAuthMenu();
             return;
@@ -530,10 +533,11 @@ void handleWifiPassInput(Keyboard_Class::KeysState status) {
             prefs.putString("wifi_pass", wifiPass);
             savedSSID = wifiList[wifiSelection];
             savedWifiPass = wifiPass;
-            
+            playSound(wifi_finished_wav, wifi_finished_wav_len);
             appState = STATE_AUTH_MENU;
             drawAuthMenu();
         } else {
+            playSound(sound_fail, sound_fail_size);
             drawMessage("WIFI FAILED!");
             delay(2000);
             appState = STATE_WIFI_SCAN;
@@ -873,6 +877,7 @@ void setup() {
     
     appState = STATE_SPLASH;
     drawSplash();
+    playSound(intro_wav, intro_wav_len);
 }
 
 void drawTimer(bool forceRedraw = false) {
