@@ -440,36 +440,40 @@ void handleAuthInput(Keyboard_Class::KeysState status) {
         return;
     }
     
-    bool hasUp = false, hasDown = false;
+    bool hasUp = false, hasDown = false, hasLeft = false, hasRight = false;
     for (char c : status.word) {
         if (c == ';') hasUp = true;
         if (c == '.') hasDown = true;
+        if (c == ',') hasLeft = true;
+        if (c == '/') hasRight = true;
+        if (c >= 32 && c <= 126 && c != ';' && c != '.' && c != ',' && c != '/') {
+            if (authFocus == 0 && authUser.length() < 16) authUser += c;
+            if (authFocus == 1 && authPass.length() < 16) authPass += c;
+        }
     }
     
-    if (hasUp) {
-        authFocus--;
-        if (authFocus < 0) authFocus = 4;
-        playSound(sound_hover, sound_hover_size);
-        return;
+    if (hasUp) { 
+        playSound(sound_hover, sound_hover_size); 
+        if (authFocus == 3 || authFocus == 4) authFocus = 2;
+        else if (authFocus == 2) authFocus = 1;
+        else if (authFocus == 1) authFocus = 0;
+        else if (authFocus == 0) authFocus = 3; 
     }
-    if (hasDown) {
-        authFocus++;
-        if (authFocus > 4) authFocus = 0;
-        playSound(sound_hover, sound_hover_size);
-        return;
+    else if (hasDown) { 
+        playSound(sound_hover, sound_hover_size); 
+        if (authFocus == 0) authFocus = 1;
+        else if (authFocus == 1) authFocus = 2;
+        else if (authFocus == 2) authFocus = 3;
+        else if (authFocus == 3 || authFocus == 4) authFocus = 0;
+    }
+    else if (hasLeft || hasRight) {
+        if (authFocus == 3) { authFocus = 4; playSound(sound_hover, sound_hover_size); }
+        else if (authFocus == 4) { authFocus = 3; playSound(sound_hover, sound_hover_size); }
     }
     
     if (status.del) {
         if (authFocus == 0 && authUser.length() > 0) authUser.remove(authUser.length()-1);
         if (authFocus == 1 && authPass.length() > 0) authPass.remove(authPass.length()-1);
-        return;
-    }
-    
-    for (char c : status.word) {
-        if (c >= 32 && c <= 126) {
-            if (authFocus == 0 && authUser.length() < 16) authUser += c;
-            if (authFocus == 1 && authPass.length() < 16) authPass += c;
-        }
     }
 }
 
