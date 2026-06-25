@@ -164,17 +164,26 @@ void drawMessage(String msg, String line2 = "") {
 }
 
 std::vector<String> dummyLogs = {
-    "INIT KERNEL...",
-    "LOADING MEMORY...",
-    "BYPASSING SEC...",
-    "AUTH SERVER OK",
-    "NODE ACTIVE.",
-    "SCANNING...",
-    "PORT 80 OPEN",
-    "DECRYPTING...",
-    "ACCESS GRANTED.",
-    "PINGING RELAY...",
-    "FETCHING DATA..."
+    "[ OK ] Init SPI flash layout...",
+    "[ OK ] Mounted APP Partition.",
+    "Mounting Secure File System...",
+    "[ OK ] Mounted Secure FS.",
+    "[ OK ] Init GPIO controllers.",
+    "Starting Audio Initialization...",
+    "[ OK ] Started Sound Card (I2S).",
+    "[ OK ] Setting volume envelope.",
+    "Starting Network Stack...",
+    "[ OK ] IPv4/IPv6 Stack Active.",
+    "[ OK ] Init Keyboard Matrix...",
+    "[ OK ] Started Graphics Core.",
+    "Bypassing Subnet Gateway...",
+    "[ OK ] Bypass Successful.",
+    "Allocating buffer memory...",
+    "[ OK ] Memory allocated.",
+    "[ OK ] Started Breach Protocol.",
+    "Establishing secure tunnel...",
+    "[ OK ] Tunnel established.",
+    "[ OK ] System Boot Complete."
 };
 int logOffset = 0;
 unsigned long lastLogUpdate = 0;
@@ -1582,6 +1591,7 @@ void loop() {
     }
     delay(10);
 }
+
 
 
 
