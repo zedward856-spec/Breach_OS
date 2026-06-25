@@ -91,6 +91,7 @@ enum AppState {
 AppState appState = STATE_SPLASH;
 
 bool isGuest = false;
+bool insaneMode = false;
 String authUser = "";
 String authPass = "";
 int authFocus = 0; 
@@ -150,7 +151,15 @@ void drawGameOverFailed();
 void fetchLeaderboard(int offset = 0, int limit = 10);
 
 void drawMessage(String msg, String line2 = "");
-void drawGlitchText(String text, int x, int y, int size, uint16_t color, bool center = true) {
+void drawGlitchText(String text, int x, int y, int size, uint16_t color, bool center = true, bool forceGlitch = false) {
+    bool canGlitch = insaneMode || forceGlitch;
+    if (!canGlitch) {
+        canvas.setTextSize(size);
+        canvas.setTextColor(color);
+        if (center) canvas.drawCenterString(text, x, y);
+        else canvas.drawString(text, x, y);
+        return;
+    }
     bool glitch = (random(100) < 60); // 60% chance to glitch when called
     canvas.setTextSize(size);
     
@@ -246,7 +255,7 @@ void drawSplash() {
     
     canvas.setTextColor(CP_CYAN);
     canvas.setTextSize(2);
-    canvas.drawCenterString("Breach_Protocol", 120, 5);
+    drawGlitchText("Breach_Protocol", 120, 5, 2, CP_CYAN, true, true);
     
     int maxLogs = 7;
     int y = 35;
@@ -408,12 +417,12 @@ void drawAuthMenu() {
     uint16_t colorBtn1 = (authFocus == 3) ? CP_YELLOW : WHITE;
     drawChippedButton(10, 110, 100, 20, colorBtn1);
     canvas.setTextColor(colorBtn1);
-    canvas.drawCenterString("LOGIN", 60, 115);
+    drawGlitchText("LOGIN", 60, 115, 1, colorBtn1);
     
     uint16_t colorBtn2 = (authFocus == 4) ? CP_YELLOW : WHITE;
     drawChippedButton(130, 110, 100, 20, colorBtn2);
     canvas.setTextColor(colorBtn2);
-    canvas.drawCenterString("GUEST", 180, 115);
+    drawGlitchText("GUEST", 180, 115, 1, colorBtn2);
     canvas.pushSprite(0, 0); canvas.endWrite();
 }
 
@@ -629,7 +638,7 @@ void drawMainMenu() {
     canvas.startWrite();
     canvas.fillScreen(CP_BG);
     
-    drawGlitchText("NETWORK NODE", 120, 15, 2, CP_CYAN);
+    drawGlitchText("NETWORK NODE", 120, 15, 2, CP_CYAN, true, true);
     
     drawGlitchText("OPERATIVE: " + (isGuest ? String("GUEST") : authUser), 120, 40, 1, CP_DIM);
     
@@ -770,19 +779,19 @@ void drawPhaseTransition() {
         uint16_t colCont = (phaseMenuFocus == 0) ? CP_YELLOW : WHITE;
         drawChippedButton(20, 95, 90, 20, colCont);
         canvas.setTextColor(colCont);
-        canvas.drawCenterString("CONTINUE", 65, 100);
+        drawGlitchText("CONTINUE", 65, 100, 1, cCont);
         
         uint16_t colSave = (phaseMenuFocus == 1) ? CP_YELLOW : WHITE;
         drawChippedButton(130, 95, 90, 20, colSave);
         canvas.setTextColor(colSave);
-        canvas.drawCenterString("SAVE & EXIT", 175, 100);
+        drawGlitchText("SAVE & EXIT", 175, 100, 1, cExit);
     } else {
         canvas.setTextColor(CP_YELLOW);
         canvas.drawCenterString("ALL PHASES COMPLETE!", 120, 70);
         uint16_t colSave = CP_YELLOW;
         drawChippedButton(75, 95, 90, 20, colSave);
         canvas.setTextColor(colSave);
-        canvas.drawCenterString("SAVE SCORE", 120, 100);
+        drawGlitchText("SAVE SCORE", 120, 100, 1, CP_YELLOW);
     }
     
     canvas.pushSprite(0, 0); canvas.endWrite();
@@ -829,7 +838,7 @@ void drawGameOverFailed() {
     drawChippedButton(70, 95, 100, 20, btnColor);
     canvas.setTextColor(btnColor);
     canvas.setTextSize(1);
-    canvas.drawCenterString("PRESS ENTER", 120, 101);
+    drawGlitchText("PRESS ENTER", 120, 101, 1, CP_CYAN);
     canvas.pushSprite(0, 0); canvas.endWrite();
 }
 
@@ -946,6 +955,7 @@ void setup() {
     highScore = prefs.getInt("highscore", 0);
     savedSSID = prefs.getString("wifi_ssid", "");
     savedWifiPass = prefs.getString("wifi_pass", "");
+    insaneMode = prefs.getBool("insane", false);
     authUser = prefs.getString("user", "");
     authPass = prefs.getString("pass", "");
     if (authUser != "") rememberMe = true;
@@ -1232,23 +1242,27 @@ void drawAccountMenu() {
     
     uint16_t c0 = (accountFocus == 0) ? CP_YELLOW : WHITE;
     canvas.setTextColor(c0);
-    canvas.drawString("> NAME:   " + newAccountName + (accountFocus == 0 && blinkState ? "_" : ""), 10, 70);
+    drawGlitchText("> NAME:   " + newAccountName + (accountFocus == 0 && blinkState ? "_" : ""), 10, 60, 1, c0, false);
     
     uint16_t c1 = (accountFocus == 1) ? CP_YELLOW : WHITE;
     canvas.setTextColor(c1);
     String stars = "";
     for (int i=0; i<newAccountPass.length(); i++) stars += "*";
-    canvas.drawString("> PASS:   " + stars + (accountFocus == 1 && blinkState ? "_" : ""), 10, 85);
+    drawGlitchText("> PASS:   " + stars + (accountFocus == 1 && blinkState ? "_" : ""), 10, 75, 1, c1, false);
     
     uint16_t c2 = (accountFocus == 2) ? CP_YELLOW : WHITE;
-    drawChippedButton(10, 110, 100, 20, c2);
     canvas.setTextColor(c2);
-    canvas.drawCenterString("UPDATE", 60, 115);
-    
+    drawGlitchText("> INSANE MODE: " + String(insaneMode ? "[ON]" : "[OFF]"), 10, 90, 1, c2, false);
+
     uint16_t c3 = (accountFocus == 3) ? CP_YELLOW : WHITE;
-    drawChippedButton(130, 110, 100, 20, c3);
+    drawChippedButton(10, 110, 100, 20, c3);
     canvas.setTextColor(c3);
-    canvas.drawCenterString("BACK", 180, 115);
+    drawGlitchText("UPDATE", 60, 115, 1, c3);
+    
+    uint16_t c4 = (accountFocus == 4) ? CP_YELLOW : WHITE;
+    drawChippedButton(130, 110, 100, 20, c4);
+    canvas.setTextColor(c4);
+    drawGlitchText("BACK", 180, 115, 1, c4);
     
     canvas.pushSprite(0, 0); canvas.endWrite();
 }
@@ -1263,8 +1277,13 @@ void handleAccountInput(Keyboard_Class::KeysState status) {
     if (status.enter) {
         playSound(sound_select, sound_select_size);
         if (accountFocus == 2) {
+            insaneMode = !insaneMode;
+            prefs.putBool("insane", insaneMode);
+            drawAccountMenu();
+            return;
+        } else if (accountFocus == 3) {
             if (newAccountName == authUser && newAccountPass == authPass) {
-                accountFocus = 3;
+                accountFocus = 4;
                 return;
             }
             if (newAccountName == "") return;
@@ -1292,14 +1311,14 @@ void handleAccountInput(Keyboard_Class::KeysState status) {
             appState = STATE_MAIN_MENU;
             drawMainMenu();
             return;
-        } else if (accountFocus == 3) {
+        } else if (accountFocus == 4) {
             accountStatsFetched = false;
             appState = STATE_MAIN_MENU;
             drawMainMenu();
             return;
         }
         accountFocus++;
-        if (accountFocus > 3) accountFocus = 0;
+        if (accountFocus > 4) accountFocus = 0;
         return;
     }
     
@@ -1317,19 +1336,21 @@ void handleAccountInput(Keyboard_Class::KeysState status) {
     
     if (hasUp) { 
         playSound(sound_hover, sound_hover_size); 
-        if (accountFocus == 2 || accountFocus == 3) accountFocus = 1;
+        if (accountFocus == 3 || accountFocus == 4) accountFocus = 2;
+        else if (accountFocus == 2) accountFocus = 1;
         else if (accountFocus == 1) accountFocus = 0;
-        else if (accountFocus == 0) accountFocus = 2; 
+        else if (accountFocus == 0) accountFocus = 3; 
     }
     if (hasDown) { 
         playSound(sound_hover, sound_hover_size); 
         if (accountFocus == 0) accountFocus = 1;
         else if (accountFocus == 1) accountFocus = 2;
-        else if (accountFocus == 2 || accountFocus == 3) accountFocus = 0;
+        else if (accountFocus == 2) accountFocus = 3;
+        else if (accountFocus == 3 || accountFocus == 4) accountFocus = 0;
     }
     if (hasLeft || hasRight) {
-        if (accountFocus == 2) { accountFocus = 3; playSound(sound_hover, sound_hover_size); }
-        else if (accountFocus == 3) { accountFocus = 2; playSound(sound_hover, sound_hover_size); }
+        if (accountFocus == 3) { accountFocus = 4; playSound(sound_hover, sound_hover_size); }
+        else if (accountFocus == 4) { accountFocus = 3; playSound(sound_hover, sound_hover_size); }
     }
 }
 
@@ -1419,7 +1440,24 @@ void loop() {
         return;
     }
 
-    if (appState == STATE_MAIN_MENU) {
+    if (insaneMode) {
+        static unsigned long lastInsane = 0;
+        static unsigned long nextInsane = 500;
+        if (now - lastInsane > nextInsane) {
+            if (appState == STATE_AUTH) drawAuthMenu();
+            else if (appState == STATE_MAIN_MENU) drawMainMenu();
+            else if (appState == STATE_ACCOUNT) drawAccountMenu();
+            else if (appState == STATE_GRID_SELECT) drawGridSelect();
+            else if (appState == STATE_PHASE_TRANSITION) drawPhaseTransition();
+            else if (appState == STATE_FAILED_SCREEN) drawGameOverFailed();
+            else if (appState == STATE_PLAYING) {
+                // To redraw game without breaking logic, we just drawScreen
+                drawScreen();
+            }
+            lastInsane = now;
+            nextInsane = random(50, 1200);
+        }
+    } else if (appState == STATE_MAIN_MENU) {
         static unsigned long lastMenuGlitch = 0;
         static unsigned long nextMenuGlitch = 500;
         if (now - lastMenuGlitch > nextMenuGlitch) {
