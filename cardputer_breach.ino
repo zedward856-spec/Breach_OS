@@ -598,13 +598,13 @@ void drawMainMenu() {
     canvas.setTextColor(colorPlay);
     canvas.drawCenterString("HACK", 120, 65);
     
-    uint16_t colorLDB = (mainMenuFocus == 1) ? CP_YELLOW : WHITE;
-    drawChippedButton(70, 85, 100, 20, colorLDB);
-    canvas.setTextColor(colorLDB);
-    canvas.drawCenterString("LEADERBOARD", 120, 90);
-    
-    uint16_t colorAccount = (mainMenuFocus == 2) ? CP_YELLOW : WHITE;
     if (!isGuest) {
+        uint16_t colorLDB = (mainMenuFocus == 1) ? CP_YELLOW : WHITE;
+        drawChippedButton(70, 85, 100, 20, colorLDB);
+        canvas.setTextColor(colorLDB);
+        canvas.drawCenterString("LEADERBOARD", 120, 90);
+        
+        uint16_t colorAccount = (mainMenuFocus == 2) ? CP_YELLOW : WHITE;
         drawChippedButton(70, 110, 100, 20, colorAccount);
         canvas.setTextColor(colorAccount);
         canvas.drawCenterString("ACCOUNT", 120, 115);
@@ -620,7 +620,7 @@ void handleMainMenuInput(Keyboard_Class::KeysState status) {
             appState = STATE_GRID_SELECT;
             gridMenuFocus = 0;
             drawGridSelect();
-        } else if (mainMenuFocus == 1) { // LEADERBOARD
+        } else if (mainMenuFocus == 1 && !isGuest) { // LEADERBOARD
             appState = STATE_LEADERBOARD;
             drawMessage("FETCHING DATABANK...");
             fetchLeaderboard(0, 10);
@@ -643,12 +643,12 @@ void handleMainMenuInput(Keyboard_Class::KeysState status) {
     
     if (hasUp) {
         mainMenuFocus--;
-        if (mainMenuFocus < 0) mainMenuFocus = isGuest ? 1 : 2;
+        if (mainMenuFocus < 0) mainMenuFocus = isGuest ? 0 : 2;
         playSound(sound_hover, sound_hover_size);
     }
     if (hasDown) {
         mainMenuFocus++;
-        if (mainMenuFocus > (isGuest ? 1 : 2)) mainMenuFocus = 0;
+        if (mainMenuFocus > (isGuest ? 0 : 2)) mainMenuFocus = 0;
         playSound(sound_hover, sound_hover_size);
     }
 }
