@@ -163,6 +163,15 @@ void drawMessage(String msg, String line2 = "") {
     canvas.pushSprite(0, 0); canvas.endWrite();
 }
 
+void drawChippedButton(int x, int y, int w, int h, uint16_t color) {
+    int chip = (h > 25) ? 8 : 5;
+    canvas.drawLine(x, y, x + w, y, color);
+    canvas.drawLine(x, y, x, y + h, color);
+    canvas.drawLine(x, y + h, x + w - chip, y + h, color);
+    canvas.drawLine(x + w, y, x + w, y + h - chip, color);
+    canvas.drawLine(x + w, y + h - chip, x + w - chip, y + h, color);
+}
+
 std::vector<String> dummyLogs = {
     "[ OK ] Init SPI flash layout...",
     "[ OK ] Mounted APP Partition.",
@@ -331,7 +340,7 @@ void drawAuthMenu() {
     canvas.print("ACCOUNT NAME:");
     
     uint16_t colorUser = (authFocus == 0) ? CP_YELLOW : WHITE;
-    canvas.drawRect(10, 25, 220, 20, colorUser);
+    drawChippedButton(10, 25, 220, 20, colorUser);
     canvas.setTextColor(colorUser);
     canvas.setCursor(15, 30);
     canvas.print(authUser + ((authFocus == 0 && blinkState) ? "_" : ""));
@@ -341,7 +350,7 @@ void drawAuthMenu() {
     canvas.print("PASSWORD:");
 
     uint16_t colorPass = (authFocus == 1) ? CP_YELLOW : WHITE;
-    canvas.drawRect(10, 70, 220, 20, colorPass);
+    drawChippedButton(10, 70, 220, 20, colorPass);
     canvas.setTextColor(colorPass);
     canvas.setCursor(15, 75);
     String starPass = "";
@@ -354,12 +363,12 @@ void drawAuthMenu() {
     canvas.print(rememberMe ? "[X] REMEMBER ME" : "[ ] REMEMBER ME");
 
     uint16_t colorBtn1 = (authFocus == 3) ? CP_YELLOW : WHITE;
-    canvas.drawRect(10, 110, 100, 20, colorBtn1);
+    drawChippedButton(10, 110, 100, 20, colorBtn1);
     canvas.setTextColor(colorBtn1);
     canvas.drawCenterString("LOGIN", 60, 115);
     
     uint16_t colorBtn2 = (authFocus == 4) ? CP_YELLOW : WHITE;
-    canvas.drawRect(130, 110, 100, 20, colorBtn2);
+    drawChippedButton(130, 110, 100, 20, colorBtn2);
     canvas.setTextColor(colorBtn2);
     canvas.drawCenterString("GUEST", 180, 115);
     canvas.pushSprite(0, 0); canvas.endWrite();
@@ -526,7 +535,7 @@ void drawWifiPass() {
     canvas.setCursor(10, 40);
     canvas.print("ENTER PASSWORD:");
     
-    canvas.drawRect(10, 55, 220, 20, WHITE);
+    drawChippedButton(10, 55, 220, 20, WHITE);
     canvas.setTextColor(WHITE);
     canvas.setCursor(15, 60);
     canvas.print(wifiPass + (blinkState ? "_" : ""));
@@ -581,18 +590,18 @@ void drawMainMenu() {
     canvas.drawCenterString("OPERATIVE: " + (isGuest ? String("GUEST") : authUser), 120, 40);
     
     uint16_t colorPlay = (mainMenuFocus == 0) ? CP_YELLOW : WHITE;
-    canvas.drawRect(70, 60, 100, 20, colorPlay);
+    drawChippedButton(70, 60, 100, 20, colorPlay);
     canvas.setTextColor(colorPlay);
     canvas.drawCenterString("HACK", 120, 65);
     
     uint16_t colorLDB = (mainMenuFocus == 1) ? CP_YELLOW : WHITE;
-    canvas.drawRect(70, 85, 100, 20, colorLDB);
+    drawChippedButton(70, 85, 100, 20, colorLDB);
     canvas.setTextColor(colorLDB);
     canvas.drawCenterString("LEADERBOARD", 120, 90);
     
     uint16_t colorAccount = (mainMenuFocus == 2) ? CP_YELLOW : WHITE;
     if (!isGuest) {
-        canvas.drawRect(70, 110, 100, 20, colorAccount);
+        drawChippedButton(70, 110, 100, 20, colorAccount);
         canvas.setTextColor(colorAccount);
         canvas.drawCenterString("ACCOUNT", 120, 115);
     }
@@ -652,17 +661,12 @@ void drawGridSelect() {
     int startX = 4;
     int startY = 25;
     int spacing = 36;
-    int chip = 8;
     
     for (int i = 0; i < 3; i++) {
         uint16_t c = (gridMenuFocus == i) ? CP_YELLOW : WHITE;
         int y = startY + i * spacing;
         
-        canvas.drawLine(startX, y, startX + btnW, y, c);
-        canvas.drawLine(startX, y, startX, y + btnH, c);
-        canvas.drawLine(startX, y + btnH, startX + btnW - chip, y + btnH, c);
-        canvas.drawLine(startX + btnW, y, startX + btnW, y + btnH - chip, c);
-        canvas.drawLine(startX + btnW, y + btnH - chip, startX + btnW - chip, y + btnH, c);
+        drawChippedButton(startX, y, btnW, btnH, c);
         
         canvas.setTextColor(c);
         canvas.setTextSize(2);
@@ -723,19 +727,19 @@ void drawPhaseTransition() {
         canvas.drawCenterString("NEXT PHASE TIME: " + String(phaseTimes[currentPhase]/1000) + "s", 120, 70);
         
         uint16_t colCont = (phaseMenuFocus == 0) ? CP_YELLOW : WHITE;
-        canvas.drawRect(20, 95, 90, 20, colCont);
+        drawChippedButton(20, 95, 90, 20, colCont);
         canvas.setTextColor(colCont);
         canvas.drawCenterString("CONTINUE", 65, 100);
         
         uint16_t colSave = (phaseMenuFocus == 1) ? CP_YELLOW : WHITE;
-        canvas.drawRect(130, 95, 90, 20, colSave);
+        drawChippedButton(130, 95, 90, 20, colSave);
         canvas.setTextColor(colSave);
         canvas.drawCenterString("SAVE & EXIT", 175, 100);
     } else {
         canvas.setTextColor(CP_YELLOW);
         canvas.drawCenterString("ALL PHASES COMPLETE!", 120, 70);
         uint16_t colSave = CP_YELLOW;
-        canvas.drawRect(75, 95, 90, 20, colSave);
+        drawChippedButton(75, 95, 90, 20, colSave);
         canvas.setTextColor(colSave);
         canvas.drawCenterString("SAVE SCORE", 120, 100);
     }
@@ -781,7 +785,7 @@ void drawGameOverFailed() {
     canvas.setTextSize(1);
     canvas.drawCenterString("ALL ACCUMULATED SCORE LOST", 120, 60);
     uint16_t btnColor = blinkState ? CP_YELLOW : CP_DIM;
-    canvas.drawRect(70, 95, 100, 20, btnColor);
+    drawChippedButton(70, 95, 100, 20, btnColor);
     canvas.setTextColor(btnColor);
     canvas.setTextSize(1);
     canvas.drawCenterString("PRESS ENTER", 120, 101);
@@ -1196,12 +1200,14 @@ void drawAccountMenu() {
     canvas.drawString("> PASS:   " + stars + (accountFocus == 1 && blinkState ? "_" : ""), 10, 85);
     
     uint16_t c2 = (accountFocus == 2) ? CP_YELLOW : WHITE;
+    drawChippedButton(10, 110, 100, 20, c2);
     canvas.setTextColor(c2);
-    canvas.drawString("> UPDATE", 10, 100);
+    canvas.drawCenterString("UPDATE", 60, 115);
     
     uint16_t c3 = (accountFocus == 3) ? CP_YELLOW : WHITE;
+    drawChippedButton(130, 110, 100, 20, c3);
     canvas.setTextColor(c3);
-    canvas.drawString("> BACK", 10, 115);
+    canvas.drawCenterString("BACK", 180, 115);
     
     canvas.pushSprite(0, 0); canvas.endWrite();
 }
