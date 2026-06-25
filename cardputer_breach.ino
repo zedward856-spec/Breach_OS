@@ -779,12 +779,12 @@ void drawPhaseTransition() {
         uint16_t colCont = (phaseMenuFocus == 0) ? CP_YELLOW : WHITE;
         drawChippedButton(20, 95, 90, 20, colCont);
         canvas.setTextColor(colCont);
-        drawGlitchText("CONTINUE", 65, 100, 1, cCont);
+        drawGlitchText("CONTINUE", 65, 100, 1, colCont);
         
         uint16_t colSave = (phaseMenuFocus == 1) ? CP_YELLOW : WHITE;
         drawChippedButton(130, 95, 90, 20, colSave);
         canvas.setTextColor(colSave);
-        drawGlitchText("SAVE & EXIT", 175, 100, 1, cExit);
+        drawGlitchText("SAVE & EXIT", 175, 100, 1, colSave);
     } else {
         canvas.setTextColor(CP_YELLOW);
         canvas.drawCenterString("ALL PHASES COMPLETE!", 120, 70);
@@ -1444,7 +1444,7 @@ void loop() {
         static unsigned long lastInsane = 0;
         static unsigned long nextInsane = 500;
         if (now - lastInsane > nextInsane) {
-            if (appState == STATE_AUTH) drawAuthMenu();
+            if (appState == STATE_AUTH_MENU) drawAuthMenu();
             else if (appState == STATE_MAIN_MENU) drawMainMenu();
             else if (appState == STATE_ACCOUNT) drawAccountMenu();
             else if (appState == STATE_GRID_SELECT) drawGridSelect();
