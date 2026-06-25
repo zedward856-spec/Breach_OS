@@ -631,25 +631,20 @@ void drawMainMenu() {
     
     drawGlitchText("NETWORK NODE", 120, 15, 2, CP_CYAN);
     
-    canvas.setTextSize(1);
-    canvas.setTextColor(CP_DIM);
-    canvas.drawCenterString("OPERATIVE: " + (isGuest ? String("GUEST") : authUser), 120, 40);
+    drawGlitchText("OPERATIVE: " + (isGuest ? String("GUEST") : authUser), 120, 40, 1, CP_DIM);
     
     uint16_t colorPlay = (mainMenuFocus == 0) ? CP_YELLOW : WHITE;
     drawChippedButton(70, 60, 100, 20, colorPlay);
-    canvas.setTextColor(colorPlay);
-    canvas.drawCenterString("HACK", 120, 65);
+    drawGlitchText("HACK", 120, 65, 1, colorPlay);
     
     if (!isGuest) {
         uint16_t colorLDB = (mainMenuFocus == 1) ? CP_YELLOW : WHITE;
         drawChippedButton(70, 85, 100, 20, colorLDB);
-        canvas.setTextColor(colorLDB);
-        canvas.drawCenterString("LEADERBOARD", 120, 90);
+        drawGlitchText("LEADERBOARD", 120, 90, 1, colorLDB);
         
         uint16_t colorAccount = (mainMenuFocus == 2) ? CP_YELLOW : WHITE;
         drawChippedButton(70, 110, 100, 20, colorAccount);
-        canvas.setTextColor(colorAccount);
-        canvas.drawCenterString("ACCOUNT", 120, 115);
+        drawGlitchText("ACCOUNT", 120, 115, 1, colorAccount);
     }
     
     canvas.pushSprite(0, 0); canvas.endWrite();
@@ -1426,11 +1421,11 @@ void loop() {
 
     if (appState == STATE_MAIN_MENU) {
         static unsigned long lastMenuGlitch = 0;
-        static unsigned long nextMenuGlitch = 1000;
+        static unsigned long nextMenuGlitch = 500;
         if (now - lastMenuGlitch > nextMenuGlitch) {
             drawMainMenu();
             lastMenuGlitch = now;
-            nextMenuGlitch = random(100, 3000);
+            nextMenuGlitch = random(50, 1200);
         }
         
         if (keyChanged && keyPressed) {
