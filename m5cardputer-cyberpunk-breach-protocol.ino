@@ -760,34 +760,46 @@ void handleMainMenuInput(Keyboard_Class::KeysState status) {
 void drawGridSelect() {
     canvas.startWrite();
     canvas.fillScreen(CP_BG);
-    canvas.setTextColor(CP_CYAN);
+    
+    // Draw rotating wheel arc on the left
+    canvas.drawCircle(-80, 67, 110, CP_DIM);
+    canvas.drawCircle(-80, 67, 109, CP_DIM);
+    
+    // Draw wheel ticks
+    canvas.fillRect(29, 66, 6, 3, CP_CYAN); // Center selected tick
+    canvas.fillRect(20, 24, 6, 2, CP_DIM);  // Top tick
+    canvas.fillRect(20, 108, 6, 2, CP_DIM); // Bottom tick
+    
+    String labels[4] = {"3x3", "4x4", "5x5", "BACK"};
+    String descs[4] = {"Base Points Payout", "Higher Points Payout", "Maximum Points Payout", "Return to Menu"};
+    
+    int prevIdx = (gridMenuFocus - 1 + 4) % 4;
+    int nextIdx = (gridMenuFocus + 1) % 4;
+    
+    // Draw previous item (top)
+    drawChippedButton(30, 15, 205, 20, CP_DIM);
+    canvas.setTextColor(CP_DIM);
+    canvas.setTextSize(1);
+    canvas.setCursor(45, 21);
+    canvas.print(labels[prevIdx] + " - " + descs[prevIdx]);
+    
+    // Draw center item (selected)
+    drawChippedButton(40, 52, 195, 30, CP_YELLOW);
+    canvas.setTextColor(CP_YELLOW);
     canvas.setTextSize(2);
-    canvas.drawCenterString("SELECT GRID SIZE", 120, 5);
+    canvas.setCursor(55, 59);
+    canvas.print(labels[gridMenuFocus]);
+    canvas.setTextSize(1);
+    canvas.setTextColor(WHITE);
+    canvas.setCursor(115, 63);
+    canvas.print(descs[gridMenuFocus]);
     
-    int btnW = 232;
-    int btnH = 24;
-    int startX = 4;
-    int startY = 22;
-    int spacing = 28;
-    
-    for (int i = 0; i < 4; i++) {
-        uint16_t c = (gridMenuFocus == i) ? CP_YELLOW : WHITE;
-        int y = startY + i * spacing;
-        
-        drawChippedButton(startX, y, btnW, btnH, c);
-        
-        canvas.setTextColor(c);
-        canvas.setTextSize(2);
-        String label = (i == 0) ? "3x3" : ((i == 1) ? "4x4" : ((i == 2) ? "5x5" : "BACK"));
-        canvas.setCursor(startX + 15, y + 5);
-        canvas.print(label);
-        
-        canvas.setTextSize(1);
-        canvas.setTextColor(CP_DIM);
-        String desc = (i == 0) ? "Base Points Payout" : ((i == 1) ? "Higher Points Payout" : ((i == 2) ? "Maximum Points Payout" : "Return to Main Menu"));
-        canvas.setCursor(startX + 80, y + 8);
-        canvas.print(desc);
-    }
+    // Draw next item (bottom)
+    drawChippedButton(30, 99, 205, 20, CP_DIM);
+    canvas.setTextColor(CP_DIM);
+    canvas.setTextSize(1);
+    canvas.setCursor(45, 105);
+    canvas.print(labels[nextIdx] + " - " + descs[nextIdx]);
     
     canvas.pushSprite(0, 0); canvas.endWrite();
 }
