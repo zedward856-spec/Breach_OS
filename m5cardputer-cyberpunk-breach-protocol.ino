@@ -285,8 +285,22 @@ void drawSplash() {
     canvas.setCursor(125, 60);
     canvas.print("VERSION: v5.0sound");
     
-    drawGlitchText("> Press ENTER to Connect", 5, 115, 1, WHITE, false, true);
-    drawGlitchText("> Press ESC to Play Offline", 5, 125, 1, WHITE, false, true);
+    canvas.setTextSize(1);
+    canvas.setTextColor(WHITE);
+    
+    canvas.drawString("> Press ", 5, 115);
+    int x1 = 5 + canvas.textWidth("> Press ");
+    drawGlitchText("ENTER", x1, 115, 1, WHITE, false, true);
+    int x2 = x1 + canvas.textWidth("ENTER");
+    canvas.setTextColor(WHITE);
+    canvas.drawString(" to Connect", x2, 115);
+    
+    canvas.drawString("> Press ", 5, 125);
+    int x3 = 5 + canvas.textWidth("> Press ");
+    drawGlitchText("ESC", x3, 125, 1, WHITE, false, true);
+    int x4 = x3 + canvas.textWidth("ESC");
+    canvas.setTextColor(WHITE);
+    canvas.drawString(" to Play Offline", x4, 125);
     
     canvas.pushSprite(0, 0); canvas.endWrite();
 }
