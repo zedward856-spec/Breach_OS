@@ -805,7 +805,7 @@ void drawGridSelect() {
         float h = 30 - abs(offset) * 10;
         if (h < 1) h = 1;
         float y = tickY - h / 2.0;
-        float w = 195 + abs(offset) * 10;
+        float w = 195 - abs(offset) * 20;
         float x = 40 - abs(offset) * 10;
         
         int textSize = isSelected ? 2 : 1;
