@@ -680,18 +680,29 @@ void drawMainMenu() {
     
     drawGlitchText("OPERATIVE: " + (isGuest ? String("GUEST") : authUser), 120, 40, 1, CP_DIM);
     
+    int startY = 55;
+    int spacing = 22;
+    
     uint16_t colorPlay = (mainMenuFocus == 0) ? CP_YELLOW : WHITE;
-    drawChippedButton(70, 60, 100, 20, colorPlay);
-    drawGlitchText("BREACH PROTOCOL", 120, 65, 1, colorPlay);
+    drawChippedButton(70, startY, 100, 20, colorPlay);
+    drawGlitchText("BREACH PROTOCOL", 120, startY + 5, 1, colorPlay);
     
     if (!isGuest) {
         uint16_t colorLDB = (mainMenuFocus == 1) ? CP_YELLOW : WHITE;
-        drawChippedButton(70, 85, 100, 20, colorLDB);
-        drawGlitchText("LEADERBOARD", 120, 90, 1, colorLDB);
+        drawChippedButton(70, startY + spacing, 100, 20, colorLDB);
+        drawGlitchText("LEADERBOARD", 120, startY + spacing + 5, 1, colorLDB);
         
         uint16_t colorAccount = (mainMenuFocus == 2) ? CP_YELLOW : WHITE;
-        drawChippedButton(70, 110, 100, 20, colorAccount);
-        drawGlitchText("ACCOUNT", 120, 115, 1, colorAccount);
+        drawChippedButton(70, startY + spacing*2, 100, 20, colorAccount);
+        drawGlitchText("ACCOUNT", 120, startY + spacing*2 + 5, 1, colorAccount);
+        
+        uint16_t colorBack = (mainMenuFocus == 3) ? CP_YELLOW : WHITE;
+        drawChippedButton(70, startY + spacing*3, 100, 20, colorBack);
+        drawGlitchText("BACK", 120, startY + spacing*3 + 5, 1, colorBack);
+    } else {
+        uint16_t colorBack = (mainMenuFocus == 1) ? CP_YELLOW : WHITE;
+        drawChippedButton(70, startY + spacing, 100, 20, colorBack);
+        drawGlitchText("BACK", 120, startY + spacing + 5, 1, colorBack);
     }
     
     canvas.pushSprite(0, 0); canvas.endWrite();
@@ -715,6 +726,12 @@ void handleMainMenuInput(Keyboard_Class::KeysState status) {
             appState = STATE_ACCOUNT;
             accountFocus = 0;
             accountStatsFetched = false;
+        } else if ((mainMenuFocus == 3 && !isGuest) || (mainMenuFocus == 1 && isGuest)) {
+            authUser = "";
+            authPass = "";
+            isGuest = false;
+            appState = STATE_SPLASH;
+            drawSplash();
         }
         return;
     }
@@ -725,14 +742,15 @@ void handleMainMenuInput(Keyboard_Class::KeysState status) {
         if (c == '.') hasDown = true;
     }
     
+    int maxFocus = isGuest ? 1 : 3;
     if (hasUp) {
         mainMenuFocus--;
-        if (mainMenuFocus < 0) mainMenuFocus = isGuest ? 0 : 2;
+        if (mainMenuFocus < 0) mainMenuFocus = maxFocus;
         playSound(sound_hover, sound_hover_size);
     }
     if (hasDown) {
         mainMenuFocus++;
-        if (mainMenuFocus > (isGuest ? 0 : 2)) mainMenuFocus = 0;
+        if (mainMenuFocus > maxFocus) mainMenuFocus = 0;
         playSound(sound_hover, sound_hover_size);
     }
 }
