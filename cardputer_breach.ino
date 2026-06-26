@@ -328,7 +328,8 @@ void startWifiScan() {
     delay(100);
     int n = WiFi.scanNetworks();
     wifiList.clear();
-    for (int i = 0; i < n && i < 10; ++i) {
+    wifiList.push_back("[PLAY OFFLINE]");
+    for (int i = 0; i < n && i < 9; ++i) {
         wifiList.push_back(WiFi.SSID(i));
     }
     appState = STATE_WIFI_SCAN;
@@ -571,6 +572,15 @@ void handleWifiScanInput(Keyboard_Class::KeysState status) {
     
     if (status.enter && wifiList.size() > 0) {
         playSound(sound_select, sound_select_size);
+        if (wifiList[wifiSelection] == "[PLAY OFFLINE]") {
+            WiFi.disconnect(true);
+            WiFi.mode(WIFI_OFF);
+            isGuest = true;
+            authUser = "GUEST";
+            appState = STATE_MAIN_MENU;
+            drawMainMenu();
+            return;
+        }
         appState = STATE_WIFI_PASS;
         if (wifiList[wifiSelection] == savedSSID) {
             wifiPass = savedWifiPass;
