@@ -285,13 +285,8 @@ void drawSplash() {
     canvas.setCursor(125, 60);
     canvas.print("VERSION: v5.0sound");
     
-    if (blinkState) {
-        canvas.setTextColor(WHITE);
-        canvas.setCursor(5, 115);
-        canvas.print("> Press ENTER to Connect");
-        canvas.setCursor(5, 125);
-        canvas.print("> Press ESC to Play Offline");
-    }
+    drawGlitchText("> Press ENTER to Connect", 5, 115, 1, WHITE, false, true);
+    drawGlitchText("> Press ESC to Play Offline", 5, 125, 1, WHITE, false, true);
     
     canvas.pushSprite(0, 0); canvas.endWrite();
 }
