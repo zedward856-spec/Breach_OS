@@ -785,8 +785,10 @@ void drawGridSelect() {
         float tickY = 67 + sin(angle) * 110;
         float tickX = -80 + cos(angle) * 110;
         
-        uint16_t tColor = (abs(offset) < 0.2) ? CP_CYAN : CP_DIM;
-        canvas.fillRect(tickX - 1, tickY - 1, 6, (abs(offset) < 0.2 ? 3 : 2), tColor);
+        bool isSelected = (i == gridMenuFocus);
+        
+        uint16_t tColor = isSelected ? CP_CYAN : CP_DIM;
+        canvas.fillRect(tickX - 1, tickY - 1, 6, (isSelected ? 3 : 2), tColor);
         
         // Button dynamic properties
         float h = 30 - abs(offset) * 10;
@@ -795,20 +797,20 @@ void drawGridSelect() {
         float w = 195 + abs(offset) * 10;
         float x = 40 - abs(offset) * 10;
         
-        int textSize = (abs(offset) < 0.2) ? 2 : 1;
-        uint16_t color = (abs(offset) < 0.2) ? CP_YELLOW : CP_DIM;
+        int textSize = isSelected ? 2 : 1;
+        uint16_t color = isSelected ? CP_YELLOW : CP_DIM;
         
         drawChippedButton(x, y, w, h, color);
         
         canvas.setTextColor(color);
         canvas.setTextSize(textSize);
         
-        float textY = y + (abs(offset) < 0.2 ? 7 : 6);
+        float textY = y + (isSelected ? 7 : 6);
         float textX = x + 15;
         canvas.setCursor(textX, textY);
         canvas.print(labels[i]);
         
-        if (abs(offset) < 0.2) {
+        if (isSelected) {
             int labelWidth = canvas.textWidth(labels[i]);
             canvas.setTextSize(1);
             canvas.setTextColor(WHITE);
