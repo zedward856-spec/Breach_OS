@@ -716,6 +716,8 @@ void handleMainMenuInput(Keyboard_Class::KeysState status) {
         if (mainMenuFocus == 0) {
             appState = STATE_GRID_SELECT;
             gridMenuFocus = 0;
+            currentGridScroll = 0;
+            targetGridScroll = 0;
             drawGridSelect();
         } else if (mainMenuFocus == 1 && !isGuest) { // LEADERBOARD
             appState = STATE_LEADERBOARD;
