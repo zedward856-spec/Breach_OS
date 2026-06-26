@@ -727,11 +727,13 @@ void handleMainMenuInput(Keyboard_Class::KeysState status) {
             accountFocus = 0;
             accountStatsFetched = false;
         } else if ((mainMenuFocus == 3 && !isGuest) || (mainMenuFocus == 1 && isGuest)) {
-            authUser = "";
-            authPass = "";
-            isGuest = false;
-            appState = STATE_SPLASH;
-            drawSplash();
+            canvas.fillScreen(CP_BG);
+            canvas.setTextColor(CP_RED);
+            canvas.setTextSize(2);
+            canvas.drawCenterString("REBOOTING...", 120, 50);
+            canvas.pushSprite(0, 0); canvas.endWrite();
+            delay(500);
+            ESP.restart();
         }
         return;
     }
