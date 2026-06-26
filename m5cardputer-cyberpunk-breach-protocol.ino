@@ -287,8 +287,10 @@ void drawSplash() {
     
     if (blinkState) {
         canvas.setTextColor(WHITE);
-        canvas.setCursor(5, 120);
-        canvas.print("> Press ENTER");
+        canvas.setCursor(5, 115);
+        canvas.print("> Press ENTER to Connect");
+        canvas.setCursor(5, 125);
+        canvas.print("> Press ESC to Play Offline");
     }
     
     canvas.pushSprite(0, 0); canvas.endWrite();
@@ -303,6 +305,21 @@ void handleSplashInput(Keyboard_Class::KeysState status) {
         } else {
             startWifiScan();
         }
+    }
+    
+    bool hasEsc = false;
+    for (char c : status.word) {
+        if (c == '`') hasEsc = true; // ESC key on Cardputer
+    }
+    
+    if (hasEsc) {
+        playSound(sound_select, sound_select_size);
+        WiFi.disconnect(true);
+        WiFi.mode(WIFI_OFF);
+        isGuest = true;
+        authUser = "GUEST";
+        appState = STATE_MAIN_MENU;
+        drawMainMenu();
     }
 }
 
