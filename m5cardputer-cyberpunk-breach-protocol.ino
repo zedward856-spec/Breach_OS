@@ -792,29 +792,35 @@ void drawGridSelect() {
         uint16_t tColor = isSelected ? CP_CYAN : CP_DIM;
         canvas.fillRect(tickX - 1, tickY - 1, 6, (isSelected ? 3 : 2), tColor);
         
-        // Rigid geometry: items do not transform or scale, only rotate
-        float h = 26;
-        float w = 195;
+        // Button dynamic properties
+        float h = 30 - abs(offset) * 10;
+        if (h < 1) h = 1;
         float y = tickY - h / 2.0;
-        float x = tickX + 11;
+        float w = 195 + abs(offset) * 10;
+        float x = 40 - abs(offset) * 10;
         
+        int textSize = isSelected ? 2 : 1;
         uint16_t color = isSelected ? CP_YELLOW : CP_DIM;
         
         drawChippedButton(x, y, w, h, color);
         
         canvas.setTextColor(color);
-        canvas.setTextSize(2);
+        canvas.setTextSize(textSize);
         
-        float textY = y + 6;
+        float textY = y + (isSelected ? 7 : 6);
         float textX = x + 15;
         canvas.setCursor(textX, textY);
         canvas.print(labels[i]);
         
-        int labelWidth = canvas.textWidth(labels[i]);
-        canvas.setTextSize(1);
-        canvas.setTextColor(isSelected ? WHITE : CP_DIM);
-        canvas.setCursor(textX + labelWidth + 6, textY + 4); 
-        canvas.print(descs[i]);
+        if (isSelected) {
+            int labelWidth = canvas.textWidth(labels[i]);
+            canvas.setTextSize(1);
+            canvas.setTextColor(WHITE);
+            canvas.setCursor(textX + labelWidth + 6, textY + 4); 
+            canvas.print(descs[i]);
+        } else {
+            canvas.print(" " + descs[i]);
+        }
     }
     
     canvas.pushSprite(0, 0); canvas.endWrite();
