@@ -366,6 +366,12 @@ void startWifiScan() {
 }
 
 void submitScore(int scoreToSubmit) {
+    String key = isGuest ? ("g_hs_" + String(selectedGridSize)) : (authUser + "_hs_" + String(selectedGridSize));
+    int currentHs = prefs.getInt(key.c_str(), 0);
+    if (scoreToSubmit > currentHs) {
+        prefs.putInt(key.c_str(), scoreToSubmit);
+    }
+    
     if (WiFi.status() == WL_CONNECTED && !isGuest) {
         if (!secureClientInit) { secureClient.setInsecure(); secureClientInit = true; }
         HTTPClient http;
@@ -761,9 +767,43 @@ void handleMainMenuInput(Keyboard_Class::KeysState status) {
     }
 }
 
+void drawRotatedText(String text, int cx, int cy, uint16_t color) {
+    int w = text.length() * 6;
+    int h = 8;
+    M5Canvas tSpr(&canvas);
+    tSpr.createSprite(w, h);
+    tSpr.fillSprite(TFT_BLACK); 
+    tSpr.setTextColor(color);
+    tSpr.setTextSize(1);
+    tSpr.drawString(text, 0, 0);
+    
+    for (int y = 0; y < h; y++) {
+        for (int x = 0; x < w; x++) {
+            uint16_t p = tSpr.readPixel(x, y);
+            if (p != TFT_BLACK) {
+                int dx = x - w/2;
+                int dy = y - h/2;
+                int nx = cx - dy;
+                int ny = cy + dx;
+                canvas.drawPixel(nx, ny, p);
+            }
+        }
+    }
+    tSpr.deleteSprite();
+}
+
 void drawGridSelect() {
     canvas.startWrite();
     canvas.fillScreen(CP_BG);
+    
+    String scoreStr = "HI_SCORE";
+    if (gridMenuFocus < 3) {
+        int grid = (gridMenuFocus == 0) ? 3 : ((gridMenuFocus == 1) ? 4 : 5);
+        String key = isGuest ? ("g_hs_" + String(grid)) : (authUser + "_hs_" + String(grid));
+        int hs = prefs.getInt(key.c_str(), 0);
+        if (hs > 0) scoreStr = String(hs);
+    }
+    drawRotatedText(scoreStr, 10, 67, CP_DIM);
     
     // Draw rotating wheel arc on the left
     canvas.drawCircle(-80, 67, 110, CP_DIM);
