@@ -790,7 +790,16 @@ void drawGridSelect() {
         bool isSelected = (i == gridMenuFocus);
         
         uint16_t tColor = isSelected ? CP_CYAN : CP_DIM;
-        canvas.fillRect(tickX - 1, tickY - 1, 6, (isSelected ? 3 : 2), tColor);
+        
+        // Draw outward-pointing rotated ticks instead of flat rectangles
+        float tickEndX = -80 + cos(angle) * (isSelected ? 117 : 115);
+        float tickEndY = 67 + sin(angle) * (isSelected ? 117 : 115);
+        
+        canvas.drawLine(tickX, tickY, tickEndX, tickEndY, tColor);
+        canvas.drawLine(tickX, tickY - 1, tickEndX, tickEndY - 1, tColor);
+        if (isSelected) {
+            canvas.drawLine(tickX, tickY + 1, tickEndX, tickEndY + 1, tColor);
+        }
         
         // Button dynamic properties
         float h = 30 - abs(offset) * 10;
