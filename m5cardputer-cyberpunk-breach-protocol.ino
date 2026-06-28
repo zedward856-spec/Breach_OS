@@ -271,11 +271,11 @@ void drawVolumeOverlay() {
     tSpr.fillRect(0, h - 8, w - 8, 8, CP_PANEL);
     
     int chip = 8;
-    tSpr.drawLine(0, 0, w, 0, CP_YELLOW);
-    tSpr.drawLine(0, 0, 0, h, CP_YELLOW);
-    tSpr.drawLine(0, h, w - chip, h, CP_YELLOW);
-    tSpr.drawLine(w, 0, w, h - chip, CP_YELLOW);
-    tSpr.drawLine(w, h - chip, w - chip, h, CP_YELLOW);
+    tSpr.drawLine(0, 0, w - 1, 0, CP_YELLOW);
+    tSpr.drawLine(0, 0, 0, h - 1, CP_YELLOW);
+    tSpr.drawLine(0, h - 1, w - 1 - chip, h - 1, CP_YELLOW);
+    tSpr.drawLine(w - 1, 0, w - 1, h - 1 - chip, CP_YELLOW);
+    tSpr.drawLine(w - 1, h - 1 - chip, w - 1 - chip, h - 1, CP_YELLOW);
     
     int volPct = round(globalVolume / 2.55);
     tSpr.setTextColor(WHITE);
