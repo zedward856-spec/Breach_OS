@@ -18,13 +18,16 @@ struct RealFile {
     bool isDir;
 };
 
-enum SortMode {
-    SORT_NAME_ASC,
-    SORT_NAME_DESC,
-    SORT_TYPE_ASC,
-    SORT_TYPE_DESC
+enum SortField {
+    SORT_FIELD_NAME,
+    SORT_FIELD_TYPE
 };
-SortMode currentSortMode = SORT_NAME_ASC;
+enum SortOrder {
+    SORT_ORDER_ASC,
+    SORT_ORDER_DESC
+};
+SortField currentSortField = SORT_FIELD_NAME;
+SortOrder currentSortOrder = SORT_ORDER_ASC;
 
 WiFiClientSecure secureClient;
 bool secureClientInit = false;
@@ -605,6 +608,7 @@ String fileManagerCurrentPath = "/";
 String clipboardSourcePath = "";
 String renameInputText = "";
 int fileActionsMenuSelected = 0;
+int settingsFocus = 0;
 
 std::vector<String> dummyLogs = {
     "[ OK ] Init SPI flash layout...",
@@ -642,18 +646,19 @@ bool compareFiles(const RealFile& a, const RealFile& b) {
     aName.toLowerCase();
     bName.toLowerCase();
     
-    if (currentSortMode == SORT_NAME_ASC) {
-        return aName < bName;
-    } else if (currentSortMode == SORT_NAME_DESC) {
-        return aName > bName;
-    } else if (currentSortMode == SORT_TYPE_ASC) {
-        if (a.isDir != b.isDir) {
-            return a.isDir > b.isDir; // Directory first
+    if (currentSortField == SORT_FIELD_NAME) {
+        if (currentSortOrder == SORT_ORDER_ASC) {
+            return aName < bName;
+        } else {
+            return aName > bName;
         }
-        return aName < bName;
-    } else { // SORT_TYPE_DESC
+    } else { // SORT_FIELD_TYPE
         if (a.isDir != b.isDir) {
-            return a.isDir < b.isDir; // Files first
+            if (currentSortOrder == SORT_ORDER_ASC) {
+                return a.isDir > b.isDir; // Directory first
+            } else {
+                return a.isDir < b.isDir; // Files first
+            }
         }
         return aName < bName;
     }
@@ -1052,25 +1057,37 @@ void drawHardwareSettings() {
     canvas.drawCenterString("--- SORT SETTINGS SCHEMA ---", 120, 12);
     canvas.drawLine(10, 24, 230, 24, CP_CYAN);
     
-    // Display options
-    canvas.setTextColor(CP_CYAN);
-    canvas.drawCenterString("CHOOSE FILE SORTING MODE:", 120, 45);
+    // Row 0: Sort Field
+    bool focusField = (settingsFocus == 0);
+    uint16_t fieldBorderColor = focusField ? CP_YELLOW : CP_DIM;
+    canvas.fillRect(15, 36, 210, 22, focusField ? canvas.color565(30, 30, 30) : CP_BG);
+    canvas.drawRect(15, 36, 210, 22, fieldBorderColor);
     
-    // Selected option Chip
-    canvas.fillRect(15, 68, 210, 20, canvas.color565(30, 30, 30));
-    canvas.drawRect(15, 68, 210, 20, CP_CYAN);
+    canvas.setTextColor(focusField ? CP_YELLOW : WHITE);
+    canvas.setCursor(22, 43);
+    canvas.print("SORT BY:");
     
-    canvas.setTextColor(CP_YELLOW);
-    String modeText = "";
-    if (currentSortMode == SORT_NAME_ASC) modeText = "< NAME ASCENDING (A-Z) >";
-    else if (currentSortMode == SORT_NAME_DESC) modeText = "< NAME DESCENDING (Z-A) >";
-    else if (currentSortMode == SORT_TYPE_ASC) modeText = "< TYPE (DIR FIRST) >";
-    else if (currentSortMode == SORT_TYPE_DESC) modeText = "< TYPE (FILES FIRST) >";
+    canvas.setTextColor(focusField ? WHITE : CP_DIM);
+    canvas.setCursor(120, 43);
+    canvas.print(currentSortField == SORT_FIELD_NAME ? "< NAME >" : "< TYPE >");
     
-    canvas.drawCenterString(modeText, 120, 74);
+    // Row 1: Sort Order
+    bool focusOrder = (settingsFocus == 1);
+    uint16_t orderBorderColor = focusOrder ? CP_YELLOW : CP_DIM;
+    canvas.fillRect(15, 66, 210, 22, focusOrder ? canvas.color565(30, 30, 30) : CP_BG);
+    canvas.drawRect(15, 66, 210, 22, orderBorderColor);
     
+    canvas.setTextColor(focusOrder ? CP_YELLOW : WHITE);
+    canvas.setCursor(22, 73);
+    canvas.print("ORDER:");
+    
+    canvas.setTextColor(focusOrder ? WHITE : CP_DIM);
+    canvas.setCursor(120, 73);
+    canvas.print(currentSortOrder == SORT_ORDER_ASC ? "< ASCENDING >" : "< DESCENDING >");
+    
+    // Footer hints
     canvas.setTextColor(CP_DIM);
-    canvas.drawCenterString("USE LEFT/RIGHT KEYS TO CYCLE", 120, 98);
+    canvas.drawCenterString("UP/DN: SELECT ROW  |  LF/RT: CHANGE", 120, 98);
     canvas.setTextColor(CP_YELLOW);
     canvas.drawCenterString("ENTER: APPLY  |  ESC/COMMA: BACK", 120, 114);
     
@@ -1097,26 +1114,35 @@ void handleHardwareSettingsInput(Keyboard_Class::KeysState status) {
         return;
     }
     
+    bool hasUp = false, hasDown = false;
     bool hasLeft = false, hasRight = false;
     for (char c : status.word) {
-        if (c == ';') hasLeft = true;
-        if (c == '.') hasRight = true;
+        if (c == ';') hasUp = true;
+        if (c == '.') hasDown = true;
         if (c == ',') hasLeft = true;
         if (c == '/') hasRight = true;
     }
     
-    if (hasLeft) {
+    if (hasUp) {
         playSound(sound_hover, sound_hover_size);
-        int mode = (int)currentSortMode - 1;
-        if (mode < 0) mode = 3;
-        currentSortMode = (SortMode)mode;
+        settingsFocus = 1 - settingsFocus; // Toggle between 0 and 1
         drawHardwareSettings();
     }
-    if (hasRight) {
+    if (hasDown) {
         playSound(sound_hover, sound_hover_size);
-        int mode = (int)currentSortMode + 1;
-        if (mode > 3) mode = 0;
-        currentSortMode = (SortMode)mode;
+        settingsFocus = 1 - settingsFocus; // Toggle between 0 and 1
+        drawHardwareSettings();
+    }
+    
+    if (hasLeft || hasRight) {
+        playSound(sound_hover, sound_hover_size);
+        if (settingsFocus == 0) {
+            // Toggle Sort Field
+            currentSortField = (currentSortField == SORT_FIELD_NAME) ? SORT_FIELD_TYPE : SORT_FIELD_NAME;
+        } else {
+            // Toggle Sort Order
+            currentSortOrder = (currentSortOrder == SORT_ORDER_ASC) ? SORT_ORDER_DESC : SORT_ORDER_ASC;
+        }
         drawHardwareSettings();
     }
 }
