@@ -94,6 +94,7 @@ AppState appState = STATE_SPLASH;
 
 bool isGuest = false;
 bool insaneMode = false;
+bool lastBreachFailed = false;
 String authUser = "";
 String authPass = "";
 int authFocus = 0; 
@@ -704,11 +705,11 @@ void drawMainMenu() {
         drawChippedButton(70, startY + spacing*2, 100, 20, colorAccount);
         drawGlitchText("ACCOUNT", 120, startY + spacing*2 + 5, 1, colorAccount);
         
-        uint16_t colorBack = (mainMenuFocus == 3) ? CP_YELLOW : WHITE;
+        uint16_t colorBack = lastBreachFailed ? CP_RED : ((mainMenuFocus == 3) ? CP_YELLOW : WHITE);
         drawChippedButton(70, startY + spacing*3, 100, 20, colorBack);
         drawGlitchText("BACK", 120, startY + spacing*3 + 5, 1, colorBack);
     } else {
-        uint16_t colorBack = (mainMenuFocus == 1) ? CP_YELLOW : WHITE;
+        uint16_t colorBack = lastBreachFailed ? CP_RED : ((mainMenuFocus == 1) ? CP_YELLOW : WHITE);
         drawChippedButton(70, startY + spacing, 100, 20, colorBack);
         drawGlitchText("BACK", 120, startY + spacing + 5, 1, colorBack);
     }
@@ -803,7 +804,7 @@ void drawGridSelect() {
         int hs = prefs.getInt(key.c_str(), 0);
         if (hs > 0) scoreStr = String(hs);
     }
-    drawRotatedText(scoreStr, 10, 67, CP_DIM);
+    drawRotatedText(scoreStr, 10, 67, CP_YELLOW);
     
     // Draw rotating wheel arc on the left
     canvas.drawCircle(-80, 67, 110, CP_DIM);
@@ -850,6 +851,9 @@ void drawGridSelect() {
         
         int textSize = isSelected ? 2 : 1;
         uint16_t color = isSelected ? CP_YELLOW : CP_DIM;
+        if (i == 3 && lastBreachFailed) {
+            color = CP_RED;
+        }
         
         drawChippedButton(x, y, w, h, color);
         
@@ -1047,6 +1051,7 @@ void drawLeaderboard() {
 }
 
 void initGame(bool keepDiff) {
+    lastBreachFailed = false;
     gridSize = selectedGridSize;
     maxTime = phaseTimes[currentPhase - 1];
     
@@ -1730,6 +1735,7 @@ void loop() {
         if (keyChanged && keyPressed) {
             if (globalStatus.enter) {
                 playSound(sound_select, sound_select_size);
+                lastBreachFailed = true;
                 appState = STATE_MAIN_MENU;
                 drawMainMenu();
             }
@@ -1782,6 +1788,9 @@ void loop() {
             if (c == 27 || c == '`') {
                 playSound(sound_select, sound_select_size);
                 appState = STATE_GRID_SELECT;
+                gridMenuFocus = 0;
+                currentGridScroll = 0;
+                targetGridScroll = 0;
                 drawGridSelect();
                 return;
             }
