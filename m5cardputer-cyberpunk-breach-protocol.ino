@@ -97,7 +97,8 @@ enum AppState {
     STATE_CONTROLS,
     STATE_CREDITS,
     STATE_HARDWARE_MENU,
-    STATE_FILE_MANAGER
+    STATE_FILE_MANAGER,
+    STATE_FILE_LOADING
 };
 AppState appState = STATE_SPLASH;
 
@@ -187,6 +188,7 @@ void drawHardwareMenu();
 void handleHardwareMenuInput(Keyboard_Class::KeysState status);
 void drawFileManager();
 void handleFileManagerInput(Keyboard_Class::KeysState status);
+void drawFileLoading();
 
 void drawMessage(String msg, String line2 = "");
 void drawGlitchText(String text, int x, int y, int size, uint16_t color, bool center = true, bool forceGlitch = false) {
@@ -424,6 +426,7 @@ void drawCurrentScreen() {
         case STATE_CREDITS: drawCreditsScreen(); break;
         case STATE_HARDWARE_MENU: drawHardwareMenu(); break;
         case STATE_FILE_MANAGER: drawFileManager(); break;
+        case STATE_FILE_LOADING: drawFileLoading(); break;
     }
 }
 
@@ -569,6 +572,8 @@ int fileManagerSelected = 0;
 bool showFileContent = false;
 bool isSDFallback = false;
 bool isFlashFallback = false;
+int fileManagerScrollOffset = 0;
+int loadingProgress = 0;
 
 std::vector<String> dummyLogs = {
     "[ OK ] Init SPI flash layout...",
@@ -634,7 +639,7 @@ void populateFileList() {
         }
         
         File file = root.openNextFile();
-        while (file && loadedFiles.size() < 15) {
+        while (file && loadedFiles.size() < 100) {
             RealFile rf;
             rf.name = String(file.name());
             if (rf.name.startsWith("/")) rf.name.remove(0, 1);
@@ -680,7 +685,7 @@ void populateFileList() {
         }
         
         File file = root.openNextFile();
-        while (file && loadedFiles.size() < 15) {
+        while (file && loadedFiles.size() < 100) {
             RealFile rf;
             rf.name = String(file.name());
             if (rf.name.startsWith("/")) rf.name.remove(0, 1);
@@ -931,18 +936,14 @@ void handleHardwareMenuInput(Keyboard_Class::KeysState status) {
         
         if (hardwareMenuFocus == 0) {
             isSDCardManager = false;
-            appState = STATE_FILE_MANAGER;
-            fileManagerSelected = 0;
+            appState = STATE_FILE_LOADING;
+            loadingProgress = 0;
             showFileContent = false;
-            populateFileList();
-            drawFileManager();
         } else if (hardwareMenuFocus == 1) {
             isSDCardManager = true;
-            appState = STATE_FILE_MANAGER;
-            fileManagerSelected = 0;
+            appState = STATE_FILE_LOADING;
+            loadingProgress = 0;
             showFileContent = false;
-            populateFileList();
-            drawFileManager();
         } else if (hardwareMenuFocus == 2) {
             appState = STATE_SPLASH;
             drawSplash();
@@ -985,15 +986,22 @@ void drawFileManager() {
     canvas.drawLine(10, 24, 230, 24, CP_CYAN);
     
     if (!showFileContent) {
-        if (fsStatusMessage != "") {
+        if (fsStatusMessage != "" && loadedFiles.empty()) {
             canvas.setTextColor(CP_RED);
             canvas.drawCenterString(fsStatusMessage, 120, 65);
         } else {
-            // Draw file list
-            int startY = 32;
-            int maxShow = min(5, (int)loadedFiles.size());
+            if (fsStatusMessage != "") {
+                canvas.setTextColor(CP_YELLOW);
+                canvas.setCursor(15, 27);
+                canvas.print(fsStatusMessage);
+            }
+            
+            // Draw file list with scroll viewport paging
+            int startY = fsStatusMessage != "" ? 42 : 32;
+            int maxShow = min(5, (int)loadedFiles.size() - fileManagerScrollOffset);
             for (int i = 0; i < maxShow; i++) {
-                bool isSel = (i == fileManagerSelected);
+                int fileIdx = fileManagerScrollOffset + i;
+                bool isSel = (fileIdx == fileManagerSelected);
                 uint16_t color = isSel ? CP_YELLOW : WHITE;
                 
                 if (isSel) {
@@ -1003,12 +1011,12 @@ void drawFileManager() {
                 
                 canvas.setTextColor(color);
                 canvas.setCursor(15, startY);
-                canvas.print(loadedFiles[i].name);
+                canvas.print(loadedFiles[fileIdx].name);
                 
                 canvas.setCursor(170, startY);
-                canvas.print(loadedFiles[i].sizeStr);
+                canvas.print(loadedFiles[fileIdx].sizeStr);
                 
-                startY += 15;
+                startY += 14;
             }
         }
         
@@ -1073,19 +1081,53 @@ void handleFileManagerInput(Keyboard_Class::KeysState status) {
     }
     
     int maxIdx = loadedFiles.empty() ? 0 : loadedFiles.size() - 1;
-    if (maxIdx > 4) maxIdx = 4;
     
     if (hasUp && maxIdx > 0) {
         playSound(sound_hover, sound_hover_size);
         fileManagerSelected--;
-        if (fileManagerSelected < 0) fileManagerSelected = maxIdx;
+        if (fileManagerSelected < 0) {
+            fileManagerSelected = maxIdx;
+            if (maxIdx > 4) {
+                fileManagerScrollOffset = maxIdx - 4;
+            } else {
+                fileManagerScrollOffset = 0;
+            }
+        } else {
+            if (fileManagerSelected < fileManagerScrollOffset) {
+                fileManagerScrollOffset = fileManagerSelected;
+            }
+        }
         drawFileManager();
     }
     if (hasDown && maxIdx > 0) {
         playSound(sound_hover, sound_hover_size);
         fileManagerSelected++;
-        if (fileManagerSelected > maxIdx) fileManagerSelected = 0;
+        if (fileManagerSelected > maxIdx) {
+            fileManagerSelected = 0;
+            fileManagerScrollOffset = 0;
+        } else {
+            if (fileManagerSelected > fileManagerScrollOffset + 4) {
+                fileManagerScrollOffset = fileManagerSelected - 4;
+            }
+        }
         drawFileManager();
+    }
+}
+
+void drawFileLoading() {
+    String statusText = isSDCardManager ? "READING SD CARD SCHEMA..." : "READING FLASH SCHEMA...";
+    drawProgressBar(loadingProgress, statusText, CP_CYAN);
+    
+    loadingProgress += 4;
+    if (loadingProgress >= 100) {
+        loadingProgress = 100;
+        populateFileList();
+        fileManagerSelected = 0;
+        fileManagerScrollOffset = 0;
+        appState = STATE_FILE_MANAGER;
+        drawFileManager();
+    } else {
+        delay(30);
     }
 }
 
@@ -2900,6 +2942,12 @@ void loop() {
             drawHardwareMenu();
         }
         
+        delay(10);
+        return;
+    }
+    
+    if (appState == STATE_FILE_LOADING) {
+        drawFileLoading();
         delay(10);
         return;
     }
