@@ -1071,6 +1071,13 @@ void drawSplash() {
     canvas.setTextColor(WHITE);
     
 
+    canvas.drawString("> Press ", 5, 105);
+    int x01 = 5 + canvas.textWidth("> Press ");
+    drawGlitchText("1", x01, 105, 1, WHITE, false, true);
+    int x02 = x01 + canvas.textWidth("1");
+    canvas.setTextColor(WHITE);
+    canvas.drawString(" for Hardware Node", x02, 105);
+    
     canvas.drawString("> Press ", 5, 115);
     int x1 = 5 + canvas.textWidth("> Press ");
     drawGlitchText("ENTER", x1, 115, 1, WHITE, false, true);
@@ -1101,8 +1108,22 @@ void handleSplashInput(Keyboard_Class::KeysState status) {
     }
     
     bool hasEsc = false;
+    bool hasOne = false;
     for (char c : status.word) {
         if (c == '`') hasEsc = true; // ESC key on Cardputer
+        if (c == '1') hasOne = true;
+    }
+    
+    if (hasOne) {
+        playSound(sound_select, sound_select_size);
+        appState = STATE_HARDWARE_MENU;
+        hardwareMenuFocus = 0;
+        currentHardwareScroll = 0;
+        targetHardwareScroll = 0;
+        showHardwareDesc = false;
+        hardwareDescAnimWidth = 0.0;
+        drawHardwareMenu();
+        return;
     }
     
     if (hasEsc) {
@@ -1504,12 +1525,12 @@ void drawMainMenu() {
     canvas.drawCircle(-80, 67, 110, CP_DIM);
     canvas.drawCircle(-80, 67, 109, CP_DIM);
     
-    int totalItems = isGuest ? 5 : 7;
+    int totalItems = isGuest ? 4 : 6;
     std::vector<String> labels;
     if (isGuest) {
-        labels = {"HACK", "HARDWARE NODE", "CONTROLS", "CREDITS", "BACK"};
+        labels = {"HACK", "CONTROLS", "CREDITS", "BACK"};
     } else {
-        labels = {"HACK", "LEADERBOARD", "ACCOUNT", "HARDWARE NODE", "CONTROLS", "CREDITS", "BACK"};
+        labels = {"HACK", "LEADERBOARD", "ACCOUNT", "CONTROLS", "CREDITS", "BACK"};
     }
     
     for (int i = 0; i < totalItems; i++) {
@@ -1589,9 +1610,6 @@ void drawMainMenu() {
             if (label == "HACK") {
                 line1 = "Access subnet";
                 line2 = "gateways";
-            } else if (label == "HARDWARE NODE") {
-                line1 = "Hardware";
-                line2 = "node";
             } else if (label == "LEADERBOARD") {
                 line1 = "View global";
                 line2 = "scores";
@@ -1637,7 +1655,7 @@ void handleMainMenuInput(Keyboard_Class::KeysState status) {
             return;
         }
     } else {
-        int limit = isGuest ? 4 : 6;
+        int limit = isGuest ? 3 : 5;
         if (hasRight && mainMenuFocus < limit) {
             playSound(sound_select, sound_select_size);
             showMenuDesc = true;
@@ -1652,9 +1670,9 @@ void handleMainMenuInput(Keyboard_Class::KeysState status) {
         
         std::vector<String> labels;
         if (isGuest) {
-            labels = {"HACK", "HARDWARE NODE", "CONTROLS", "CREDITS", "BACK"};
+            labels = {"HACK", "CONTROLS", "CREDITS", "BACK"};
         } else {
-            labels = {"HACK", "LEADERBOARD", "ACCOUNT", "HARDWARE NODE", "CONTROLS", "CREDITS", "BACK"};
+            labels = {"HACK", "LEADERBOARD", "ACCOUNT", "CONTROLS", "CREDITS", "BACK"};
         }
         
         String selectedLabel = labels[mainMenuFocus];
@@ -1664,14 +1682,6 @@ void handleMainMenuInput(Keyboard_Class::KeysState status) {
             currentGridScroll = 0;
             targetGridScroll = 0;
             drawGridSelect();
-        } else if (selectedLabel == "HARDWARE NODE") {
-            appState = STATE_HARDWARE_MENU;
-            hardwareMenuFocus = 0;
-            currentHardwareScroll = 0;
-            targetHardwareScroll = 0;
-            showHardwareDesc = false;
-            hardwareDescAnimWidth = 0.0;
-            drawHardwareMenu();
         } else if (selectedLabel == "LEADERBOARD") {
             appState = STATE_LEADERBOARD;
             drawMessage("FETCHING DATABANK...");
@@ -1702,7 +1712,7 @@ void handleMainMenuInput(Keyboard_Class::KeysState status) {
     }
     
     if (!showMenuDesc) {
-        int maxFocus = isGuest ? 4 : 6;
+        int maxFocus = isGuest ? 3 : 5;
         if (hasUp) {
             playSound(sound_hover, sound_hover_size);
             mainMenuFocus--;
