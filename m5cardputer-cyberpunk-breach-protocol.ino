@@ -610,6 +610,9 @@ String renameInputText = "";
 int fileActionsMenuSelected = 0;
 int settingsFocus = 0;
 bool showSystemFiles = false;
+unsigned long lastFileSelectionTime = 0;
+int marqueeScrollOffset = 0;
+unsigned long lastMarqueeUpdate = 0;
 
 std::vector<String> dummyLogs = {
     "[ OK ] Init SPI flash layout...",
@@ -864,6 +867,9 @@ void populateFileList() {
             std::sort(loadedFiles.begin() + sortStart, loadedFiles.end(), compareFiles);
         }
     }
+    
+    lastFileSelectionTime = millis();
+    marqueeScrollOffset = 0;
 }
 
 void readSelectedFileContent(String fileName) {
@@ -1296,9 +1302,25 @@ void drawFileManager(bool push) {
                 canvas.setTextColor(color);
                 canvas.setCursor(15, startY);
                 
-                // Truncate name if it's too long to fit with the scrollbar
+                // Truncate name if it's too long to fit with the scrollbar, or marquee scroll if selected
                 String nameToPrint = loadedFiles[fileIdx].name;
-                if (nameToPrint.length() > 18) {
+                if (isSel && nameToPrint.length() > 18) {
+                    if (millis() - lastFileSelectionTime > 1000) {
+                        int maxScroll = nameToPrint.length() - 18;
+                        if (marqueeScrollOffset <= maxScroll) {
+                            nameToPrint = nameToPrint.substring(marqueeScrollOffset);
+                        } else {
+                            if (millis() - lastFileSelectionTime > 1000 + maxScroll * 250 + 1000) {
+                                lastFileSelectionTime = millis();
+                                marqueeScrollOffset = 0;
+                            }
+                            nameToPrint = nameToPrint.substring(maxScroll);
+                        }
+                    }
+                    if (nameToPrint.length() > 18) {
+                        nameToPrint = nameToPrint.substring(0, 18);
+                    }
+                } else if (nameToPrint.length() > 18) {
                     nameToPrint = nameToPrint.substring(0, 15) + "...";
                 }
                 canvas.print(nameToPrint);
@@ -1431,6 +1453,8 @@ void handleFileManagerInput(Keyboard_Class::KeysState status) {
                 fileManagerScrollOffset = fileManagerSelected;
             }
         }
+        lastFileSelectionTime = millis();
+        marqueeScrollOffset = 0;
         drawFileManager();
     }
     if (hasDown && maxIdx > 0) {
@@ -1444,6 +1468,8 @@ void handleFileManagerInput(Keyboard_Class::KeysState status) {
                 fileManagerScrollOffset = fileManagerSelected - 4;
             }
         }
+        lastFileSelectionTime = millis();
+        marqueeScrollOffset = 0;
         drawFileManager();
     }
 }
@@ -1616,6 +1642,9 @@ void handleFileActionsMenuInput(Keyboard_Class::KeysState status) {
                         fileManagerScrollOffset = fileManagerSelected;
                     } else if (fileManagerSelected > fileManagerScrollOffset + 4) {
                         fileManagerScrollOffset = fileManagerSelected - 4;
+                    }
+                    if (fileManagerScrollOffset + 5 > (int)loadedFiles.size()) {
+                        fileManagerScrollOffset = (int)loadedFiles.size() - 5;
                     }
                 } else {
                     fileManagerScrollOffset = 0;
@@ -3673,6 +3702,17 @@ void loop() {
         if (keyChanged && keyPressed) {
             handleFileManagerInput(globalStatus);
         }
+        
+        if (!loadedFiles.empty() && loadedFiles[fileManagerSelected].name.length() > 18) {
+            if (millis() - lastFileSelectionTime > 1000) {
+                if (millis() - lastMarqueeUpdate > 250) {
+                    marqueeScrollOffset++;
+                    drawFileManager();
+                    lastMarqueeUpdate = millis();
+                }
+            }
+        }
+        
         delay(10);
         return;
     }
