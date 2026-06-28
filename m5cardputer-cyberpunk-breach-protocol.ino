@@ -474,10 +474,11 @@ void drawCreditsScreen() {
     canvas.setTextColor(WHITE);
     canvas.drawCenterString("CD PROJEKT RED (CDPR)", 120, 86);
     canvas.setTextColor(CP_DIM);
-    canvas.drawCenterString("sl01220 ported & developed the firmware", 120, 96);
+    canvas.drawCenterString("sl01220 ported &", 120, 94);
+    canvas.drawCenterString("developed the firmware", 120, 103);
     
     canvas.setTextColor(CP_YELLOW);
-    canvas.drawCenterString("PRESS ENTER TO EXIT", 120, 115);
+    canvas.drawCenterString("PRESS ENTER TO EXIT", 120, 116);
     
     pushCanvas();
 }
