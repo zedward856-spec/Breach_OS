@@ -171,6 +171,7 @@ void drawVolumeOverlay();
 void drawBrightnessOverlay();
 void pushCanvas();
 void drawCurrentScreen();
+void drawProgressBar(int progress, String statusText, uint16_t color = CP_CYAN);
 void drawControlsScreen();
 void handleControlsInput(Keyboard_Class::KeysState status);
 void drawCreditsScreen();
@@ -399,6 +400,42 @@ void drawCurrentScreen() {
     }
 }
 
+void drawProgressBar(int progress, String statusText, uint16_t color) {
+    canvas.startWrite();
+    canvas.fillScreen(CP_BG);
+    
+    // Draw Cyberpunk framed container
+    canvas.drawRect(20, 20, 200, 95, color);
+    canvas.drawRect(22, 22, 196, 91, CP_DIM);
+    
+    // Header
+    canvas.setTextColor(CP_YELLOW);
+    canvas.setTextSize(1);
+    canvas.drawCenterString("--- CYBERDECK LINK SYSTEM ---", 120, 28);
+    canvas.drawLine(25, 38, 215, 38, color);
+    
+    // Status text
+    canvas.setTextColor(color);
+    canvas.setTextSize(1);
+    canvas.drawCenterString(statusText, 120, 48);
+    
+    // Progress bar frame
+    canvas.drawRect(35, 68, 170, 16, color);
+    
+    // Progress fill
+    int fillW = (166 * progress) / 100;
+    if (fillW > 0) {
+        canvas.fillRect(37, 70, fillW, 12, color);
+    }
+    
+    // Percentage text
+    canvas.setTextColor(WHITE);
+    canvas.setTextSize(1);
+    canvas.drawCenterString(String(progress) + "%", 120, 92);
+    
+    pushCanvas();
+}
+
 void drawControlsScreen() {
     canvas.startWrite();
     canvas.fillScreen(CP_BG);
@@ -616,14 +653,22 @@ void handleSplashInput(Keyboard_Class::KeysState status) {
 
 void startWifiScan() {
     if (savedSSID != "" && savedWifiPass != "") {
-        drawMessage("CONNECTING TO:", savedSSID);
         WiFi.begin(savedSSID.c_str(), savedWifiPass.c_str());
         int attempts = 0;
         while (WiFi.status() != WL_CONNECTED && attempts < 40) {
+            int progress = (attempts * 100) / 40;
+            drawProgressBar(progress, "CONNECTING TO LINK...", CP_CYAN);
             delay(100);
             attempts++;
         }
         if (WiFi.status() == WL_CONNECTED) {
+            for (int p = ((attempts * 100) / 40); p <= 100; p += 10) {
+                drawProgressBar(p, "LINK ONLINE!", CP_GREEN);
+                delay(20);
+            }
+            drawProgressBar(100, "LINK ONLINE!", CP_GREEN);
+            playSound(wifi_finished_wav, wifi_finished_wav_len);
+            delay(1000);
             enterMainMenu();
             return;
         }
@@ -751,7 +796,12 @@ void handleAuthInput(Keyboard_Class::KeysState status) {
             return;
         } else if (authFocus == 3) {
             if (authUser == "") return;
-            drawMessage("AUTHENTICATING...");
+            
+            for (int p = 0; p <= 75; p += 5) {
+                drawProgressBar(p, "DECRYPTING LINK SYSTEM...", CP_CYAN);
+                delay(20);
+            }
+            
             if (!secureClientInit) { secureClient.setInsecure(); secureClientInit = true; }
             HTTPClient http;
             String url = String(API_URL) + "/auth";
@@ -767,16 +817,16 @@ void handleAuthInput(Keyboard_Class::KeysState status) {
                 JsonDocument doc;
                 deserializeJson(doc, response);
                 String action = doc["action"].as<String>();
+                String msg = (action == "signup") ? "OPERATIVE REGISTERED!" : "LOGIN SUCCESSFUL!";
                 
-                playSound(wifi_finished_wav, wifi_finished_wav_len);
-                
-                if (action == "signup") {
-                    drawMessage("NEW OPERATIVE REGISTERED!");
-                } else {
-                    drawMessage("LOGIN SUCCESSFUL!");
+                for (int p = 75; p <= 100; p += 5) {
+                    drawProgressBar(p, msg, CP_GREEN);
+                    delay(25);
                 }
+                drawProgressBar(100, msg, CP_GREEN);
+                playSound(wifi_finished_wav, wifi_finished_wav_len);
+                delay(1000);
                 http.end();
-                delay(1500);
                 
                 if (rememberMe) {
                     prefs.putString("user", authUser);
@@ -790,7 +840,8 @@ void handleAuthInput(Keyboard_Class::KeysState status) {
                 enterMainMenu();
             } else {
                 http.end();
-                drawMessage("ACCESS DENIED");
+                playSound(sound_fail, sound_fail_size);
+                drawProgressBar(100, "ACCESS DENIED", CP_RED);
                 delay(2000);
                 drawAuthMenu();
             }
@@ -925,16 +976,25 @@ void drawWifiPass() {
 void handleWifiPassInput(Keyboard_Class::KeysState status) {
     if (status.enter) {
         playSound(sound_select, sound_select_size);
-        drawMessage("CONNECTING TO:", wifiList[wifiSelection]);
         WiFi.begin(wifiList[wifiSelection].c_str(), wifiPass.c_str());
         
         int attempts = 0;
         while (WiFi.status() != WL_CONNECTED && attempts < 50) {
+            int progress = (attempts * 100) / 50;
+            drawProgressBar(progress, "CONNECTING TO LINK...", CP_CYAN);
             delay(100);
             attempts++;
         }
         
         if (WiFi.status() == WL_CONNECTED) {
+            for (int p = ((attempts * 100) / 50); p <= 100; p += 10) {
+                drawProgressBar(p, "LINK ONLINE!", CP_GREEN);
+                delay(20);
+            }
+            drawProgressBar(100, "LINK ONLINE!", CP_GREEN);
+            playSound(wifi_finished_wav, wifi_finished_wav_len);
+            delay(1000);
+            
             prefs.putString("wifi_ssid", wifiList[wifiSelection]);
             prefs.putString("wifi_pass", wifiPass);
             savedSSID = wifiList[wifiSelection];
@@ -943,7 +1003,7 @@ void handleWifiPassInput(Keyboard_Class::KeysState status) {
             drawAuthMenu();
         } else {
             playSound(sound_fail, sound_fail_size);
-            drawMessage("WIFI FAILED!");
+            drawProgressBar(100, "LINK ERROR: OFFLINE", CP_RED);
             delay(2000);
             appState = STATE_WIFI_SCAN;
             drawWifiScan();
