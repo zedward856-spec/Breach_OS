@@ -2534,6 +2534,7 @@ void loop() {
             else if (appState == STATE_GRID_SELECT) drawGridSelect();
             else if (appState == STATE_PHASE_TRANSITION) drawPhaseTransition();
             else if (appState == STATE_FAILED_SCREEN) drawGameOverFailed();
+            else if (appState == STATE_HARDWARE_MENU) drawHardwareMenu();
 
             lastInsane = now;
             nextInsane = random(50, 1200);
@@ -2602,6 +2603,16 @@ void loop() {
     }
 
     if (appState == STATE_HARDWARE_MENU) {
+        if (!insaneMode) {
+            static unsigned long lastHardwareGlitch = 0;
+            static unsigned long nextHardwareGlitch = 500;
+            if (now - lastHardwareGlitch > nextHardwareGlitch) {
+                drawHardwareMenu();
+                lastHardwareGlitch = now;
+                nextHardwareGlitch = random(50, 1200);
+            }
+        }
+        
         if (keyChanged && keyPressed) {
             handleHardwareMenuInput(globalStatus);
             if (appState == STATE_HARDWARE_MENU) drawHardwareMenu();
