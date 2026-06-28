@@ -181,6 +181,9 @@ void handleCreditsInput(Keyboard_Class::KeysState status);
 void drawMessage(String msg, String line2 = "");
 void drawGlitchText(String text, int x, int y, int size, uint16_t color, bool center = true, bool forceGlitch = false) {
     bool canGlitch = insaneMode || forceGlitch;
+    if (appState == STATE_MAIN_MENU && abs(currentMenuScroll - targetMenuScroll) > 0.01) {
+        canGlitch = false;
+    }
     if (!canGlitch) {
         canvas.setTextSize(size);
         canvas.setTextColor(color);
