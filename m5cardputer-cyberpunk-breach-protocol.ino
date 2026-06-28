@@ -138,6 +138,8 @@ float currentGridScroll = 0;
 float targetGridScroll = 0;
 float currentMenuScroll = 0;
 float targetMenuScroll = 0;
+bool showMenuDesc = false;
+float descAnimWidth = 0.0;
 
 int lastPhaseScore = 0;
 float lastTimeRatio = 0.0;
@@ -685,6 +687,8 @@ void enterMainMenu() {
     mainMenuFocus = 0;
     currentMenuScroll = 0;
     targetMenuScroll = 0;
+    showMenuDesc = false;
+    descAnimWidth = 0.0;
     drawMainMenu();
 }
 
@@ -764,12 +768,61 @@ void drawMainMenu() {
         canvas.print(labels[i]);
     }
     
+    if (descAnimWidth > 0.0) {
+        int x = 40;
+        int y = 52; // selected button y (67 - 15)
+        int h = 30;
+        
+        // Fill background to cover the original button
+        canvas.fillRect(x, y, (int)descAnimWidth, h, CP_BG);
+        
+        // Draw the chipped button outline
+        drawChippedButton(x, y, (int)descAnimWidth, h, CP_YELLOW);
+        
+        if (descAnimWidth > 160.0) {
+            canvas.setTextColor(CP_YELLOW);
+            canvas.setTextSize(1);
+            canvas.setCursor(x + 10, y + 11);
+            String descText = "";
+            if (mainMenuFocus == 0) descText = "HACK: Access subnet gateways";
+            else if (mainMenuFocus == 1) descText = "DATABANK: View global scores";
+            else if (mainMenuFocus == 2) descText = "ACCOUNT: Operative profile";
+            canvas.print(descText);
+        }
+    }
+    
     canvas.pushSprite(0, 0); canvas.endWrite();
 }
 
 void handleMainMenuInput(Keyboard_Class::KeysState status) {
+    bool hasUp = false, hasDown = false;
+    bool hasRight = false;
+    bool hasLeft = false;
+    for (char c : status.word) {
+        if (c == ';') hasUp = true;
+        if (c == '.') hasDown = true;
+        if (c == '/') hasRight = true;
+        if (c == ',') hasLeft = true;
+    }
+    
+    if (showMenuDesc) {
+        if (hasLeft || hasUp || hasDown) {
+            playSound(sound_select, sound_select_size);
+            showMenuDesc = false;
+            return;
+        }
+    } else {
+        if (hasRight && mainMenuFocus < 3) {
+            playSound(sound_select, sound_select_size);
+            showMenuDesc = true;
+            return;
+        }
+    }
+
     if (status.enter) {
         playSound(sound_select, sound_select_size);
+        showMenuDesc = false;
+        descAnimWidth = 0.0;
         if (mainMenuFocus == 0) {
             appState = STATE_GRID_SELECT;
             gridMenuFocus = 0;
@@ -799,24 +852,20 @@ void handleMainMenuInput(Keyboard_Class::KeysState status) {
         return;
     }
     
-    bool hasUp = false, hasDown = false;
-    for (char c : status.word) {
-        if (c == ',' || c == ';') hasUp = true;
-        if (c == '/' || c == '.') hasDown = true;
-    }
-    
-    int maxFocus = isGuest ? 1 : 3;
-    if (hasUp) {
-        playSound(sound_hover, sound_hover_size);
-        mainMenuFocus--;
-        if (mainMenuFocus < 0) mainMenuFocus = maxFocus;
-        targetMenuScroll -= 1.0;
-    }
-    if (hasDown) {
-        playSound(sound_hover, sound_hover_size);
-        mainMenuFocus++;
-        if (mainMenuFocus > maxFocus) mainMenuFocus = 0;
-        targetMenuScroll += 1.0;
+    if (!showMenuDesc) {
+        int maxFocus = isGuest ? 1 : 3;
+        if (hasUp) {
+            playSound(sound_hover, sound_hover_size);
+            mainMenuFocus--;
+            if (mainMenuFocus < 0) mainMenuFocus = maxFocus;
+            targetMenuScroll -= 1.0;
+        }
+        if (hasDown) {
+            playSound(sound_hover, sound_hover_size);
+            mainMenuFocus++;
+            if (mainMenuFocus > maxFocus) mainMenuFocus = 0;
+            targetMenuScroll += 1.0;
+        }
     }
 }
 
@@ -1690,13 +1739,30 @@ void loop() {
             handleMainMenuInput(globalStatus);
             if (appState == STATE_MAIN_MENU) drawMainMenu();
         }
+        
+        bool needsRedraw = false;
         if (abs(currentMenuScroll - targetMenuScroll) > 0.01) {
             currentMenuScroll += (targetMenuScroll - currentMenuScroll) * 0.3; // Smooth lerp
             if (abs(currentMenuScroll - targetMenuScroll) <= 0.01) {
                 currentMenuScroll = targetMenuScroll;
             }
+            needsRedraw = true;
+        }
+        
+        if (showMenuDesc && descAnimWidth < 195.0) {
+            descAnimWidth += (195.0 - descAnimWidth) * 0.4;
+            if (195.0 - descAnimWidth < 1.0) descAnimWidth = 195.0;
+            needsRedraw = true;
+        } else if (!showMenuDesc && descAnimWidth > 0.0) {
+            descAnimWidth += (0.0 - descAnimWidth) * 0.4;
+            if (descAnimWidth < 1.0) descAnimWidth = 0.0;
+            needsRedraw = true;
+        }
+        
+        if (needsRedraw) {
             drawMainMenu();
         }
+        
         delay(10);
         return;
     }
