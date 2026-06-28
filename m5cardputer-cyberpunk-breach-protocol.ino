@@ -702,13 +702,10 @@ void drawMainMenu() {
     
     int totalItems = isGuest ? 2 : 4;
     std::vector<String> labels;
-    std::vector<String> descs;
     if (isGuest) {
         labels = {"PLAY", "BACK"};
-        descs = {"Start Breach", "Reboot Cardputer"};
     } else {
         labels = {"PLAY", "LEADERBOARD", "ACCOUNT", "BACK"};
-        descs = {"Start Breach", "Global Databank", "Operative Profile", "Reboot Cardputer"};
     }
     
     for (int i = 0; i < totalItems; i++) {
@@ -765,16 +762,6 @@ void drawMainMenu() {
         float textX = x + 15;
         canvas.setCursor(textX, textY);
         canvas.print(labels[i]);
-        
-        if (isSelected) {
-            int labelWidth = canvas.textWidth(labels[i]);
-            canvas.setTextSize(1);
-            canvas.setTextColor(WHITE);
-            canvas.setCursor(textX + labelWidth + 6, textY + 4); 
-            canvas.print(descs[i]);
-        } else {
-            canvas.print(" " + descs[i]);
-        }
     }
     
     canvas.pushSprite(0, 0); canvas.endWrite();
