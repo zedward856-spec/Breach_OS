@@ -165,6 +165,9 @@ uint16_t blendColor(uint16_t c1, uint16_t c2, uint8_t alpha);
 void drawVolumeOverlay();
 void pushCanvas();
 void drawCurrentScreen();
+void playTerminalConnectAnimation(bool isGuestAuth);
+void drawTerminalScan();
+void handleTerminalScanInput(Keyboard_Class::KeysState status);
 
 void drawMessage(String msg, String line2 = "");
 void drawGlitchText(String text, int x, int y, int size, uint16_t color, bool center = true, bool forceGlitch = false) {
@@ -324,6 +327,89 @@ void drawCurrentScreen() {
         case STATE_PHASE_TRANSITION: drawPhaseTransition(); break;
         case STATE_FAILED_SCREEN: drawGameOverFailed(); break;
         case STATE_PLAYING: drawScreen(); break;
+        case STATE_TERMINAL_SCAN: drawTerminalScan(); break;
+    }
+}
+
+void playTerminalConnectAnimation(bool isGuestAuth) {
+    canvas.startWrite();
+    canvas.fillScreen(CP_BG);
+    canvas.setTextColor(CP_YELLOW);
+    canvas.setTextSize(1);
+    pushCanvas();
+    
+    String lines[5];
+    if (isGuestAuth) {
+        lines[0] = "> BYPASS SEQUENCE INITIATED...";
+        lines[1] = "> RETRIEVING BEACON FRAMES...";
+        lines[2] = "> GATEWAY: BYPASSING ENCRYPTION...";
+        lines[3] = "> SYSTEM LOG: OVERRIDE IN PROGRESS...";
+        lines[4] = "> UPLINK ESTABLISHED. ACCESS GRANTED.";
+    } else {
+        lines[0] = "> COVERT UPLINK CONNECTING...";
+        lines[1] = "> HANDSHAKE SENT. RESPONDING...";
+        lines[2] = "> SENDING OPERATIVE CREDENTIALS...";
+        lines[3] = "> SYNCING NETWORK KEYS...";
+        lines[4] = "> AUTHLINK ESTABLISHED. ACCESS GRANTED.";
+    }
+    
+    for (int i = 0; i < 5; i++) {
+        playSound(sound_hover, sound_hover_size);
+        for (unsigned int c = 0; c <= lines[i].length(); c++) {
+            canvas.fillRect(0, 10 + i * 20, 240, 15, CP_BG);
+            canvas.setCursor(10, 10 + i * 20);
+            canvas.print(lines[i].substring(0, c) + "_");
+            pushCanvas();
+            delay(15);
+        }
+        canvas.fillRect(0, 10 + i * 20, 240, 15, CP_BG);
+        canvas.setCursor(10, 10 + i * 20);
+        canvas.print(lines[i]);
+        pushCanvas();
+        delay(150);
+    }
+    playSound(wifi_finished_wav, wifi_finished_wav_len);
+    delay(500);
+}
+
+void drawTerminalScan() {
+    canvas.startWrite();
+    canvas.fillScreen(CP_BG);
+    
+    canvas.setTextColor(CP_YELLOW);
+    canvas.setTextSize(1);
+    canvas.drawString("=====================================", 10, 5);
+    canvas.drawString("      TERMINAL UPLINK ESTABLISHED    ", 10, 15);
+    canvas.drawString("=====================================", 10, 25);
+    
+    canvas.setTextColor(CP_CYAN);
+    canvas.drawString("ACCESS NODE  :", 15, 45);
+    canvas.drawString("MAC ADDRESS  :", 15, 60);
+    canvas.drawString("OPERATIVE    :", 15, 75);
+    canvas.drawString("INSANE MODE  :", 15, 90);
+    
+    canvas.setTextColor(WHITE);
+    String nodeSSID = WiFi.status() == WL_CONNECTED ? WiFi.SSID() : "OFFLINE_LINK";
+    String nodeMAC = WiFi.status() == WL_CONNECTED ? WiFi.BSSIDstr() : WiFi.macAddress();
+    nodeMAC.toUpperCase();
+    String opName = isGuest ? "GUEST_OPERATIVE" : authUser;
+    String insaneStr = insaneMode ? "ACTIVE (HIGH SECURITY)" : "DEACTIVATED";
+    
+    canvas.drawString(nodeSSID, 105, 45);
+    canvas.drawString(nodeMAC, 105, 60);
+    canvas.drawString(opName, 105, 75);
+    canvas.drawString(insaneStr, 105, 90);
+    
+    canvas.setTextColor(CP_YELLOW);
+    canvas.drawCenterString("PRESS ENTER TO ENTER NETWORK NODE", 120, 115);
+    
+    pushCanvas();
+}
+
+void handleTerminalScanInput(Keyboard_Class::KeysState status) {
+    if (status.enter) {
+        playSound(sound_select, sound_select_size);
+        enterMainMenu();
     }
 }
 
@@ -438,7 +524,9 @@ void handleSplashInput(Keyboard_Class::KeysState status) {
         WiFi.mode(WIFI_OFF);
         isGuest = true;
         authUser = "GUEST";
-        enterMainMenu();
+        playTerminalConnectAnimation(true);
+        appState = STATE_TERMINAL_SCAN;
+        drawTerminalScan();
     }
 }
 
@@ -452,11 +540,15 @@ void startWifiScan() {
             attempts++;
         }
         if (WiFi.status() == WL_CONNECTED) {
-            appState = STATE_AUTH_MENU;
-            drawAuthMenu();
+            playTerminalConnectAnimation(false);
+            appState = STATE_TERMINAL_SCAN;
+            drawTerminalScan();
             return;
         }
     }
+
+    // Play scanning animation before performing WiFi scan
+    playTerminalConnectAnimation(false);
 
     drawMessage("SCANNING WIFI...");
     WiFi.mode(WIFI_STA);
@@ -616,7 +708,9 @@ void handleAuthInput(Keyboard_Class::KeysState status) {
                 }
                 
                 isGuest = false;
-                enterMainMenu();
+                playTerminalConnectAnimation(false);
+                appState = STATE_TERMINAL_SCAN;
+                drawTerminalScan();
             } else {
                 http.end();
                 drawMessage("ACCESS DENIED");
@@ -627,7 +721,9 @@ void handleAuthInput(Keyboard_Class::KeysState status) {
         } else if (authFocus == 4) {
             isGuest = true;
             playSound(wifi_finished_wav, wifi_finished_wav_len);
-            enterMainMenu();
+            playTerminalConnectAnimation(true);
+            appState = STATE_TERMINAL_SCAN;
+            drawTerminalScan();
             return;
         }
         authFocus++;
@@ -675,21 +771,23 @@ void handleAuthInput(Keyboard_Class::KeysState status) {
 void drawWifiScan() {
     canvas.startWrite();
     canvas.fillScreen(CP_BG);
+    
     canvas.setTextColor(CP_YELLOW);
     canvas.setTextSize(1);
-    canvas.setCursor(5, 5);
-    canvas.print("SELECT WIFI NETWORK:");
+    canvas.drawString("--- WIFI TRANSCEIVER MODULE SCAN ---", 10, 5);
+    canvas.drawString("SELECT NODE FOR BREACH INTRUSION  ", 10, 15);
+    canvas.drawString("-----------------------------------", 10, 25);
     
     for (int i = 0; i < wifiList.size(); i++) {
-        int y = 25 + i * 12;
+        int y = 35 + i * 11;
         if (i == wifiSelection) {
-            canvas.fillRect(5, y - 1, 230, 11, CP_CYAN);
+            canvas.fillRect(5, y - 1, 230, 10, CP_CYAN);
             canvas.setTextColor(BLACK, CP_CYAN);
         } else {
-            canvas.setTextColor(WHITE, CP_BG);
+            canvas.setTextColor(CP_CYAN, CP_BG);
         }
         canvas.setCursor(10, y);
-        canvas.print(wifiList[i]);
+        canvas.print("> " + wifiList[i]);
     }
     pushCanvas();
 }
@@ -717,7 +815,9 @@ void handleWifiScanInput(Keyboard_Class::KeysState status) {
             WiFi.mode(WIFI_OFF);
             isGuest = true;
             authUser = "GUEST";
-            enterMainMenu();
+            playTerminalConnectAnimation(true);
+            appState = STATE_TERMINAL_SCAN;
+            drawTerminalScan();
             return;
         }
         appState = STATE_WIFI_PASS;
@@ -766,6 +866,7 @@ void handleWifiPassInput(Keyboard_Class::KeysState status) {
             prefs.putString("wifi_pass", wifiPass);
             savedSSID = wifiList[wifiSelection];
             savedWifiPass = wifiPass;
+            playTerminalConnectAnimation(false);
             appState = STATE_AUTH_MENU;
             drawAuthMenu();
         } else {
@@ -1362,8 +1463,6 @@ void setup() {
     M5Cardputer.Display.setRotation(1);
     canvas.createSprite(240, 135);
     
-    M5Cardputer.Speaker.setVolume(255);
-    
     prefs.begin("breach", false);
     highScore = prefs.getInt("highscore", 0);
     savedSSID = prefs.getString("wifi_ssid", "");
@@ -1371,6 +1470,8 @@ void setup() {
     insaneMode = prefs.getBool("insane", false);
     authUser = prefs.getString("user", "");
     authPass = prefs.getString("pass", "");
+    globalVolume = prefs.getInt("volume", 80);
+    M5Cardputer.Speaker.setVolume(globalVolume);
     if (authUser != "") rememberMe = true;
     
     if (savedSSID != "") {
@@ -1801,6 +1902,7 @@ void loop() {
         }
         if (volChanged) {
             M5Cardputer.Speaker.setVolume(globalVolume);
+            prefs.putInt("volume", globalVolume);
             playSound(sound_hover, sound_hover_size);
             showVolumePopup = true;
             lastVolumeChangeTime = now;
@@ -1870,6 +1972,15 @@ void loop() {
         if (keyChanged && keyPressed) {
             handleWifiPassInput(globalStatus);
             if (appState == STATE_WIFI_PASS) drawWifiPass();
+        }
+        delay(10);
+        return;
+    }
+    
+    if (appState == STATE_TERMINAL_SCAN) {
+        if (keyChanged && keyPressed) {
+            handleTerminalScanInput(globalStatus);
+            if (appState == STATE_TERMINAL_SCAN) drawTerminalScan();
         }
         delay(10);
         return;
