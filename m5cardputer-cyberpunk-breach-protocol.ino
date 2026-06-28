@@ -1143,6 +1143,13 @@ void handleMainMenuInput(Keyboard_Class::KeysState status) {
         showMenuDesc = false;
         descAnimWidth = 0.0;
         
+        std::vector<String> labels;
+        if (isGuest) {
+            labels = {"HACK", "CONTROLS", "CREDITS", "BACK"};
+        } else {
+            labels = {"HACK", "LEADERBOARD", "ACCOUNT", "CONTROLS", "CREDITS", "BACK"};
+        }
+        
         String selectedLabel = labels[mainMenuFocus];
         if (selectedLabel == "HACK") {
             appState = STATE_GRID_SELECT;
