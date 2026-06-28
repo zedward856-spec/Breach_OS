@@ -848,11 +848,12 @@ void drawMainMenu() {
         }
         
         // Button dynamic properties
-        float h = 30 - abs(offset) * 10;
-        if (h < 1) h = 1;
+        float scale = 1.0 - abs(offset) * 0.3333;
+        if (scale < 0.1) scale = 0.1;
+        float h = 30.0 * scale;
         float y = tickY - h / 2.0;
-        float w = 195 - abs(offset) * 20;
-        float x = 40 - abs(offset) * 10;
+        float w = 195.0 * scale;
+        float x = tickX + 10;
         
         int textSize = isSelected ? 2 : 1;
         uint16_t color = isSelected ? CP_YELLOW : CP_DIM;
@@ -1047,11 +1048,12 @@ void drawGridSelect() {
         }
         
         // Button dynamic properties
-        float h = 30 - abs(offset) * 10;
-        if (h < 1) h = 1;
+        float scale = 1.0 - abs(offset) * 0.3333;
+        if (scale < 0.1) scale = 0.1;
+        float h = 30.0 * scale;
         float y = tickY - h / 2.0;
-        float w = 195 - abs(offset) * 20;
-        float x = 40 - abs(offset) * 10;
+        float w = 195.0 * scale;
+        float x = tickX + 10;
         
         int textSize = isSelected ? 2 : 1;
         uint16_t color = isSelected ? CP_YELLOW : CP_DIM;
