@@ -1033,7 +1033,7 @@ void drawMainMenu() {
     canvas.fillScreen(CP_BG);
     
     // Draw headers centered on the right side of the screen to avoid the scroll wheel
-    drawGlitchText("NETWORK NODE", 135, 12, 2, CP_CYAN, true, true);
+    drawGlitchText("NETWORK NODE", 135, 12, 2, CP_CYAN, true, false);
     drawGlitchText("OPERATIVE: " + (isGuest ? String("GUEST") : authUser), 135, 34, 1, CP_DIM);
     
     // Draw rotating wheel arc on the left
