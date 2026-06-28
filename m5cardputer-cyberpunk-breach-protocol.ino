@@ -1,6 +1,10 @@
 #include "M5Cardputer.h"
 #include <Preferences.h>
 #include <WiFi.h>
+#include <SPIFFS.h>
+#include <FS.h>
+#include <SD.h>
+#include <SPI.h>
 #include <HTTPClient.h>
 #include <vector>
 #include <ArduinoJson.h>
@@ -560,27 +564,147 @@ int hardwareMenuFocus = 0;
 bool showHardwareDesc = false;
 float hardwareDescAnimWidth = 0.0;
 
-struct MockFile {
+struct RealFile {
     String name;
-    String size;
-    String content[4];
+    String sizeStr;
+    bool isDir;
 };
+std::vector<RealFile> loadedFiles;
+String fsStatusMessage = "";
+std::vector<String> openedFileContent;
+String openedFileName = "";
 
-MockFile flashFiles[5] = {
-    {"deck_firmware.bin", "128 KB", {"DECK CORE V7.0", "BOOT STRAP: LOADED", "SECTORS: OK", "CRC CHECK: SUCCESS"}},
-    {"subnet_config.json", "1.2 KB", {"{", "  \"node_id\": \"BP_X1\",", "  \"security\": \"LEVEL_3\",", "  \"encryption\": \"AES256\""}},
-    {"icebreaker.sys", "4.0 KB", {"ICEBREAKER SYSTEM", "DEC_KEY: 0x55BD", "SUB_CORE: ONLINE", "STATUS: LOCKED"}},
-    {"score_logs.txt", "0.5 KB", {"BREACH SCORE LOG:", "OP_02: 12500 pts", "OP_04: 9800 pts", "GUEST: 4500 (OFFLINE)"}},
-    {"system_core.db", "64 KB", {"SYS MEM DUMP:", "0x00FF: 42 1C 55", "0x01A0: BD E9 FF", "MEM_INTEGRITY: 100%"}}
-};
+void populateFileList() {
+    loadedFiles.clear();
+    fsStatusMessage = "";
+    
+    if (isSDCardManager) {
+        SPI.begin(40, 39, 14, 12);
+        if (!SD.begin(12, SPI, 20000000)) {
+            fsStatusMessage = "SD MOUNT ERROR (CS 12)";
+            return;
+        }
+        File root = SD.open("/");
+        if (!root) {
+            fsStatusMessage = "SD DIRECTORY ERROR";
+            return;
+        }
+        if (!root.isDirectory()) {
+            fsStatusMessage = "SD PATH NOT DIRECTORY";
+            root.close();
+            return;
+        }
+        
+        File file = root.openNextFile();
+        while (file && loadedFiles.size() < 15) {
+            RealFile rf;
+            rf.name = String(file.name());
+            if (rf.name.startsWith("/")) rf.name.remove(0, 1);
+            
+            rf.isDir = file.isDirectory();
+            if (rf.isDir) {
+                rf.sizeStr = "DIR";
+            } else {
+                rf.sizeStr = String(file.size() / 1024.0, 1) + " KB";
+            }
+            loadedFiles.push_back(rf);
+            file = root.openNextFile();
+        }
+        root.close();
+        if (loadedFiles.empty()) {
+            fsStatusMessage = "SD CARD EMPTY";
+        }
+    } else {
+        if (!SPIFFS.begin(true)) {
+            fsStatusMessage = "SPIFFS MOUNT ERROR";
+            return;
+        }
+        File root = SPIFFS.open("/");
+        if (!root) {
+            fsStatusMessage = "FLASH DIR ERROR";
+            return;
+        }
+        
+        File file = root.openNextFile();
+        while (file && loadedFiles.size() < 15) {
+            RealFile rf;
+            rf.name = String(file.name());
+            if (rf.name.startsWith("/")) rf.name.remove(0, 1);
+            
+            rf.isDir = file.isDirectory();
+            if (rf.isDir) {
+                rf.sizeStr = "DIR";
+            } else {
+                rf.sizeStr = String(file.size() / 1024.0, 1) + " KB";
+            }
+            loadedFiles.push_back(rf);
+            file = root.openNextFile();
+        }
+        root.close();
+        if (loadedFiles.empty()) {
+            fsStatusMessage = "FLASH SYSTEM EMPTY";
+        }
+    }
+}
 
-MockFile sdFiles[5] = {
-    {"cyber_track.wav", "2.4 MB", {"AUDIO SAMPLE RATE", "FREQ: 44100 Hz", "CHANNELS: STEREO", "STATUS: BUFFERED"}},
-    {"payload.sh", "0.8 KB", {"#!/bin/bash", "echo \"INITIALIZING INTRUSION...\"", "curl -X POST /api/breach", "exit 0"}},
-    {"hacker_bg.png", "45 KB", {"IMAGE DATA DUMP", "DIMENSIONS: 240x135", "COLORS: RGB565", "COMPRESSION: NONE"}},
-    {"session.dat", "1.5 KB", {"SAVE STATE DATA:", "LEVEL: SUBNET_C4", "ENCRYPTION: ACTIVE", "KEY_COUNT: 4"}},
-    {"auth_keys.key", "0.2 KB", {"PEM PRIVATE KEY:", "---BEGIN PRIVATE---", "MIIEvgIBADANBgkqhki", "---END PRIVATE---"}}
-};
+void readSelectedFileContent(String fileName) {
+    openedFileContent.clear();
+    openedFileName = fileName;
+    String path = "/" + fileName;
+    
+    if (isSDCardManager) {
+        SPI.begin(40, 39, 14, 12);
+        if (!SD.begin(12, SPI, 20000000)) {
+            openedFileContent.push_back("SD Card Mount Error");
+            return;
+        }
+        File f = SD.open(path);
+        if (!f) {
+            openedFileContent.push_back("Could not open file.");
+            return;
+        }
+        if (f.isDirectory()) {
+            openedFileContent.push_back("Cannot read directory.");
+            f.close();
+            return;
+        }
+        
+        int lineCount = 0;
+        while (f.available() && lineCount < 4) {
+            String line = f.readStringUntil('\n');
+            line.replace("\r", "");
+            if (line.length() > 25) line = line.substring(0, 25) + "...";
+            openedFileContent.push_back(line);
+            lineCount++;
+        }
+        f.close();
+    } else {
+        if (!SPIFFS.begin(true)) {
+            openedFileContent.push_back("Flash Mount Error");
+            return;
+        }
+        File f = SPIFFS.open(path);
+        if (!f) {
+            openedFileContent.push_back("Could not open file.");
+            return;
+        }
+        if (f.isDirectory()) {
+            openedFileContent.push_back("Cannot read directory.");
+            f.close();
+            return;
+        }
+        
+        int lineCount = 0;
+        while (f.available() && lineCount < 4) {
+            String line = f.readStringUntil('\n');
+            line.replace("\r", "");
+            if (line.length() > 25) line = line.substring(0, 25) + "...";
+            openedFileContent.push_back(line);
+            lineCount++;
+        }
+        f.close();
+    }
+}
 
 bool isSDCardManager = false;
 int fileManagerSelected = 0;
@@ -711,12 +835,14 @@ void handleHardwareMenuInput(Keyboard_Class::KeysState status) {
             appState = STATE_FILE_MANAGER;
             fileManagerSelected = 0;
             showFileContent = false;
+            populateFileList();
             drawFileManager();
         } else if (hardwareMenuFocus == 1) {
             isSDCardManager = true;
             appState = STATE_FILE_MANAGER;
             fileManagerSelected = 0;
             showFileContent = false;
+            populateFileList();
             drawFileManager();
         } else if (hardwareMenuFocus == 2) {
             appState = STATE_SPLASH;
@@ -759,48 +885,49 @@ void drawFileManager() {
     }
     canvas.drawLine(10, 24, 230, 24, CP_CYAN);
     
-    MockFile* currentList = isSDCardManager ? sdFiles : flashFiles;
-    
     if (!showFileContent) {
-        // Draw file list
-        int startY = 32;
-        for (int i = 0; i < 5; i++) {
-            bool isSel = (i == fileManagerSelected);
-            uint16_t color = isSel ? CP_YELLOW : WHITE;
-            
-            if (isSel) {
-                canvas.fillRect(10, startY - 2, 220, 14, canvas.color565(30, 30, 30));
-                canvas.drawRect(10, startY - 2, 220, 14, CP_CYAN);
+        if (fsStatusMessage != "") {
+            canvas.setTextColor(CP_RED);
+            canvas.drawCenterString(fsStatusMessage, 120, 65);
+        } else {
+            // Draw file list
+            int startY = 32;
+            int maxShow = min(5, (int)loadedFiles.size());
+            for (int i = 0; i < maxShow; i++) {
+                bool isSel = (i == fileManagerSelected);
+                uint16_t color = isSel ? CP_YELLOW : WHITE;
+                
+                if (isSel) {
+                    canvas.fillRect(10, startY - 2, 220, 14, canvas.color565(30, 30, 30));
+                    canvas.drawRect(10, startY - 2, 220, 14, CP_CYAN);
+                }
+                
+                canvas.setTextColor(color);
+                canvas.setCursor(15, startY);
+                canvas.print(loadedFiles[i].name);
+                
+                canvas.setCursor(170, startY);
+                canvas.print(loadedFiles[i].sizeStr);
+                
+                startY += 15;
             }
-            
-            canvas.setTextColor(color);
-            canvas.setCursor(15, startY);
-            canvas.print(currentList[i].name);
-            
-            canvas.setCursor(170, startY);
-            canvas.print(currentList[i].size);
-            
-            startY += 15;
         }
         
         canvas.setTextColor(CP_YELLOW);
         canvas.drawCenterString("ENTER: OPEN  |  ESC/COMMA: BACK", 120, 114);
     } else {
         // Draw selected file content panel
-        MockFile f = currentList[fileManagerSelected];
         canvas.setTextColor(CP_CYAN);
         canvas.setCursor(15, 32);
-        canvas.print("FILE: " + f.name);
+        canvas.print("FILE: " + openedFileName);
         canvas.drawLine(12, 44, 228, 44, CP_CYAN);
         
         canvas.setTextColor(WHITE);
         int startY = 50;
-        for (int i = 0; i < 4; i++) {
-            if (f.content[i] != "") {
-                canvas.setCursor(15, startY);
-                canvas.print(f.content[i]);
-                startY += 12;
-            }
+        for (size_t i = 0; i < openedFileContent.size(); i++) {
+            canvas.setCursor(15, startY);
+            canvas.print(openedFileContent[i]);
+            startY += 12;
         }
         
         canvas.setTextColor(CP_YELLOW);
@@ -832,8 +959,9 @@ void handleFileManagerInput(Keyboard_Class::KeysState status) {
         return;
     }
     
-    if (status.enter) {
+    if (status.enter && !loadedFiles.empty()) {
         playSound(sound_select, sound_select_size);
+        readSelectedFileContent(loadedFiles[fileManagerSelected].name);
         showFileContent = true;
         drawFileManager();
         return;
@@ -845,16 +973,19 @@ void handleFileManagerInput(Keyboard_Class::KeysState status) {
         if (c == '.') hasDown = true;
     }
     
-    if (hasUp) {
+    int maxIdx = loadedFiles.empty() ? 0 : loadedFiles.size() - 1;
+    if (maxIdx > 4) maxIdx = 4;
+    
+    if (hasUp && maxIdx > 0) {
         playSound(sound_hover, sound_hover_size);
         fileManagerSelected--;
-        if (fileManagerSelected < 0) fileManagerSelected = 4;
+        if (fileManagerSelected < 0) fileManagerSelected = maxIdx;
         drawFileManager();
     }
-    if (hasDown) {
+    if (hasDown && maxIdx > 0) {
         playSound(sound_hover, sound_hover_size);
         fileManagerSelected++;
-        if (fileManagerSelected > 4) fileManagerSelected = 0;
+        if (fileManagerSelected > maxIdx) fileManagerSelected = 0;
         drawFileManager();
     }
 }
@@ -1982,9 +2113,44 @@ void initGame(bool keepDiff) {
     lastBlink = millis();
 }
 
+void initSPIFFS() {
+    if (SPIFFS.begin(true)) {
+        if (!SPIFFS.exists("/deck_config.json")) {
+            File f = SPIFFS.open("/deck_config.json", FILE_WRITE);
+            if (f) {
+                f.println("{");
+                f.println("  \"deck_id\": \"CYBER_D_01\",");
+                f.println("  \"os\": \"cyber_os_7.0\",");
+                f.println("  \"icebreaker\": \"v4.2\"");
+                f.println("}");
+                f.close();
+            }
+        }
+        if (!SPIFFS.exists("/breach_log.txt")) {
+            File f = SPIFFS.open("/breach_log.txt", FILE_WRITE);
+            if (f) {
+                f.println("BREACH ACCESS LOG:");
+                f.println("OP: sl01220");
+                f.println("STATUS: COMPLETED");
+                f.close();
+            }
+        }
+        if (!SPIFFS.exists("/system.ini")) {
+            File f = SPIFFS.open("/system.ini", FILE_WRITE);
+            if (f) {
+                f.println("[system]");
+                f.println("node=BP_X1");
+                f.println("security=HIGH");
+                f.close();
+            }
+        }
+    }
+}
+
 void setup() {
     auto cfg = M5.config();
     M5Cardputer.begin(cfg);
+    initSPIFFS();
     M5Cardputer.Display.setRotation(1);
     canvas.createSprite(240, 135);
     
