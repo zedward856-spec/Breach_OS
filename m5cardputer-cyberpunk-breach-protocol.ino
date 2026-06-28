@@ -424,7 +424,7 @@ void drawControlsScreen() {
     canvas.setCursor(130, 64); canvas.print("MINUS OR PLUS");
     canvas.setCursor(130, 76); canvas.print("L_BRACKET OR R_BRACKET");
     canvas.setCursor(130, 88); canvas.print("BACKSPACE");
-    canvas.setCursor(130, 100); canvas.print("UP DOWN LEFT RIGHT");
+    canvas.setCursor(130, 100); canvas.print("SEMICOLON(UP) OR PERIOD(DOWN) OR ESC");
     
     canvas.setTextColor(CP_YELLOW);
     canvas.drawCenterString("PRESS COMMA OR ENTER TO EXIT", 120, 115);
@@ -1271,9 +1271,16 @@ void handleGridSelectInput(Keyboard_Class::KeysState status) {
         return;
     }
     bool hasUp = false, hasDown = false;
+    bool hasEsc = false;
     for (char c : status.word) {
-        if (c == ',' || c == ';') hasUp = true;
-        if (c == '/' || c == '.') hasDown = true;
+        if (c == ';') hasUp = true;
+        if (c == '.') hasDown = true;
+        if (c == '`') hasEsc = true;
+    }
+    if (hasEsc) {
+        playSound(sound_select, sound_select_size);
+        enterMainMenu();
+        return;
     }
     if (hasUp) { 
         playSound(sound_hover, sound_hover_size); 
