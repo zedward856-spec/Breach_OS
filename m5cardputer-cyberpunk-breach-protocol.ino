@@ -1077,8 +1077,6 @@ void drawGridSelect() {
             canvas.setTextColor(WHITE);
             canvas.setCursor(textX + labelWidth + 6, textY + 4); 
             canvas.print(descs[i]);
-        } else {
-            canvas.print(" " + descs[i]);
         }
     }
     
