@@ -89,7 +89,8 @@ enum AppState {
     STATE_PHASE_TRANSITION,
     STATE_FAILED_SCREEN,
     STATE_PLAYING,
-    STATE_CONTROLS
+    STATE_CONTROLS,
+    STATE_CREDITS
 };
 AppState appState = STATE_SPLASH;
 
@@ -173,6 +174,8 @@ void drawCurrentScreen();
 void playMatrixRainTransition();
 void drawControlsScreen();
 void handleControlsInput(Keyboard_Class::KeysState status);
+void drawCreditsScreen();
+void handleCreditsInput(Keyboard_Class::KeysState status);
 
 void drawMessage(String msg, String line2 = "");
 void drawGlitchText(String text, int x, int y, int size, uint16_t color, bool center = true, bool forceGlitch = false) {
@@ -393,6 +396,7 @@ void drawCurrentScreen() {
         case STATE_FAILED_SCREEN: drawGameOverFailed(); break;
         case STATE_PLAYING: drawScreen(); break;
         case STATE_CONTROLS: drawControlsScreen(); break;
+        case STATE_CREDITS: drawCreditsScreen(); break;
     }
 }
 
@@ -433,6 +437,52 @@ void drawControlsScreen() {
 }
 
 void handleControlsInput(Keyboard_Class::KeysState status) {
+    bool hasBack = false;
+    for (char c : status.word) {
+        if (c == ',' || c == '`') hasBack = true;
+    }
+    if (status.enter || hasBack) {
+        playSound(sound_select, sound_select_size);
+        appState = STATE_MAIN_MENU;
+        drawMainMenu();
+    }
+}
+
+void drawCreditsScreen() {
+    canvas.startWrite();
+    canvas.fillScreen(CP_BG);
+    
+    // Outer cyberpunk borders
+    canvas.drawRect(5, 5, 230, 125, CP_CYAN);
+    canvas.drawRect(7, 7, 226, 121, CP_DIM);
+    
+    // Header
+    canvas.setTextColor(CP_YELLOW);
+    canvas.setTextSize(1);
+    canvas.drawCenterString("--- CYBERDECK CREDITS SCHEMA ---", 120, 12);
+    canvas.drawLine(10, 24, 230, 24, CP_CYAN);
+    
+    canvas.setTextColor(CP_CYAN);
+    canvas.drawCenterString("OPERATIVE FIRMWARE DEV:", 120, 34);
+    canvas.setTextColor(WHITE);
+    canvas.drawCenterString("sl01220", 120, 46);
+    canvas.setTextColor(CP_DIM);
+    canvas.drawCenterString("(15-year-old developer)", 120, 56);
+    
+    canvas.setTextColor(CP_CYAN);
+    canvas.drawCenterString("ORIGINAL CORE DESIGN:", 120, 74);
+    canvas.setTextColor(WHITE);
+    canvas.drawCenterString("CD PROJEKT RED (CDPR)", 120, 86);
+    canvas.setTextColor(CP_DIM);
+    canvas.drawCenterString("sl01220 ported & developed the firmware", 120, 96);
+    
+    canvas.setTextColor(CP_YELLOW);
+    canvas.drawCenterString("PRESS ENTER TO EXIT", 120, 115);
+    
+    pushCanvas();
+}
+
+void handleCreditsInput(Keyboard_Class::KeysState status) {
     bool hasBack = false;
     for (char c : status.word) {
         if (c == ',' || c == '`') hasBack = true;
@@ -968,12 +1018,12 @@ void drawMainMenu() {
     canvas.drawCircle(-80, 67, 110, CP_DIM);
     canvas.drawCircle(-80, 67, 109, CP_DIM);
     
-    int totalItems = isGuest ? 3 : 5;
+    int totalItems = isGuest ? 4 : 6;
     std::vector<String> labels;
     if (isGuest) {
-        labels = {"HACK", "CONTROLS", "BACK"};
+        labels = {"HACK", "CONTROLS", "CREDITS", "BACK"};
     } else {
-        labels = {"HACK", "LEADERBOARD", "ACCOUNT", "CONTROLS", "BACK"};
+        labels = {"HACK", "LEADERBOARD", "ACCOUNT", "CONTROLS", "CREDITS", "BACK"};
     }
     
     for (int i = 0; i < totalItems; i++) {
@@ -1054,13 +1104,14 @@ void drawMainMenu() {
             else if (label == "LEADERBOARD") descText = "DATABANK: View global scores";
             else if (label == "ACCOUNT") descText = "ACCOUNT: Operative profile";
             else if (label == "CONTROLS") descText = "CONTROLS: Keyboard bindings";
+            else if (label == "CREDITS") descText = "CREDITS: System developers & rights";
             canvas.print(descText);
         }
     }
     
     pushCanvas();
 }
-
+ 
 void handleMainMenuInput(Keyboard_Class::KeysState status) {
     bool hasUp = false, hasDown = false;
     bool hasRight = false;
@@ -1079,39 +1130,44 @@ void handleMainMenuInput(Keyboard_Class::KeysState status) {
             return;
         }
     } else {
-        int limit = isGuest ? 2 : 4;
+        int limit = isGuest ? 3 : 5;
         if (hasRight && mainMenuFocus < limit) {
             playSound(sound_select, sound_select_size);
             showMenuDesc = true;
             return;
         }
     }
-
+ 
     if (status.enter) {
         playSound(sound_select, sound_select_size);
         showMenuDesc = false;
         descAnimWidth = 0.0;
-        if (mainMenuFocus == 0) {
+        
+        String selectedLabel = labels[mainMenuFocus];
+        if (selectedLabel == "HACK") {
             appState = STATE_GRID_SELECT;
             gridMenuFocus = 0;
             currentGridScroll = 0;
             targetGridScroll = 0;
             drawGridSelect();
-        } else if (mainMenuFocus == 1 && !isGuest) { // LEADERBOARD
+        } else if (selectedLabel == "LEADERBOARD") {
             appState = STATE_LEADERBOARD;
             drawMessage("FETCHING DATABANK...");
             fetchLeaderboard(0, 10);
             leaderboardCursor = 0;
             leaderboardScrollOffset = 0;
             drawLeaderboard();
-        } else if (mainMenuFocus == 2 && !isGuest) {
+        } else if (selectedLabel == "ACCOUNT") {
             appState = STATE_ACCOUNT;
             accountFocus = 0;
             accountStatsFetched = false;
-        } else if ((mainMenuFocus == 3 && !isGuest) || (mainMenuFocus == 1 && isGuest)) { // CONTROLS
+        } else if (selectedLabel == "CONTROLS") {
             appState = STATE_CONTROLS;
             drawControlsScreen();
-        } else if ((mainMenuFocus == 4 && !isGuest) || (mainMenuFocus == 2 && isGuest)) { // REBOOT / BACK
+        } else if (selectedLabel == "CREDITS") {
+            appState = STATE_CREDITS;
+            drawCreditsScreen();
+        } else if (selectedLabel == "BACK") {
             canvas.fillScreen(CP_BG);
             canvas.setTextColor(CP_RED);
             canvas.setTextSize(2);
@@ -1124,7 +1180,7 @@ void handleMainMenuInput(Keyboard_Class::KeysState status) {
     }
     
     if (!showMenuDesc) {
-        int maxFocus = isGuest ? 2 : 4;
+        int maxFocus = isGuest ? 3 : 5;
         if (hasUp) {
             playSound(sound_hover, sound_hover_size);
             mainMenuFocus--;
@@ -2155,6 +2211,15 @@ void loop() {
         if (keyChanged && keyPressed) {
             handleControlsInput(globalStatus);
             if (appState == STATE_CONTROLS) drawControlsScreen();
+        }
+        delay(10);
+        return;
+    }
+
+    if (appState == STATE_CREDITS) {
+        if (keyChanged && keyPressed) {
+            handleCreditsInput(globalStatus);
+            if (appState == STATE_CREDITS) drawCreditsScreen();
         }
         delay(10);
         return;
