@@ -18,7 +18,7 @@ M5Canvas canvas(&M5Cardputer.Display);
 // --- AUDIO PLACEHOLDERS ---
 #include "sounds.h"
 
-int globalVolume = 255;
+int globalVolume = 100;
 
 const unsigned char* sound_hover = nullptr;
 size_t sound_hover_size = 0;
@@ -281,14 +281,14 @@ void drawVolumeOverlay() {
     tSpr.drawLine(w - 1, 0, w - 1, h - 1 - chip, CP_YELLOW);
     tSpr.drawLine(w - 1, h - 1 - chip, w - 1 - chip, h - 1, CP_YELLOW);
     
-    int volPct = round(globalVolume / 2.55);
+    int volPct = globalVolume;
     tSpr.setTextColor(WHITE);
     tSpr.setTextSize(1);
     tSpr.setCursor(8, 6);
     tSpr.print("VOL: " + String(volPct) + "%");
     
     tSpr.drawRect(8, 18, 59, 6, CP_YELLOW);
-    int barW = (57 * globalVolume) / 255;
+    int barW = (57 * globalVolume) / 100;
     if (barW > 0) {
         tSpr.fillRect(9, 19, barW, 4, CP_YELLOW);
     }
@@ -1472,7 +1472,10 @@ void setup() {
     authUser = prefs.getString("user", "");
     authPass = prefs.getString("pass", "");
     globalVolume = prefs.getInt("volume", 80);
-    M5Cardputer.Speaker.setVolume(globalVolume);
+    if (globalVolume > 100) globalVolume = (globalVolume * 100) / 255;
+    globalVolume = ((globalVolume + 2) / 5) * 5;
+    if (globalVolume > 100) globalVolume = 100;
+    M5Cardputer.Speaker.setVolume((globalVolume * 255) / 100);
     if (authUser != "") rememberMe = true;
     
     if (savedSSID != "") {
@@ -1892,17 +1895,17 @@ void loop() {
         bool volChanged = false;
         for (auto i : status.word) {
             if (i == '-' || i == '_') {
-                globalVolume -= 25;
+                globalVolume -= 5;
                 if (globalVolume < 0) globalVolume = 0;
                 volChanged = true;
             } else if (i == '=' || i == '+') {
-                globalVolume += 25;
-                if (globalVolume > 255) globalVolume = 255;
+                globalVolume += 5;
+                if (globalVolume > 100) globalVolume = 100;
                 volChanged = true;
             }
         }
         if (volChanged) {
-            M5Cardputer.Speaker.setVolume(globalVolume);
+            M5Cardputer.Speaker.setVolume((globalVolume * 255) / 100);
             prefs.putInt("volume", globalVolume);
             playSound(sound_hover, sound_hover_size);
             showVolumePopup = true;
