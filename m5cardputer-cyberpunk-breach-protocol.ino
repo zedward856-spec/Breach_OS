@@ -703,9 +703,9 @@ void drawMainMenu() {
     int totalItems = isGuest ? 2 : 4;
     std::vector<String> labels;
     if (isGuest) {
-        labels = {"PLAY", "BACK"};
+        labels = {"HACK", "BACK"};
     } else {
-        labels = {"PLAY", "LEADERBOARD", "ACCOUNT", "BACK"};
+        labels = {"HACK", "LEADERBOARD", "ACCOUNT", "BACK"};
     }
     
     for (int i = 0; i < totalItems; i++) {
@@ -874,8 +874,6 @@ void drawGridSelect() {
         
         // Don't draw items too far off screen
         if (abs(offset) > 1.5) continue;
-        
-        if (offset < -0.5) continue;
         
         // Calculate tick position on the arc
         float angle = offset * 0.391; // ~22.4 degrees in radians
