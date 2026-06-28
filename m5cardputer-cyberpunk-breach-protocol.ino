@@ -114,7 +114,9 @@ enum AppState {
     STATE_HARDWARE_MENU,
     STATE_FILE_MANAGER,
     STATE_FILE_LOADING,
-    STATE_HARDWARE_SETTINGS
+    STATE_HARDWARE_SETTINGS,
+    STATE_FILE_ACTIONS_MENU,
+    STATE_FILE_RENAME_INPUT
 };
 AppState appState = STATE_SPLASH;
 
@@ -207,6 +209,10 @@ void handleFileManagerInput(Keyboard_Class::KeysState status);
 void drawFileLoading();
 void drawHardwareSettings();
 void handleHardwareSettingsInput(Keyboard_Class::KeysState status);
+void drawFileActionsMenu();
+void handleFileActionsMenuInput(Keyboard_Class::KeysState status);
+void drawFileRenameInput();
+void handleFileRenameInput(Keyboard_Class::KeysState status);
 
 void drawMessage(String msg, String line2 = "");
 void drawGlitchText(String text, int x, int y, int size, uint16_t color, bool center = true, bool forceGlitch = false) {
@@ -446,6 +452,8 @@ void drawCurrentScreen() {
         case STATE_FILE_MANAGER: drawFileManager(); break;
         case STATE_FILE_LOADING: drawFileLoading(); break;
         case STATE_HARDWARE_SETTINGS: drawHardwareSettings(); break;
+        case STATE_FILE_ACTIONS_MENU: drawFileActionsMenu(); break;
+        case STATE_FILE_RENAME_INPUT: drawFileRenameInput(); break;
     }
 }
 
@@ -593,6 +601,10 @@ bool isSDFallback = false;
 bool isFlashFallback = false;
 int fileManagerScrollOffset = 0;
 int loadingProgress = 0;
+String fileManagerCurrentPath = "/";
+String clipboardSourcePath = "";
+String renameInputText = "";
+int fileActionsMenuSelected = 0;
 
 std::vector<String> dummyLogs = {
     "[ OK ] Init SPI flash layout...",
@@ -653,12 +665,18 @@ void populateFileList() {
     isSDFallback = false;
     isFlashFallback = false;
     
+    // Insert parent directory ".." if we are in a subdirectory
+    if (fileManagerCurrentPath != "/") {
+        RealFile parentDir = {"..", "DIR", true};
+        loadedFiles.push_back(parentDir);
+    }
+    
     if (isSDCardManager) {
         SPI.begin(40, 39, 14, 12);
         bool mountSuccess = SD.begin(12, SPI, 20000000);
         File root;
         if (mountSuccess) {
-            root = SD.open("/");
+            root = SD.open(fileManagerCurrentPath);
         }
         
         if (!mountSuccess || !root || !root.isDirectory()) {
@@ -677,7 +695,10 @@ void populateFileList() {
             while (file && loadedFiles.size() < 100) {
                 RealFile rf;
                 rf.name = String(file.name());
-                if (rf.name.startsWith("/")) rf.name.remove(0, 1);
+                int lastSlashIdx = rf.name.lastIndexOf('/');
+                if (lastSlashIdx >= 0) {
+                    rf.name = rf.name.substring(lastSlashIdx + 1);
+                }
                 
                 rf.isDir = file.isDirectory();
                 if (rf.isDir) {
@@ -689,7 +710,9 @@ void populateFileList() {
                 file = root.openNextFile();
             }
             root.close();
-            if (loadedFiles.empty()) {
+            // If the folder is empty (excluding ".." if present)
+            int minSize = (fileManagerCurrentPath != "/") ? 1 : 0;
+            if ((int)loadedFiles.size() <= minSize) {
                 isSDFallback = true;
                 fsStatusMessage = "SD CARD EMPTY (DEMO ACTIVE)";
                 RealFile f1 = {"credentials.txt", "0.1 KB", false};
@@ -734,7 +757,8 @@ void populateFileList() {
                 file = root.openNextFile();
             }
             root.close();
-            if (loadedFiles.empty()) {
+            int minSize = (fileManagerCurrentPath != "/") ? 1 : 0;
+            if ((int)loadedFiles.size() <= minSize) {
                 isFlashFallback = true;
                 fsStatusMessage = "FLASH EMPTY (DEMO ACTIVE)";
                 RealFile f1 = {"deck_config.json", "0.1 KB", false};
@@ -747,16 +771,19 @@ void populateFileList() {
         }
     }
     
-    // Sort files based on settings
+    // Sort files based on settings (keeping ".." at the top if present)
     if (!loadedFiles.empty()) {
-        std::sort(loadedFiles.begin(), loadedFiles.end(), compareFiles);
+        int sortStart = (fileManagerCurrentPath != "/") ? 1 : 0;
+        if ((int)loadedFiles.size() > sortStart) {
+            std::sort(loadedFiles.begin() + sortStart, loadedFiles.end(), compareFiles);
+        }
     }
 }
 
 void readSelectedFileContent(String fileName) {
     openedFileContent.clear();
     openedFileName = fileName;
-    String path = "/" + fileName;
+    String path = fileManagerCurrentPath + (fileManagerCurrentPath == "/" ? "" : "/") + fileName;
     
     if (isSDCardManager) {
         if (isSDFallback) {
@@ -1105,9 +1132,13 @@ void drawFileManager() {
     canvas.setTextColor(CP_YELLOW);
     canvas.setTextSize(1);
     if (isSDCardManager) {
-        canvas.drawCenterString("--- SD CARD MANAGER SCHEMA ---", 120, 12);
+        String title = "SD:" + fileManagerCurrentPath;
+        if (title.length() > 30) title = "SD:..." + title.substring(title.length() - 25);
+        canvas.drawCenterString("--- " + title + " ---", 120, 12);
     } else {
-        canvas.drawCenterString("--- FLASH MANAGER SCHEMA ---", 120, 12);
+        String title = "FLASH:" + fileManagerCurrentPath;
+        if (title.length() > 30) title = "FLASH:..." + title.substring(title.length() - 25);
+        canvas.drawCenterString("--- " + title + " ---", 120, 12);
     }
     canvas.drawLine(10, 24, 230, 24, CP_CYAN);
     
@@ -1209,16 +1240,42 @@ void handleFileManagerInput(Keyboard_Class::KeysState status) {
     
     if (hasBack) {
         playSound(sound_select, sound_select_size);
-        appState = STATE_HARDWARE_MENU;
-        drawHardwareMenu();
+        if (fileManagerCurrentPath != "/") {
+            int lastSlash = fileManagerCurrentPath.lastIndexOf('/');
+            if (lastSlash == 0) {
+                fileManagerCurrentPath = "/";
+            } else if (lastSlash > 0) {
+                fileManagerCurrentPath = fileManagerCurrentPath.substring(0, lastSlash);
+            }
+            fileManagerSelected = 0;
+            fileManagerScrollOffset = 0;
+            populateFileList();
+            drawFileManager();
+        } else {
+            appState = STATE_HARDWARE_MENU;
+            drawHardwareMenu();
+        }
         return;
     }
     
     if (status.enter && !loadedFiles.empty()) {
         playSound(sound_select, sound_select_size);
-        readSelectedFileContent(loadedFiles[fileManagerSelected].name);
-        showFileContent = true;
-        drawFileManager();
+        if (loadedFiles[fileManagerSelected].name == "..") {
+            int lastSlash = fileManagerCurrentPath.lastIndexOf('/');
+            if (lastSlash == 0) {
+                fileManagerCurrentPath = "/";
+            } else if (lastSlash > 0) {
+                fileManagerCurrentPath = fileManagerCurrentPath.substring(0, lastSlash);
+            }
+            fileManagerSelected = 0;
+            fileManagerScrollOffset = 0;
+            populateFileList();
+            drawFileManager();
+        } else {
+            appState = STATE_FILE_ACTIONS_MENU;
+            fileActionsMenuSelected = 0;
+            drawFileActionsMenu();
+        }
         return;
     }
     
@@ -1259,6 +1316,328 @@ void handleFileManagerInput(Keyboard_Class::KeysState status) {
             }
         }
         drawFileManager();
+    }
+}
+
+void drawFileActionsMenu() {
+    // First, draw the file manager background behind the pop-up menu!
+    drawFileManager();
+    
+    // Draw pop-up overlay
+    canvas.startWrite();
+    
+    // Pop-up border and box
+    canvas.fillRect(35, 20, 170, 95, CP_BG);
+    canvas.drawRect(35, 20, 170, 95, CP_CYAN);
+    canvas.drawRect(37, 22, 166, 91, CP_DIM);
+    
+    canvas.setTextColor(CP_YELLOW);
+    canvas.setTextSize(1);
+    canvas.drawCenterString("--- ACTION MENU ---", 120, 26);
+    canvas.drawLine(40, 36, 200, 36, CP_CYAN);
+    
+    int startY = 41;
+    bool hasPaste = (clipboardSourcePath != "");
+    std::vector<String> options = {"1. OPEN", "2. RENAME", "3. DELETE", "4. COPY", "5. PASTE"};
+    
+    for (int i = 0; i < 5; i++) {
+        bool isSel = (i == fileActionsMenuSelected);
+        uint16_t color = isSel ? CP_YELLOW : WHITE;
+        
+        if (i == 4 && !hasPaste) { // PASTE is disabled
+            color = CP_DIM;
+        }
+        
+        if (isSel) {
+            canvas.fillRect(42, startY - 2, 156, 12, canvas.color565(30, 30, 30));
+            canvas.drawRect(42, startY - 2, 156, 12, CP_CYAN);
+        }
+        
+        canvas.setTextColor(color);
+        canvas.setCursor(48, startY);
+        canvas.print(options[i]);
+        
+        if (i == 4 && !hasPaste) {
+            canvas.setCursor(120, startY);
+            canvas.print("[EMPTY]");
+        }
+        
+        startY += 12;
+    }
+    
+    pushCanvas();
+}
+
+void handleFileActionsMenuInput(Keyboard_Class::KeysState status) {
+    bool hasBack = false;
+    for (char c : status.word) {
+        if (c == ',' || c == '`') hasBack = true;
+    }
+    
+    if (hasBack) {
+        playSound(sound_select, sound_select_size);
+        appState = STATE_FILE_MANAGER;
+        drawFileManager();
+        return;
+    }
+    
+    bool hasUp = false, hasDown = false;
+    for (char c : status.word) {
+        if (c == ';') hasUp = true;
+        if (c == '.') hasDown = true;
+    }
+    
+    if (hasUp) {
+        playSound(sound_hover, sound_hover_size);
+        fileActionsMenuSelected--;
+        if (fileActionsMenuSelected < 0) fileActionsMenuSelected = 4;
+        drawFileActionsMenu();
+    }
+    if (hasDown) {
+        playSound(sound_hover, sound_hover_size);
+        fileActionsMenuSelected++;
+        if (fileActionsMenuSelected > 4) fileActionsMenuSelected = 0;
+        drawFileActionsMenu();
+    }
+    
+    if (status.enter) {
+        playSound(sound_select, sound_select_size);
+        bool hasPaste = (clipboardSourcePath != "");
+        
+        if (fileActionsMenuSelected == 4 && !hasPaste) {
+            // Paste is disabled
+            return;
+        }
+        
+        RealFile targetFile = loadedFiles[fileManagerSelected];
+        String fullPath = fileManagerCurrentPath + (fileManagerCurrentPath == "/" ? "" : "/") + targetFile.name;
+        
+        if (fileActionsMenuSelected == 0) { // OPEN
+            if (targetFile.name == "..") {
+                // Navigate up
+                int lastSlash = fileManagerCurrentPath.lastIndexOf('/');
+                if (lastSlash == 0) {
+                    fileManagerCurrentPath = "/";
+                } else if (lastSlash > 0) {
+                    fileManagerCurrentPath = fileManagerCurrentPath.substring(0, lastSlash);
+                }
+                fileManagerSelected = 0;
+                fileManagerScrollOffset = 0;
+                populateFileList();
+                appState = STATE_FILE_MANAGER;
+                drawFileManager();
+            } else if (targetFile.isDir) {
+                // Navigate down
+                if (fileManagerCurrentPath == "/") {
+                    fileManagerCurrentPath = "/" + targetFile.name;
+                } else {
+                    fileManagerCurrentPath = fileManagerCurrentPath + "/" + targetFile.name;
+                }
+                fileManagerSelected = 0;
+                fileManagerScrollOffset = 0;
+                populateFileList();
+                appState = STATE_FILE_MANAGER;
+                drawFileManager();
+            } else {
+                // Open file content
+                readSelectedFileContent(targetFile.name);
+                showFileContent = true;
+                appState = STATE_FILE_MANAGER;
+                drawFileManager();
+            }
+        }
+        else if (fileActionsMenuSelected == 1) { // RENAME
+            if (targetFile.name != "..") {
+                renameInputText = targetFile.name;
+                appState = STATE_FILE_RENAME_INPUT;
+                drawFileRenameInput();
+            } else {
+                appState = STATE_FILE_MANAGER;
+                drawFileManager();
+            }
+        }
+        else if (fileActionsMenuSelected == 2) { // DELETE
+            if (targetFile.name != "..") {
+                if (isSDCardManager) {
+                    if (isSDFallback) {
+                        // Mock delete in demo mode
+                        loadedFiles.erase(loadedFiles.begin() + fileManagerSelected);
+                    } else {
+                        // Physical delete
+                        if (targetFile.isDir) SD.rmdir(fullPath);
+                        else SD.remove(fullPath);
+                        populateFileList();
+                    }
+                } else {
+                    if (isFlashFallback) {
+                        loadedFiles.erase(loadedFiles.begin() + fileManagerSelected);
+                    } else {
+                        SPIFFS.remove(fullPath);
+                        populateFileList();
+                    }
+                }
+                fileManagerSelected = 0;
+                fileManagerScrollOffset = 0;
+                appState = STATE_FILE_MANAGER;
+                drawFileManager();
+            } else {
+                appState = STATE_FILE_MANAGER;
+                drawFileManager();
+            }
+        }
+        else if (fileActionsMenuSelected == 3) { // COPY
+            if (targetFile.name != "..") {
+                clipboardSourcePath = fullPath;
+                appState = STATE_FILE_MANAGER;
+                drawFileManager();
+            } else {
+                appState = STATE_FILE_MANAGER;
+                drawFileManager();
+            }
+        }
+        else if (fileActionsMenuSelected == 4) { // PASTE
+            String sourceFilename = clipboardSourcePath;
+            int lastSlash = sourceFilename.lastIndexOf('/');
+            if (lastSlash >= 0) sourceFilename = sourceFilename.substring(lastSlash + 1);
+            
+            String destPath = fileManagerCurrentPath + (fileManagerCurrentPath == "/" ? "" : "/") + sourceFilename;
+            
+            if (isSDCardManager) {
+                if (isSDFallback) {
+                    RealFile pf = {sourceFilename, "1.0 KB", false};
+                    loadedFiles.push_back(pf);
+                } else {
+                    // Physical paste
+                    File src = SD.open(clipboardSourcePath, FILE_READ);
+                    File dst = SD.open(destPath, FILE_WRITE);
+                    if (src && dst) {
+                        uint8_t buf[256];
+                        while (src.available()) {
+                            int len = src.read(buf, sizeof(buf));
+                            dst.write(buf, len);
+                        }
+                    }
+                    if (src) src.close();
+                    if (dst) dst.close();
+                    populateFileList();
+                }
+            } else {
+                if (isFlashFallback) {
+                    RealFile pf = {sourceFilename, "1.0 KB", false};
+                    loadedFiles.push_back(pf);
+                } else {
+                    // Physical paste
+                    File src = SPIFFS.open(clipboardSourcePath, FILE_READ);
+                    File dst = SPIFFS.open(destPath, FILE_WRITE);
+                    if (src && dst) {
+                        uint8_t buf[256];
+                        while (src.available()) {
+                            int len = src.read(buf, sizeof(buf));
+                            dst.write(buf, len);
+                        }
+                    }
+                    if (src) src.close();
+                    if (dst) dst.close();
+                    populateFileList();
+                }
+            }
+            appState = STATE_FILE_MANAGER;
+            drawFileManager();
+        }
+    }
+}
+
+void drawFileRenameInput() {
+    // First, draw the file manager background behind the rename dialog!
+    drawFileManager();
+    
+    // Draw dialog overlay
+    canvas.startWrite();
+    canvas.fillRect(25, 35, 190, 65, CP_BG);
+    canvas.drawRect(25, 35, 190, 65, CP_CYAN);
+    canvas.drawRect(27, 37, 186, 61, CP_DIM);
+    
+    canvas.setTextColor(CP_YELLOW);
+    canvas.setTextSize(1);
+    canvas.drawCenterString("--- RENAME FILE ---", 120, 42);
+    
+    // Input box
+    canvas.drawRect(35, 56, 170, 16, CP_CYAN);
+    canvas.fillRect(36, 57, 168, 14, canvas.color565(30, 30, 30));
+    
+    canvas.setTextColor(WHITE);
+    canvas.setCursor(40, 60);
+    // Draw typed name with a blink cursor
+    String disp = renameInputText;
+    if (disp.length() > 20) disp = disp.substring(disp.length() - 20);
+    if (blinkState) disp += "_";
+    canvas.print(disp);
+    
+    canvas.setTextColor(CP_DIM);
+    canvas.drawCenterString("ENTER: RENAME  |  ESC/COMMA: BACK", 120, 80);
+    
+    pushCanvas();
+}
+
+void handleFileRenameInput(Keyboard_Class::KeysState status) {
+    bool hasBack = false;
+    for (char c : status.word) {
+        if (c == '`') hasBack = true;
+    }
+    
+    if (hasBack) {
+        playSound(sound_select, sound_select_size);
+        appState = STATE_FILE_ACTIONS_MENU;
+        drawFileActionsMenu();
+        return;
+    }
+    
+    if (status.enter) {
+        playSound(sound_select, sound_select_size);
+        if (renameInputText.length() > 0) {
+            RealFile targetFile = loadedFiles[fileManagerSelected];
+            String oldPath = fileManagerCurrentPath + (fileManagerCurrentPath == "/" ? "" : "/") + targetFile.name;
+            String newPath = fileManagerCurrentPath + (fileManagerCurrentPath == "/" ? "" : "/") + renameInputText;
+            
+            if (isSDCardManager) {
+                if (isSDFallback) {
+                    loadedFiles[fileManagerSelected].name = renameInputText;
+                } else {
+                    SD.rename(oldPath, newPath);
+                    populateFileList();
+                }
+            } else {
+                if (isFlashFallback) {
+                    loadedFiles[fileManagerSelected].name = renameInputText;
+                } else {
+                    SPIFFS.rename(oldPath, newPath);
+                    populateFileList();
+                }
+            }
+        }
+        appState = STATE_FILE_MANAGER;
+        drawFileManager();
+        return;
+    }
+    
+    if (status.del && renameInputText.length() > 0) {
+        renameInputText.remove(renameInputText.length() - 1);
+        drawFileRenameInput();
+    }
+    
+    bool typed = false;
+    for (char c : status.word) {
+        if (c >= 32 && c <= 126 && renameInputText.length() < 24) {
+            // Filter out backquote from being typed
+            if (c != '`') {
+                renameInputText += c;
+                typed = true;
+            }
+        }
+    }
+    
+    if (typed) {
+        drawFileRenameInput();
     }
 }
 
@@ -3112,6 +3491,30 @@ void loop() {
         if (keyChanged && keyPressed) {
             handleFileManagerInput(globalStatus);
         }
+        delay(10);
+        return;
+    }
+    
+    if (appState == STATE_FILE_ACTIONS_MENU) {
+        if (keyChanged && keyPressed) {
+            handleFileActionsMenuInput(globalStatus);
+        }
+        delay(10);
+        return;
+    }
+    
+    if (appState == STATE_FILE_RENAME_INPUT) {
+        if (keyChanged && keyPressed) {
+            handleFileRenameInput(globalStatus);
+        }
+        
+        static unsigned long lastRenameBlink = 0;
+        if (millis() - lastRenameBlink > 500) {
+            blinkState = !blinkState;
+            drawFileRenameInput();
+            lastRenameBlink = millis();
+        }
+        
         delay(10);
         return;
     }
