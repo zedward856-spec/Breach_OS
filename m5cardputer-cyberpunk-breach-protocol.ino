@@ -47,7 +47,7 @@ void playSound(const unsigned char* soundData, size_t soundSize) {
 #define CP_ACTIVE_LINE canvas.color565(44, 53, 71)
 #define CP_DIM canvas.color565(88, 97, 10)
 
-String hexCodes[] = {"1C", "55", "BD", "E9", "FF", "7A", "42"};
+String hexCodes[7] = {"1C", "55", "BD", "E9", "FF", "7A", "42"};
 
 int gridSize = 5;
 int targetSize = 4;
@@ -1253,6 +1253,55 @@ void drawLeaderboard() {
 }
 
 void initGame(bool keepDiff) {
+    // Generate hexCodes based on current network BSSID or hardware MAC address
+    String mac = WiFi.BSSIDstr();
+    if (mac == "" || mac == "00:00:00:00:00:00") {
+        mac = WiFi.macAddress();
+    }
+    
+    String octets[6];
+    int oIdx = 0;
+    for (int i = 0; i < mac.length(); i++) {
+        if (mac[i] == ':') {
+            oIdx++;
+        } else {
+            if (oIdx < 6) octets[oIdx] += mac[i];
+        }
+    }
+    
+    String unique[7];
+    int uCount = 0;
+    for (int i = 0; i < 6; i++) {
+        String code = octets[i];
+        code.toUpperCase();
+        if (code.length() != 2) continue;
+        
+        bool dup = false;
+        for (int j = 0; j < uCount; j++) {
+            if (unique[j] == code) { dup = true; break; }
+        }
+        if (!dup && uCount < 7) {
+            unique[uCount++] = code;
+        }
+    }
+    
+    String fallbacks[] = {"1C", "55", "BD", "E9", "FF", "7A", "42"};
+    for (int i = 0; i < 7; i++) {
+        if (uCount >= 7) break;
+        String code = fallbacks[i];
+        bool dup = false;
+        for (int j = 0; j < uCount; j++) {
+            if (unique[j] == code) { dup = true; break; }
+        }
+        if (!dup) {
+            unique[uCount++] = code;
+        }
+    }
+    
+    for (int i = 0; i < 7; i++) {
+        hexCodes[i] = unique[i];
+    }
+
     lastBreachFailed = false;
     gridSize = selectedGridSize;
     maxTime = phaseTimes[currentPhase - 1];
