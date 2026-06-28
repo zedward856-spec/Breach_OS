@@ -739,18 +739,7 @@ void drawHardwareMenu() {
     canvas.startWrite();
     canvas.fillScreen(CP_BG);
     
-    // Draw booting logs in background
-    int maxLogs = 7;
-    int y = 35;
-    canvas.setTextColor(CP_ACTIVE_LINE);
-    canvas.setTextSize(1);
-    for (int i = 0; i < maxLogs; i++) {
-        int logIdx = (logOffset + i) % dummyLogs.size();
-        canvas.setCursor(5, y);
-        canvas.print(dummyLogs[logIdx]);
-        y += 11;
-    }
-    
+
     // Draw title
     drawGlitchText("HARDWARE NODE", 135, 12, 2, CP_CYAN, true, true);
     drawGlitchText("OPERATIVE: " + (isGuest ? String("GUEST") : authUser), 135, 34, 1, CP_DIM);
@@ -768,6 +757,8 @@ void drawHardwareMenu() {
         float halfItems = (float)totalItems / 2.0;
         if (offset > halfItems) offset -= (float)totalItems;
         if (offset < -halfItems) offset += (float)totalItems;
+        
+        if (offset < -0.5) continue;
         
         float angle = offset * 0.391;
         float tickY = 67 + sin(angle) * 110;
