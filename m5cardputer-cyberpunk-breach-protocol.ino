@@ -140,6 +140,8 @@ float currentMenuScroll = 0;
 float targetMenuScroll = 0;
 bool showMenuDesc = false;
 float descAnimWidth = 0.0;
+bool showVolumePopup = false;
+unsigned long lastVolumeChangeTime = 0;
 
 int lastPhaseScore = 0;
 float lastTimeRatio = 0.0;
@@ -159,6 +161,9 @@ void drawGridSelect();
 void drawPhaseTransition();
 void drawGameOverFailed();
 void fetchLeaderboard(int offset = 0, int limit = 10);
+void drawVolumeOverlay();
+void pushCanvas();
+void drawCurrentScreen();
 
 void drawMessage(String msg, String line2 = "");
 void drawGlitchText(String text, int x, int y, int size, uint16_t color, bool center = true, bool forceGlitch = false) {
@@ -222,7 +227,74 @@ void drawMessage(String msg, String line2) {
         canvas.drawCenterString(msg, 120, 45);
         canvas.drawCenterString(line2, 120, 70);
     }
-    canvas.pushSprite(0, 0); canvas.endWrite();
+    pushCanvas();
+}
+uint16_t lerpColor(uint16_t c1, uint16_t c2, float t) {
+    if (t <= 0.0) return c1;
+    if (t >= 1.0) return c2;
+    uint8_t r1 = (c1 >> 11) & 0x1F;
+    uint8_t g1 = (c1 >> 5) & 0x3F;
+    uint8_t b1 = c1 & 0x1F;
+    uint8_t r2 = (c2 >> 11) & 0x1F;
+    uint8_t g2 = (c2 >> 5) & 0x3F;
+    uint8_t b2 = c2 & 0x1F;
+    uint8_t r = r1 + (r2 - r1) * t;
+    uint8_t g = g1 + (g2 - g1) * t;
+    uint8_t b = b1 + (b2 - b1) * t;
+    return (r << 11) | (g << 5) | b;
+}
+
+void drawVolumeOverlay() {
+    int x = 5;
+    int y = 52;
+    int w = 75;
+    int h = 32;
+    float t = 0.0;
+    unsigned long elapsed = millis() - lastVolumeChangeTime;
+    if (elapsed > 1000) {
+        t = (float)(elapsed - 1000) / 300.0;
+        if (t > 1.0) t = 1.0;
+    }
+    uint16_t popupColor = lerpColor(CP_YELLOW, CP_BG, t);
+    uint16_t textColor = lerpColor(WHITE, CP_BG, t);
+    uint16_t bgColor = lerpColor(CP_PANEL, CP_BG, t);
+    canvas.fillRect(x, y, w, h - 8, bgColor);
+    canvas.fillRect(x, y + h - 8, w - 8, 8, bgColor);
+    drawChippedButton(x, y, w, h, popupColor);
+    int volPct = round(globalVolume / 2.55);
+    canvas.setTextColor(textColor);
+    canvas.setTextSize(1);
+    canvas.setCursor(x + 8, y + 6);
+    canvas.print("VOL: " + String(volPct) + "%");
+    canvas.drawRect(x + 8, y + 18, 59, 6, popupColor);
+    int barW = (57 * globalVolume) / 255;
+    if (barW > 0) {
+        canvas.fillRect(x + 9, y + 19, barW, 4, popupColor);
+    }
+}
+
+void pushCanvas() {
+    if (showVolumePopup) {
+        drawVolumeOverlay();
+    }
+    canvas.pushSprite(0, 0);
+    canvas.endWrite();
+}
+
+void drawCurrentScreen() {
+    switch (appState) {
+        case STATE_SPLASH: drawSplash(); break;
+        case STATE_AUTH_MENU: drawAuthMenu(); break;
+        case STATE_WIFI_SCAN: drawWifiScan(); break;
+        case STATE_WIFI_PASS: drawWifiPass(); break;
+        case STATE_MAIN_MENU: drawMainMenu(); break;
+        case STATE_LEADERBOARD: drawLeaderboard(); break;
+        case STATE_ACCOUNT: drawAccountMenu(); break;
+        case STATE_GRID_SELECT: drawGridSelect(); break;
+        case STATE_PHASE_TRANSITION: drawPhaseTransition(); break;
+        case STATE_FAILED_SCREEN: drawGameOverFailed(); break;
+        case STATE_PLAYING: drawScreen(); break;
+    }
 }
 
 void drawChippedButton(int x, int y, int w, int h, uint16_t color) {
@@ -311,7 +383,7 @@ void drawSplash() {
     canvas.setTextColor(WHITE);
     canvas.drawString(" to Play Offline", x4, 125);
     
-    canvas.pushSprite(0, 0); canvas.endWrite();
+    pushCanvas();
 }
 
 void handleSplashInput(Keyboard_Class::KeysState status) {
@@ -466,7 +538,7 @@ void drawAuthMenu() {
     drawChippedButton(130, 110, 100, 20, colorBtn2);
     canvas.setTextColor(colorBtn2);
     drawGlitchText("GUEST", 180, 115, 1, colorBtn2);
-    canvas.pushSprite(0, 0); canvas.endWrite();
+    pushCanvas();
 }
 
 void handleAuthInput(Keyboard_Class::KeysState status) {
@@ -589,7 +661,7 @@ void drawWifiScan() {
         canvas.setCursor(10, y);
         canvas.print(wifiList[i]);
     }
-    canvas.pushSprite(0, 0); canvas.endWrite();
+    pushCanvas();
 }
 
 void handleWifiScanInput(Keyboard_Class::KeysState status) {
@@ -644,7 +716,7 @@ void drawWifiPass() {
     canvas.setTextColor(WHITE);
     canvas.setCursor(15, 60);
     canvas.print(wifiPass + (blinkState ? "_" : ""));
-    canvas.pushSprite(0, 0); canvas.endWrite();
+    pushCanvas();
 }
 
 void handleWifiPassInput(Keyboard_Class::KeysState status) {
@@ -792,7 +864,7 @@ void drawMainMenu() {
         }
     }
     
-    canvas.pushSprite(0, 0); canvas.endWrite();
+    pushCanvas();
 }
 
 void handleMainMenuInput(Keyboard_Class::KeysState status) {
@@ -846,7 +918,7 @@ void handleMainMenuInput(Keyboard_Class::KeysState status) {
             canvas.setTextColor(CP_RED);
             canvas.setTextSize(2);
             canvas.drawCenterString("REBOOTING...", 120, 50);
-            canvas.pushSprite(0, 0); canvas.endWrite();
+            pushCanvas();
             delay(500);
             ESP.restart();
         }
@@ -978,7 +1050,7 @@ void drawGridSelect() {
         }
     }
     
-    canvas.pushSprite(0, 0); canvas.endWrite();
+    pushCanvas();
 }
 
 void handleGridSelectInput(Keyboard_Class::KeysState status) {
@@ -1056,7 +1128,7 @@ void drawPhaseTransition() {
         drawGlitchText("SAVE SCORE", 120, 100, 1, CP_YELLOW);
     }
     
-    canvas.pushSprite(0, 0); canvas.endWrite();
+    pushCanvas();
 }
 
 void handlePhaseTransitionInput(Keyboard_Class::KeysState status) {
@@ -1100,7 +1172,7 @@ void drawGameOverFailed() {
     canvas.setTextColor(btnColor);
     canvas.setTextSize(1);
     drawGlitchText("PRESS ENTER", 120, 101, 1, btnColor);
-    canvas.pushSprite(0, 0); canvas.endWrite();
+    pushCanvas();
 }
 
 void drawLeaderboard() {
@@ -1147,7 +1219,7 @@ void drawLeaderboard() {
     
     canvas.setTextColor(WHITE);
     canvas.drawCenterString("Press ENTER to return", 120, 115);
-    canvas.pushSprite(0, 0); canvas.endWrite();
+    pushCanvas();
 }
 
 void initGame(bool keepDiff) {
@@ -1264,7 +1336,7 @@ void drawTimer(bool forceRedraw = false) {
             canvas.fillRect(146 + barWidth, 6, lastBarWidth - barWidth, 6, CP_PANEL);
         }
     }
-    canvas.pushSprite(0, 0); canvas.endWrite();
+    pushCanvas();
     
     lastBarWidth = barWidth;
     lastTimeLeft = timeLeft;
@@ -1395,7 +1467,7 @@ void drawScreen() {
             canvas.print(matrix[i][j]);
         }
     }
-    canvas.pushSprite(0, 0); canvas.endWrite();
+    pushCanvas();
 }
 
 void updateAnimation() {
@@ -1441,7 +1513,7 @@ void updateAnimation() {
         canvas.setTextColor(WHITE, CP_BG);
         canvas.drawCenterString("Press ENTER", bufferCenter, 125);
     }
-    canvas.pushSprite(0, 0); canvas.endWrite();
+    pushCanvas();
 }
 
 void drawAccountMenu() {
@@ -1455,7 +1527,7 @@ void drawAccountMenu() {
         canvas.setTextSize(1);
         canvas.setTextColor(CP_DIM);
         canvas.drawCenterString("FETCHING DATA...", 120, 40);
-        canvas.pushSprite(0, 0); canvas.endWrite();
+        pushCanvas();
         if (!secureClientInit) { secureClient.setInsecure(); secureClientInit = true; }
         HTTPClient http;
         String url = String(API_URL) + "/account";
@@ -1526,7 +1598,7 @@ void drawAccountMenu() {
     canvas.setTextColor(c4);
     drawGlitchText("BACK", 180, 115, 1, c4);
     
-    canvas.pushSprite(0, 0); canvas.endWrite();
+    pushCanvas();
 }
 
 void handleAccountInput(Keyboard_Class::KeysState status) {
@@ -1651,6 +1723,21 @@ void loop() {
         if (volChanged) {
             M5Cardputer.Speaker.setVolume(globalVolume);
             playSound(sound_hover, sound_hover_size);
+            showVolumePopup = true;
+            lastVolumeChangeTime = now;
+            drawCurrentScreen();
+        }
+    }
+    
+    if (showVolumePopup) {
+        unsigned long elapsed = now - lastVolumeChangeTime;
+        if (elapsed > 1000) {
+            if (elapsed >= 1300) {
+                showVolumePopup = false;
+                drawCurrentScreen();
+            } else {
+                drawCurrentScreen();
+            }
         }
     }
     
@@ -1890,7 +1977,7 @@ void loop() {
             int by = 83;
             canvas.startWrite();
             canvas.drawRect(bx, by, boxW, 18, blinkState ? CP_CYAN : CP_DIM);
-            canvas.pushSprite(0, 0); canvas.endWrite();
+            pushCanvas();
         }
     }
     
