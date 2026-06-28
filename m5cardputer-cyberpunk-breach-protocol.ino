@@ -567,6 +567,8 @@ float hardwareDescAnimWidth = 0.0;
 bool isSDCardManager = false;
 int fileManagerSelected = 0;
 bool showFileContent = false;
+bool isSDFallback = false;
+bool isFlashFallback = false;
 
 std::vector<String> dummyLogs = {
     "[ OK ] Init SPI flash layout...",
@@ -606,21 +608,28 @@ String openedFileName = "";
 void populateFileList() {
     loadedFiles.clear();
     fsStatusMessage = "";
+    isSDFallback = false;
+    isFlashFallback = false;
     
     if (isSDCardManager) {
         SPI.begin(40, 39, 14, 12);
-        if (!SD.begin(12, SPI, 20000000)) {
-            fsStatusMessage = "SD MOUNT ERROR (CS 12)";
-            return;
+        bool mountSuccess = SD.begin(12, SPI, 20000000);
+        File root;
+        if (mountSuccess) {
+            root = SD.open("/");
         }
-        File root = SD.open("/");
-        if (!root) {
-            fsStatusMessage = "SD DIRECTORY ERROR";
-            return;
-        }
-        if (!root.isDirectory()) {
-            fsStatusMessage = "SD PATH NOT DIRECTORY";
-            root.close();
+        
+        if (!mountSuccess || !root || !root.isDirectory()) {
+            isSDFallback = true;
+            fsStatusMessage = "SD MOUNT FAIL (DEMO ACTIVE)";
+            
+            RealFile f1 = {"credentials.txt", "0.1 KB", false};
+            RealFile f2 = {"subnet_node.sh", "0.1 KB", false};
+            RealFile f3 = {"payload.bin", "1.2 KB", false};
+            loadedFiles.push_back(f1);
+            loadedFiles.push_back(f2);
+            loadedFiles.push_back(f3);
+            if (root) root.close();
             return;
         }
         
@@ -641,16 +650,32 @@ void populateFileList() {
         }
         root.close();
         if (loadedFiles.empty()) {
-            fsStatusMessage = "SD CARD EMPTY";
+            isSDFallback = true;
+            fsStatusMessage = "SD CARD EMPTY (DEMO ACTIVE)";
+            RealFile f1 = {"credentials.txt", "0.1 KB", false};
+            RealFile f2 = {"subnet_node.sh", "0.1 KB", false};
+            RealFile f3 = {"payload.bin", "1.2 KB", false};
+            loadedFiles.push_back(f1);
+            loadedFiles.push_back(f2);
+            loadedFiles.push_back(f3);
         }
     } else {
-        if (!SPIFFS.begin(true)) {
-            fsStatusMessage = "SPIFFS MOUNT ERROR";
-            return;
+        bool mountSuccess = SPIFFS.begin(true);
+        File root;
+        if (mountSuccess) {
+            root = SPIFFS.open("/");
         }
-        File root = SPIFFS.open("/");
-        if (!root) {
-            fsStatusMessage = "FLASH DIR ERROR";
+        
+        if (!mountSuccess || !root) {
+            isFlashFallback = true;
+            fsStatusMessage = "FLASH MOUNT FAIL (DEMO ACTIVE)";
+            RealFile f1 = {"deck_config.json", "0.1 KB", false};
+            RealFile f2 = {"breach_log.txt", "0.1 KB", false};
+            RealFile f3 = {"system.ini", "0.1 KB", false};
+            loadedFiles.push_back(f1);
+            loadedFiles.push_back(f2);
+            loadedFiles.push_back(f3);
+            if (root) root.close();
             return;
         }
         
@@ -671,7 +696,14 @@ void populateFileList() {
         }
         root.close();
         if (loadedFiles.empty()) {
-            fsStatusMessage = "FLASH SYSTEM EMPTY";
+            isFlashFallback = true;
+            fsStatusMessage = "FLASH EMPTY (DEMO ACTIVE)";
+            RealFile f1 = {"deck_config.json", "0.1 KB", false};
+            RealFile f2 = {"breach_log.txt", "0.1 KB", false};
+            RealFile f3 = {"system.ini", "0.1 KB", false};
+            loadedFiles.push_back(f1);
+            loadedFiles.push_back(f2);
+            loadedFiles.push_back(f3);
         }
     }
 }
@@ -682,6 +714,23 @@ void readSelectedFileContent(String fileName) {
     String path = "/" + fileName;
     
     if (isSDCardManager) {
+        if (isSDFallback) {
+            if (fileName == "credentials.txt") {
+                openedFileContent.push_back("[system_credentials]");
+                openedFileContent.push_back("admin:cYbErPuNk2077");
+                openedFileContent.push_back("net_gate:ice_breaker");
+            } else if (fileName == "subnet_node.sh") {
+                openedFileContent.push_back("#!/bin/bash");
+                openedFileContent.push_back("nmap -sS -O 10.0.2.15");
+                openedFileContent.push_back("bypass_firewall --level 3");
+            } else {
+                openedFileContent.push_back("0xDEADBEEF 0xCAFEBABE");
+                openedFileContent.push_back("0x00FF00FF 0x12345678");
+                openedFileContent.push_back("VULNERABILITY DETECTED");
+            }
+            return;
+        }
+        
         SPI.begin(40, 39, 14, 12);
         if (!SD.begin(12, SPI, 20000000)) {
             openedFileContent.push_back("SD Card Mount Error");
@@ -708,6 +757,24 @@ void readSelectedFileContent(String fileName) {
         }
         f.close();
     } else {
+        if (isFlashFallback) {
+            if (fileName == "deck_config.json") {
+                openedFileContent.push_back("{");
+                openedFileContent.push_back("  \"deck_id\": \"CYBER_D_01\",");
+                openedFileContent.push_back("  \"os\": \"cyber_os_7.0\"");
+                openedFileContent.push_back("}");
+            } else if (fileName == "breach_log.txt") {
+                openedFileContent.push_back("BREACH ACCESS LOG:");
+                openedFileContent.push_back("OP: sl01220");
+                openedFileContent.push_back("STATUS: COMPLETED");
+            } else {
+                openedFileContent.push_back("[system]");
+                openedFileContent.push_back("node=BP_X1");
+                openedFileContent.push_back("security=HIGH");
+            }
+            return;
+        }
+        
         if (!SPIFFS.begin(true)) {
             openedFileContent.push_back("Flash Mount Error");
             return;
