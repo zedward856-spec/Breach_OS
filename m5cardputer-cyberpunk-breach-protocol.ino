@@ -568,6 +568,31 @@ bool isSDCardManager = false;
 int fileManagerSelected = 0;
 bool showFileContent = false;
 
+std::vector<String> dummyLogs = {
+    "[ OK ] Init SPI flash layout...",
+    "[ OK ] Mounted APP Partition.",
+    "Mounting Secure File System...",
+    "[ OK ] Mounted Secure FS.",
+    "[ OK ] Init GPIO controllers.",
+    "Starting Audio Initialization...",
+    "[ OK ] Started Sound Card (I2S).",
+    "[ OK ] Setting volume envelope.",
+    "Starting Network Stack...",
+    "[ OK ] IPv4/IPv6 Stack Active.",
+    "[ OK ] Init Keyboard Matrix...",
+    "[ OK ] Started Graphics Core.",
+    "Bypassing Subnet Gateway...",
+    "[ OK ] Bypass Successful.",
+    "Allocating buffer memory...",
+    "[ OK ] Memory allocated.",
+    "[ OK ] Started Breach Protocol.",
+    "Establishing secure tunnel...",
+    "[ OK ] Tunnel established.",
+    "[ OK ] System Boot Complete."
+};
+int logOffset = 0;
+unsigned long lastLogUpdate = 0;
+
 struct RealFile {
     String name;
     String sizeStr;
@@ -1020,31 +1045,6 @@ void drawChippedButton(int x, int y, int w, int h, uint16_t color) {
     canvas.drawLine(x + w, y, x + w, y + h - chip, color);
     canvas.drawLine(x + w, y + h - chip, x + w - chip, y + h, color);
 }
-
-std::vector<String> dummyLogs = {
-    "[ OK ] Init SPI flash layout...",
-    "[ OK ] Mounted APP Partition.",
-    "Mounting Secure File System...",
-    "[ OK ] Mounted Secure FS.",
-    "[ OK ] Init GPIO controllers.",
-    "Starting Audio Initialization...",
-    "[ OK ] Started Sound Card (I2S).",
-    "[ OK ] Setting volume envelope.",
-    "Starting Network Stack...",
-    "[ OK ] IPv4/IPv6 Stack Active.",
-    "[ OK ] Init Keyboard Matrix...",
-    "[ OK ] Started Graphics Core.",
-    "Bypassing Subnet Gateway...",
-    "[ OK ] Bypass Successful.",
-    "Allocating buffer memory...",
-    "[ OK ] Memory allocated.",
-    "[ OK ] Started Breach Protocol.",
-    "Establishing secure tunnel...",
-    "[ OK ] Tunnel established.",
-    "[ OK ] System Boot Complete."
-};
-int logOffset = 0;
-unsigned long lastLogUpdate = 0;
 
 void drawSplash() {
     canvas.startWrite();
