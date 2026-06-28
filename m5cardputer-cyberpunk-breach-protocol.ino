@@ -42,6 +42,7 @@ void playSound(const unsigned char* soundData, size_t soundSize) {
 #define CP_YELLOW canvas.color565(220, 244, 27)
 #define CP_CYAN canvas.color565(56, 190, 201)
 #define CP_RED canvas.color565(255, 0, 60)
+#define CP_GREEN canvas.color565(0, 255, 75)
 #define CP_BG canvas.color565(14, 17, 21)
 #define CP_PANEL canvas.color565(14, 17, 21)
 #define CP_ACTIVE_LINE canvas.color565(44, 53, 71)
