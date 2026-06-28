@@ -427,7 +427,7 @@ void drawControlsScreen() {
     canvas.setCursor(130, 100); canvas.print("ARROW_KEYS");
     
     canvas.setTextColor(CP_YELLOW);
-    canvas.drawCenterString("PRESS ESC OR COMMA OR ENTER TO EXIT", 120, 115);
+    canvas.drawCenterString("PRESS ENTER TO EXIT", 120, 115);
     
     pushCanvas();
 }
