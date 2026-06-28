@@ -91,7 +91,9 @@ enum AppState {
     STATE_FAILED_SCREEN,
     STATE_PLAYING,
     STATE_CONTROLS,
-    STATE_CREDITS
+    STATE_CREDITS,
+    STATE_HARDWARE_MENU,
+    STATE_FILE_MANAGER
 };
 AppState appState = STATE_SPLASH;
 
@@ -177,6 +179,10 @@ void drawControlsScreen();
 void handleControlsInput(Keyboard_Class::KeysState status);
 void drawCreditsScreen();
 void handleCreditsInput(Keyboard_Class::KeysState status);
+void drawHardwareMenu();
+void handleHardwareMenuInput(Keyboard_Class::KeysState status);
+void drawFileManager();
+void handleFileManagerInput(Keyboard_Class::KeysState status);
 
 void drawMessage(String msg, String line2 = "");
 void drawGlitchText(String text, int x, int y, int size, uint16_t color, bool center = true, bool forceGlitch = false) {
@@ -412,6 +418,8 @@ void drawCurrentScreen() {
         case STATE_PLAYING: drawScreen(); break;
         case STATE_CONTROLS: drawControlsScreen(); break;
         case STATE_CREDITS: drawCreditsScreen(); break;
+        case STATE_HARDWARE_MENU: drawHardwareMenu(); break;
+        case STATE_FILE_MANAGER: drawFileManager(); break;
     }
 }
 
@@ -546,6 +554,293 @@ void handleCreditsInput(Keyboard_Class::KeysState status) {
     }
 }
 
+float currentHardwareScroll = 0;
+float targetHardwareScroll = 0;
+int hardwareMenuFocus = 0;
+bool showHardwareDesc = false;
+float hardwareDescAnimWidth = 0.0;
+
+struct MockFile {
+    String name;
+    String size;
+    String content[4];
+};
+
+MockFile mockFiles[5] = {
+    {"deck_firmware.bin", "128 KB", {"DECK CORE V7.0", "BOOT STRAP: LOADED", "SECTORS: OK", "CRC CHECK: SUCCESS"}},
+    {"subnet_config.json", "1.2 KB", {"{", "  \"node_id\": \"BP_X1\",", "  \"security\": \"LEVEL_3\",", "  \"encryption\": \"AES256\""}},
+    {"icebreaker.sys", "4.0 KB", {"ICEBREAKER SYSTEM", "DEC_KEY: 0x55BD", "SUB_CORE: ONLINE", "STATUS: LOCKED"}},
+    {"score_logs.txt", "0.5 KB", {"BREACH SCORE LOG:", "OP_02: 12500 pts", "OP_04: 9800 pts", "GUEST: 4500 (OFFLINE)"}},
+    {"system_core.db", "64 KB", {"SYS MEM DUMP:", "0x00FF: 42 1C 55", "0x01A0: BD E9 FF", "MEM_INTEGRITY: 100%"}}
+};
+
+int fileManagerSelected = 0;
+bool showFileContent = false;
+
+void drawHardwareMenu() {
+    canvas.startWrite();
+    canvas.fillScreen(CP_BG);
+    
+    // Draw title
+    drawGlitchText("HARDWARE NODE", 135, 12, 2, CP_CYAN, true, true);
+    drawGlitchText("SUB-SYSTEM LEVEL 1", 135, 34, 1, CP_DIM);
+    
+    // Draw rotating wheel arc
+    canvas.drawCircle(-80, 67, 110, CP_DIM);
+    canvas.drawCircle(-80, 67, 109, CP_DIM);
+    
+    int totalItems = 2;
+    std::vector<String> labels = {"FILES", "BACK"};
+    
+    for (int i = 0; i < totalItems; i++) {
+        float rawOffset = i - currentHardwareScroll;
+        float offset = fmod(rawOffset, (float)totalItems);
+        float halfItems = (float)totalItems / 2.0;
+        if (offset > halfItems) offset -= (float)totalItems;
+        if (offset < -halfItems) offset += (float)totalItems;
+        
+        if (abs(offset) > 1.5) continue;
+        if (offset < -0.5) continue;
+        
+        float angle = offset * 0.391;
+        float tickY = 67 + sin(angle) * 110;
+        float tickX = -80 + cos(angle) * 110;
+        
+        bool isSelected = (i == hardwareMenuFocus);
+        uint16_t tColor = isSelected ? CP_CYAN : CP_DIM;
+        
+        float tickEndX = -80 + cos(angle) * (isSelected ? 117 : 115);
+        float tickEndY = 67 + sin(angle) * (isSelected ? 117 : 115);
+        
+        canvas.drawLine(tickX, tickY, tickEndX, tickEndY, tColor);
+        canvas.drawLine(tickX, tickY - 1, tickEndX, tickEndY - 1, tColor);
+        if (isSelected) {
+            canvas.drawLine(tickX, tickY + 1, tickEndX, tickEndY + 1, tColor);
+        }
+        
+        float scale = 1.0 - abs(offset) * 0.3333;
+        if (scale < 0.1) scale = 0.1;
+        float h = 30.0 * scale;
+        float y = tickY - h / 2.0;
+        float w = 195.0 * scale;
+        float x = tickX + 10;
+        
+        int textSize = isSelected ? 2 : 1;
+        uint16_t color = isSelected ? CP_YELLOW : CP_DIM;
+        
+        drawChippedButton(x, y, w, h, color);
+        canvas.setTextColor(color);
+        canvas.setTextSize(textSize);
+        
+        float textY = y + (isSelected ? 7 : 6);
+        float textX = x + 15;
+        canvas.setCursor(textX, textY);
+        canvas.print(labels[i]);
+    }
+    
+    if (hardwareDescAnimWidth >= 10.0) {
+        int x = 40;
+        int y = 52;
+        int h = 30;
+        canvas.fillRect(x, y, (int)hardwareDescAnimWidth, h, CP_BG);
+        drawChippedButton(x, y, (int)hardwareDescAnimWidth, h, CP_YELLOW);
+        
+        if (hardwareDescAnimWidth > 160.0) {
+            canvas.setTextColor(CP_YELLOW);
+            String label = labels[hardwareMenuFocus];
+            String line1 = "";
+            String line2 = "";
+            if (label == "FILES") {
+                line1 = "File";
+                line2 = "manager";
+            } else if (label == "BACK") {
+                line1 = "Return to";
+                line2 = "terminal";
+            }
+            
+            if (line1 != "") {
+                canvas.setTextSize(2);
+                canvas.setCursor(x + 10, y + 0);
+                canvas.print(line1);
+                canvas.setCursor(x + 10, y + 14);
+                canvas.print(line2);
+            }
+        }
+    }
+    
+    pushCanvas();
+}
+
+void handleHardwareMenuInput(Keyboard_Class::KeysState status) {
+    bool hasUp = false, hasDown = false;
+    bool hasRight = false;
+    bool hasLeft = false;
+    for (char c : status.word) {
+        if (c == ';') hasUp = true;
+        if (c == '.') hasDown = true;
+        if (c == '/') hasRight = true;
+        if (c == ',') hasLeft = true;
+    }
+    
+    if (showHardwareDesc) {
+        if (hasLeft || hasUp || hasDown) {
+            playSound(sound_select, sound_select_size);
+            showHardwareDesc = false;
+            return;
+        }
+    } else {
+        if (hasRight && hardwareMenuFocus == 0) { // FILES has description card
+            playSound(sound_select, sound_select_size);
+            showHardwareDesc = true;
+            return;
+        }
+    }
+    
+    if (status.enter) {
+        playSound(sound_select, sound_select_size);
+        showHardwareDesc = false;
+        hardwareDescAnimWidth = 0.0;
+        
+        if (hardwareMenuFocus == 0) {
+            appState = STATE_FILE_MANAGER;
+            fileManagerSelected = 0;
+            showFileContent = false;
+            drawFileManager();
+        } else if (hardwareMenuFocus == 1) {
+            appState = STATE_SPLASH;
+            drawSplash();
+        }
+        return;
+    }
+    
+    if (!showHardwareDesc) {
+        int maxFocus = 1;
+        if (hasUp) {
+            playSound(sound_hover, sound_hover_size);
+            hardwareMenuFocus--;
+            if (hardwareMenuFocus < 0) hardwareMenuFocus = maxFocus;
+            targetHardwareScroll -= 1.0;
+        }
+        if (hasDown) {
+            playSound(sound_hover, sound_hover_size);
+            hardwareMenuFocus++;
+            if (hardwareMenuFocus > maxFocus) hardwareMenuFocus = 0;
+            targetHardwareScroll += 1.0;
+        }
+    }
+}
+
+void drawFileManager() {
+    canvas.startWrite();
+    canvas.fillScreen(CP_BG);
+    
+    // Draw title and outer frames
+    canvas.drawRect(5, 5, 230, 125, CP_CYAN);
+    canvas.drawRect(7, 7, 226, 121, CP_DIM);
+    
+    canvas.setTextColor(CP_YELLOW);
+    canvas.setTextSize(1);
+    canvas.drawCenterString("--- FILE MANAGER SCHEMA ---", 120, 12);
+    canvas.drawLine(10, 24, 230, 24, CP_CYAN);
+    
+    if (!showFileContent) {
+        // Draw file list
+        int startY = 32;
+        for (int i = 0; i < 5; i++) {
+            bool isSel = (i == fileManagerSelected);
+            uint16_t color = isSel ? CP_YELLOW : WHITE;
+            
+            if (isSel) {
+                canvas.fillRect(10, startY - 2, 220, 14, canvas.color565(30, 30, 30));
+                canvas.drawRect(10, startY - 2, 220, 14, CP_CYAN);
+            }
+            
+            canvas.setTextColor(color);
+            canvas.setCursor(15, startY);
+            canvas.print(mockFiles[i].name);
+            
+            canvas.setCursor(170, startY);
+            canvas.print(mockFiles[i].size);
+            
+            startY += 15;
+        }
+        
+        canvas.setTextColor(CP_YELLOW);
+        canvas.drawCenterString("ENTER: OPEN  |  ESC/COMMA: BACK", 120, 114);
+    } else {
+        // Draw selected file content panel
+        MockFile f = mockFiles[fileManagerSelected];
+        canvas.setTextColor(CP_CYAN);
+        canvas.setCursor(15, 32);
+        canvas.print("FILE: " + f.name);
+        canvas.drawLine(12, 44, 228, 44, CP_CYAN);
+        
+        canvas.setTextColor(WHITE);
+        int startY = 50;
+        for (int i = 0; i < 4; i++) {
+            if (f.content[i] != "") {
+                canvas.setCursor(15, startY);
+                canvas.print(f.content[i]);
+                startY += 12;
+            }
+        }
+        
+        canvas.setTextColor(CP_YELLOW);
+        canvas.drawCenterString("PRESS COMMA OR ESC TO CLOSE", 120, 114);
+    }
+    
+    pushCanvas();
+}
+
+void handleFileManagerInput(Keyboard_Class::KeysState status) {
+    bool hasBack = false;
+    for (char c : status.word) {
+        if (c == ',' || c == '`') hasBack = true;
+    }
+    
+    if (showFileContent) {
+        if (hasBack || status.enter) {
+            playSound(sound_select, sound_select_size);
+            showFileContent = false;
+            drawFileManager();
+        }
+        return;
+    }
+    
+    if (hasBack) {
+        playSound(sound_select, sound_select_size);
+        appState = STATE_HARDWARE_MENU;
+        drawHardwareMenu();
+        return;
+    }
+    
+    if (status.enter) {
+        playSound(sound_select, sound_select_size);
+        showFileContent = true;
+        drawFileManager();
+        return;
+    }
+    
+    bool hasUp = false, hasDown = false;
+    for (char c : status.word) {
+        if (c == ';') hasUp = true;
+        if (c == '.') hasDown = true;
+    }
+    
+    if (hasUp) {
+        playSound(sound_hover, sound_hover_size);
+        fileManagerSelected--;
+        if (fileManagerSelected < 0) fileManagerSelected = 4;
+        drawFileManager();
+    }
+    if (hasDown) {
+        playSound(sound_hover, sound_hover_size);
+        fileManagerSelected++;
+        if (fileManagerSelected > 4) fileManagerSelected = 0;
+        drawFileManager();
+    }
+}
+
 
 
 
@@ -622,6 +917,13 @@ void drawSplash() {
     canvas.setTextSize(1);
     canvas.setTextColor(WHITE);
     
+    canvas.drawString("> Press ", 5, 105);
+    int x01 = 5 + canvas.textWidth("> Press ");
+    drawGlitchText("1", x01, 105, 1, WHITE, false, true);
+    int x02 = x01 + canvas.textWidth("1");
+    canvas.setTextColor(WHITE);
+    canvas.drawString(" for Hardware Node", x02, 105);
+    
     canvas.drawString("> Press ", 5, 115);
     int x1 = 5 + canvas.textWidth("> Press ");
     drawGlitchText("ENTER", x1, 115, 1, WHITE, false, true);
@@ -648,11 +950,26 @@ void handleSplashInput(Keyboard_Class::KeysState status) {
         } else {
             startWifiScan();
         }
+        return;
     }
     
     bool hasEsc = false;
+    bool hasOne = false;
     for (char c : status.word) {
         if (c == '`') hasEsc = true; // ESC key on Cardputer
+        if (c == '1') hasOne = true;
+    }
+    
+    if (hasOne) {
+        playSound(sound_select, sound_select_size);
+        appState = STATE_HARDWARE_MENU;
+        hardwareMenuFocus = 0;
+        currentHardwareScroll = 0;
+        targetHardwareScroll = 0;
+        showHardwareDesc = false;
+        hardwareDescAnimWidth = 0.0;
+        drawHardwareMenu();
+        return;
     }
     
     if (hasEsc) {
@@ -2279,6 +2596,47 @@ void loop() {
         if (keyChanged && keyPressed) {
             handleCreditsInput(globalStatus);
             if (appState == STATE_CREDITS) drawCreditsScreen();
+        }
+        delay(10);
+        return;
+    }
+
+    if (appState == STATE_HARDWARE_MENU) {
+        if (keyChanged && keyPressed) {
+            handleHardwareMenuInput(globalStatus);
+            if (appState == STATE_HARDWARE_MENU) drawHardwareMenu();
+        }
+        
+        bool needsRedraw = false;
+        if (abs(currentHardwareScroll - targetHardwareScroll) > 0.01) {
+            currentHardwareScroll += (targetHardwareScroll - currentHardwareScroll) * 0.3; // Smooth lerp
+            if (abs(currentHardwareScroll - targetHardwareScroll) <= 0.01) {
+                currentHardwareScroll = targetHardwareScroll;
+            }
+            needsRedraw = true;
+        }
+        
+        if (showHardwareDesc && hardwareDescAnimWidth < 195.0) {
+            hardwareDescAnimWidth += (195.0 - hardwareDescAnimWidth) * 0.4;
+            if (195.0 - hardwareDescAnimWidth < 1.0) hardwareDescAnimWidth = 195.0;
+            needsRedraw = true;
+        } else if (!showHardwareDesc && hardwareDescAnimWidth > 0.0) {
+            hardwareDescAnimWidth += (0.0 - hardwareDescAnimWidth) * 0.4;
+            if (hardwareDescAnimWidth < 1.0) hardwareDescAnimWidth = 0.0;
+            needsRedraw = true;
+        }
+        
+        if (needsRedraw) {
+            drawHardwareMenu();
+        }
+        
+        delay(10);
+        return;
+    }
+    
+    if (appState == STATE_FILE_MANAGER) {
+        if (keyChanged && keyPressed) {
+            handleFileManagerInput(globalStatus);
         }
         delay(10);
         return;
