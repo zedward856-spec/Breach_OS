@@ -136,6 +136,8 @@ int phaseMenuFocus = 0;
 int gridMenuFocus = 0;
 float currentGridScroll = 0;
 float targetGridScroll = 0;
+float currentMenuScroll = 0;
+float targetMenuScroll = 0;
 
 int lastPhaseScore = 0;
 float lastTimeRatio = 0.0;
@@ -148,6 +150,7 @@ void drawAuthMenu();
 void drawWifiScan();
 void drawWifiPass();
 void drawMainMenu();
+void enterMainMenu();
 void drawLeaderboard();
 void drawAccountMenu();
 void drawGridSelect();
@@ -330,8 +333,7 @@ void handleSplashInput(Keyboard_Class::KeysState status) {
         WiFi.mode(WIFI_OFF);
         isGuest = true;
         authUser = "GUEST";
-        appState = STATE_MAIN_MENU;
-        drawMainMenu();
+        enterMainMenu();
     }
 }
 
@@ -509,8 +511,7 @@ void handleAuthInput(Keyboard_Class::KeysState status) {
                 }
                 
                 isGuest = false;
-                appState = STATE_MAIN_MENU;
-                drawMainMenu();
+                enterMainMenu();
             } else {
                 http.end();
                 drawMessage("ACCESS DENIED");
@@ -521,8 +522,7 @@ void handleAuthInput(Keyboard_Class::KeysState status) {
         } else if (authFocus == 4) {
             isGuest = true;
             playSound(wifi_finished_wav, wifi_finished_wav_len);
-            appState = STATE_MAIN_MENU;
-            drawMainMenu();
+            enterMainMenu();
             return;
         }
         authFocus++;
@@ -612,8 +612,7 @@ void handleWifiScanInput(Keyboard_Class::KeysState status) {
             WiFi.mode(WIFI_OFF);
             isGuest = true;
             authUser = "GUEST";
-            appState = STATE_MAIN_MENU;
-            drawMainMenu();
+            enterMainMenu();
             return;
         }
         appState = STATE_WIFI_PASS;
@@ -681,37 +680,99 @@ void handleWifiPassInput(Keyboard_Class::KeysState status) {
     }
 }
 
+void enterMainMenu() {
+    appState = STATE_MAIN_MENU;
+    mainMenuFocus = 0;
+    currentMenuScroll = 0;
+    targetMenuScroll = 0;
+    drawMainMenu();
+}
+
 void drawMainMenu() {
     canvas.startWrite();
     canvas.fillScreen(CP_BG);
     
-    drawGlitchText("NETWORK NODE", 120, 15, 2, CP_CYAN, true, true);
+    // Draw headers centered on the right side of the screen to avoid the scroll wheel
+    drawGlitchText("NETWORK NODE", 135, 12, 2, CP_CYAN, true, true);
+    drawGlitchText("OPERATIVE: " + (isGuest ? String("GUEST") : authUser), 135, 34, 1, CP_DIM);
     
-    drawGlitchText("OPERATIVE: " + (isGuest ? String("GUEST") : authUser), 120, 40, 1, CP_DIM);
+    // Draw rotating wheel arc on the left
+    canvas.drawCircle(-80, 67, 110, CP_DIM);
+    canvas.drawCircle(-80, 67, 109, CP_DIM);
     
-    int startY = 55;
-    int spacing = 22;
-    
-    uint16_t colorPlay = (mainMenuFocus == 0) ? CP_YELLOW : WHITE;
-    drawChippedButton(70, startY, 100, 20, colorPlay);
-    drawGlitchText("BREACH PROTOCOL", 120, startY + 5, 1, colorPlay);
-    
-    if (!isGuest) {
-        uint16_t colorLDB = (mainMenuFocus == 1) ? CP_YELLOW : WHITE;
-        drawChippedButton(70, startY + spacing, 100, 20, colorLDB);
-        drawGlitchText("LEADERBOARD", 120, startY + spacing + 5, 1, colorLDB);
-        
-        uint16_t colorAccount = (mainMenuFocus == 2) ? CP_YELLOW : WHITE;
-        drawChippedButton(70, startY + spacing*2, 100, 20, colorAccount);
-        drawGlitchText("ACCOUNT", 120, startY + spacing*2 + 5, 1, colorAccount);
-        
-        uint16_t colorBack = lastBreachFailed ? CP_RED : ((mainMenuFocus == 3) ? CP_YELLOW : WHITE);
-        drawChippedButton(70, startY + spacing*3, 100, 20, colorBack);
-        drawGlitchText("BACK", 120, startY + spacing*3 + 5, 1, colorBack);
+    int totalItems = isGuest ? 2 : 4;
+    std::vector<String> labels;
+    std::vector<String> descs;
+    if (isGuest) {
+        labels = {"PLAY", "BACK"};
+        descs = {"Start Breach", "Reboot Cardputer"};
     } else {
-        uint16_t colorBack = lastBreachFailed ? CP_RED : ((mainMenuFocus == 1) ? CP_YELLOW : WHITE);
-        drawChippedButton(70, startY + spacing, 100, 20, colorBack);
-        drawGlitchText("BACK", 120, startY + spacing + 5, 1, colorBack);
+        labels = {"PLAY", "LEADERBOARD", "ACCOUNT", "BACK"};
+        descs = {"Start Breach", "Global Databank", "Operative Profile", "Reboot Cardputer"};
+    }
+    
+    for (int i = 0; i < totalItems; i++) {
+        // Calculate shortest wrapping distance for seamless infinite scroll
+        float rawOffset = i - currentMenuScroll;
+        float offset = fmod(rawOffset, (float)totalItems);
+        float halfItems = (float)totalItems / 2.0;
+        if (offset > halfItems) offset -= (float)totalItems;
+        if (offset < -halfItems) offset += (float)totalItems;
+        
+        // Don't draw items too far off screen
+        if (abs(offset) > 1.5) continue;
+        
+        // Calculate tick position on the arc
+        float angle = offset * 0.391; // ~22.4 degrees in radians
+        float tickY = 67 + sin(angle) * 110;
+        float tickX = -80 + cos(angle) * 110;
+        
+        bool isSelected = (i == mainMenuFocus);
+        
+        uint16_t tColor = isSelected ? CP_CYAN : CP_DIM;
+        
+        // Draw outward-pointing rotated ticks
+        float tickEndX = -80 + cos(angle) * (isSelected ? 117 : 115);
+        float tickEndY = 67 + sin(angle) * (isSelected ? 117 : 115);
+        
+        canvas.drawLine(tickX, tickY, tickEndX, tickEndY, tColor);
+        canvas.drawLine(tickX, tickY - 1, tickEndX, tickEndY - 1, tColor);
+        if (isSelected) {
+            canvas.drawLine(tickX, tickY + 1, tickEndX, tickEndY + 1, tColor);
+        }
+        
+        // Button dynamic properties
+        float h = 30 - abs(offset) * 10;
+        if (h < 1) h = 1;
+        float y = tickY - h / 2.0;
+        float w = 195 - abs(offset) * 20;
+        float x = 40 - abs(offset) * 10;
+        
+        int textSize = isSelected ? 2 : 1;
+        uint16_t color = isSelected ? CP_YELLOW : CP_DIM;
+        if (i == totalItems - 1 && lastBreachFailed) {
+            color = CP_RED;
+        }
+        
+        drawChippedButton(x, y, w, h, color);
+        
+        canvas.setTextColor(color);
+        canvas.setTextSize(textSize);
+        
+        float textY = y + (isSelected ? 7 : 6);
+        float textX = x + 15;
+        canvas.setCursor(textX, textY);
+        canvas.print(labels[i]);
+        
+        if (isSelected) {
+            int labelWidth = canvas.textWidth(labels[i]);
+            canvas.setTextSize(1);
+            canvas.setTextColor(WHITE);
+            canvas.setCursor(textX + labelWidth + 6, textY + 4); 
+            canvas.print(descs[i]);
+        } else {
+            canvas.print(" " + descs[i]);
+        }
     }
     
     canvas.pushSprite(0, 0); canvas.endWrite();
@@ -751,20 +812,22 @@ void handleMainMenuInput(Keyboard_Class::KeysState status) {
     
     bool hasUp = false, hasDown = false;
     for (char c : status.word) {
-        if (c == ';') hasUp = true;
-        if (c == '.') hasDown = true;
+        if (c == ',' || c == ';') hasUp = true;
+        if (c == '/' || c == '.') hasDown = true;
     }
     
     int maxFocus = isGuest ? 1 : 3;
     if (hasUp) {
+        playSound(sound_hover, sound_hover_size);
         mainMenuFocus--;
         if (mainMenuFocus < 0) mainMenuFocus = maxFocus;
-        playSound(sound_hover, sound_hover_size);
+        targetMenuScroll -= 1.0;
     }
     if (hasDown) {
+        playSound(sound_hover, sound_hover_size);
         mainMenuFocus++;
         if (mainMenuFocus > maxFocus) mainMenuFocus = 0;
-        playSound(sound_hover, sound_hover_size);
+        targetMenuScroll += 1.0;
     }
 }
 
@@ -883,8 +946,7 @@ void handleGridSelectInput(Keyboard_Class::KeysState status) {
     if (status.enter) {
         playSound(sound_select, sound_select_size);
         if (gridMenuFocus == 3) {
-            appState = STATE_MAIN_MENU;
-            drawMainMenu();
+            enterMainMenu();
             return;
         }
         
@@ -964,8 +1026,7 @@ void handlePhaseTransitionInput(Keyboard_Class::KeysState status) {
         if (currentPhase >= 8 || phaseMenuFocus == 1) {
             drawMessage("SAVING SCORE...");
             submitScore(accumulatedScore);
-            appState = STATE_MAIN_MENU;
-            drawMainMenu();
+            enterMainMenu();
         } else {
             currentPhase++;
             initGame();
@@ -1470,13 +1531,11 @@ void handleAccountInput(Keyboard_Class::KeysState status) {
             }
             delay(1500);
             accountStatsFetched = false;
-            appState = STATE_MAIN_MENU;
-            drawMainMenu();
+            enterMainMenu();
             return;
         } else if (accountFocus == 4) {
             accountStatsFetched = false;
-            appState = STATE_MAIN_MENU;
-            drawMainMenu();
+            enterMainMenu();
             return;
         }
         accountFocus++;
@@ -1642,6 +1701,13 @@ void loop() {
             handleMainMenuInput(globalStatus);
             if (appState == STATE_MAIN_MENU) drawMainMenu();
         }
+        if (abs(currentMenuScroll - targetMenuScroll) > 0.01) {
+            currentMenuScroll += (targetMenuScroll - currentMenuScroll) * 0.3; // Smooth lerp
+            if (abs(currentMenuScroll - targetMenuScroll) <= 0.01) {
+                currentMenuScroll = targetMenuScroll;
+            }
+            drawMainMenu();
+        }
         delay(10);
         return;
     }
@@ -1680,8 +1746,7 @@ void loop() {
             
             if (status.enter || status.del) {
                 playSound(sound_select, sound_select_size);
-                appState = STATE_MAIN_MENU;
-                drawMainMenu();
+                enterMainMenu();
             }
         }
         delay(10);
@@ -1736,8 +1801,7 @@ void loop() {
             if (globalStatus.enter) {
                 playSound(sound_select, sound_select_size);
                 lastBreachFailed = true;
-                appState = STATE_MAIN_MENU;
-                drawMainMenu();
+                enterMainMenu();
             }
         }
         delay(10);
