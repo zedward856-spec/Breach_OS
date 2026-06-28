@@ -161,6 +161,7 @@ void drawGridSelect();
 void drawPhaseTransition();
 void drawGameOverFailed();
 void fetchLeaderboard(int offset = 0, int limit = 10);
+uint16_t blendColor(uint16_t c1, uint16_t c2, uint8_t alpha);
 void drawVolumeOverlay();
 void pushCanvas();
 void drawCurrentScreen();
@@ -229,18 +230,18 @@ void drawMessage(String msg, String line2) {
     }
     pushCanvas();
 }
-uint16_t lerpColor(uint16_t c1, uint16_t c2, float t) {
-    if (t <= 0.0) return c1;
-    if (t >= 1.0) return c2;
+uint16_t blendColor(uint16_t c1, uint16_t c2, uint8_t alpha) {
+    if (alpha >= 255) return c1;
+    if (alpha <= 0) return c2;
     uint8_t r1 = (c1 >> 11) & 0x1F;
     uint8_t g1 = (c1 >> 5) & 0x3F;
     uint8_t b1 = c1 & 0x1F;
     uint8_t r2 = (c2 >> 11) & 0x1F;
     uint8_t g2 = (c2 >> 5) & 0x3F;
     uint8_t b2 = c2 & 0x1F;
-    uint8_t r = r1 + (r2 - r1) * t;
-    uint8_t g = g1 + (g2 - g1) * t;
-    uint8_t b = b1 + (b2 - b1) * t;
+    uint8_t r = (r1 * alpha + r2 * (255 - alpha)) / 255;
+    uint8_t g = (g1 * alpha + g2 * (255 - alpha)) / 255;
+    uint8_t b = (b1 * alpha + b2 * (255 - alpha)) / 255;
     return (r << 11) | (g << 5) | b;
 }
 
@@ -249,28 +250,57 @@ void drawVolumeOverlay() {
     int y = 52;
     int w = 75;
     int h = 32;
-    float t = 0.0;
+    
     unsigned long elapsed = millis() - lastVolumeChangeTime;
+    float t = 0.0;
     if (elapsed > 1000) {
         t = (float)(elapsed - 1000) / 300.0;
         if (t > 1.0) t = 1.0;
     }
-    uint16_t popupColor = lerpColor(CP_YELLOW, CP_BG, t);
-    uint16_t textColor = lerpColor(WHITE, CP_BG, t);
-    uint16_t bgColor = lerpColor(CP_PANEL, CP_BG, t);
-    canvas.fillRect(x, y, w, h - 8, bgColor);
-    canvas.fillRect(x, y + h - 8, w - 8, 8, bgColor);
-    drawChippedButton(x, y, w, h, popupColor);
+    
+    uint8_t alpha = 255 * (1.0 - t);
+    if (alpha == 0) return;
+    
+    M5Canvas tSpr(&canvas);
+    tSpr.createSprite(w, h);
+    
+    uint16_t transColor = canvas.color565(255, 0, 128);
+    tSpr.fillSprite(transColor);
+    
+    tSpr.fillRect(0, 0, w, h - 8, CP_PANEL);
+    tSpr.fillRect(0, h - 8, w - 8, 8, CP_PANEL);
+    
+    int chip = 8;
+    tSpr.drawLine(0, 0, w, 0, CP_YELLOW);
+    tSpr.drawLine(0, 0, 0, h, CP_YELLOW);
+    tSpr.drawLine(0, h, w - chip, h, CP_YELLOW);
+    tSpr.drawLine(w, 0, w, h - chip, CP_YELLOW);
+    tSpr.drawLine(w, h - chip, w - chip, h, CP_YELLOW);
+    
     int volPct = round(globalVolume / 2.55);
-    canvas.setTextColor(textColor);
-    canvas.setTextSize(1);
-    canvas.setCursor(x + 8, y + 6);
-    canvas.print("VOL: " + String(volPct) + "%");
-    canvas.drawRect(x + 8, y + 18, 59, 6, popupColor);
+    tSpr.setTextColor(WHITE);
+    tSpr.setTextSize(1);
+    tSpr.setCursor(8, 6);
+    tSpr.print("VOL: " + String(volPct) + "%");
+    
+    tSpr.drawRect(8, 18, 59, 6, CP_YELLOW);
     int barW = (57 * globalVolume) / 255;
     if (barW > 0) {
-        canvas.fillRect(x + 9, y + 19, barW, 4, popupColor);
+        tSpr.fillRect(9, 19, barW, 4, CP_YELLOW);
     }
+    
+    for (int dy = 0; dy < h; dy++) {
+        for (int dx = 0; dx < w; dx++) {
+            uint16_t pColor = tSpr.readPixel(dx, dy);
+            if (pColor != transColor) {
+                uint16_t bgColor = canvas.readPixel(x + dx, y + dy);
+                uint16_t blendedColor = blendColor(pColor, bgColor, alpha);
+                canvas.drawPixel(x + dx, y + dy, blendedColor);
+            }
+        }
+    }
+    
+    tSpr.deleteSprite();
 }
 
 void pushCanvas() {
