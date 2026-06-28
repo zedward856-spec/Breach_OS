@@ -171,7 +171,6 @@ void drawVolumeOverlay();
 void drawBrightnessOverlay();
 void pushCanvas();
 void drawCurrentScreen();
-void playMatrixRainTransition();
 void drawControlsScreen();
 void handleControlsInput(Keyboard_Class::KeysState status);
 void drawCreditsScreen();
@@ -499,44 +498,6 @@ void handleCreditsInput(Keyboard_Class::KeysState status) {
 
 
 
-void playMatrixRainTransition() {
-    int cols = 15;
-    int colWidth = 240 / cols;
-    int drops[15];
-    for (int i = 0; i < cols; i++) {
-        drops[i] = random(-10, 0);
-    }
-    
-    canvas.startWrite();
-    for (int frame = 0; frame < 45; frame++) {
-        canvas.fillScreen(CP_BG);
-        for (int i = 0; i < cols; i++) {
-            for (int tail = 0; tail < 5; tail++) {
-                int y = (drops[i] - tail) * 12;
-                if (y >= 0 && y < 135) {
-                    String ch = String(random(16), HEX);
-                    ch.toUpperCase();
-                    
-                    uint16_t color = canvas.color565(15, 45, 15);
-                    if (tail == 0) {
-                        color = canvas.color565(40, 100, 40);
-                    }
-                    
-                    canvas.setTextColor(color);
-                    canvas.setTextSize(1);
-                    canvas.setCursor(i * colWidth + 4, y);
-                    canvas.print(ch);
-                }
-            }
-            drops[i]++;
-            if (drops[i] * 12 > 135 && random(10) > 7) {
-                drops[i] = 0;
-            }
-        }
-        pushCanvas();
-        delay(22);
-    }
-}
 
 void drawChippedButton(int x, int y, int w, int h, uint16_t color) {
     int chip = (h > 25) ? 8 : 5;
@@ -1346,7 +1307,6 @@ void handleGridSelectInput(Keyboard_Class::KeysState status) {
         
         currentPhase = 1;
         accumulatedScore = 0;
-        playMatrixRainTransition();
         appState = STATE_PLAYING;
         initGame();
         drawScreen();
@@ -1427,7 +1387,6 @@ void handlePhaseTransitionInput(Keyboard_Class::KeysState status) {
             enterMainMenu();
         } else {
             currentPhase++;
-            playMatrixRainTransition();
             initGame();
             appState = STATE_PLAYING;
             drawScreen();
@@ -2402,7 +2361,6 @@ void loop() {
         if (gameOver) {
             if (status.enter) {
                 playSound(sound_select, sound_select_size);
-                playMatrixRainTransition();
                 if (hackSuccess) {
                     appState = STATE_PHASE_TRANSITION;
                     phaseMenuFocus = 0;
