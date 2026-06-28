@@ -418,13 +418,13 @@ void drawControlsScreen() {
     canvas.setCursor(15, 100); canvas.print("MATRIX GRID SELECT :");
     
     canvas.setTextColor(WHITE);
-    canvas.setCursor(130, 28); canvas.print("; (UP)  / . (DOWN)");
-    canvas.setCursor(130, 40); canvas.print("/ or ENTER key");
-    canvas.setCursor(130, 52); canvas.print(", key");
-    canvas.setCursor(130, 64); canvas.print("- key / + key");
-    canvas.setCursor(130, 76); canvas.print("[ key / ] key");
-    canvas.setCursor(130, 88); canvas.print("BACKSPACE key");
-    canvas.setCursor(130, 100); canvas.print(", / ; and / / .");
+    canvas.setCursor(130, 28); canvas.print("; (UP) / . (DOWN)");
+    canvas.setCursor(130, 40); canvas.print("/ / ENTER");
+    canvas.setCursor(130, 52); canvas.print(",");
+    canvas.setCursor(130, 64); canvas.print("- / +");
+    canvas.setCursor(130, 76); canvas.print("[ / ]");
+    canvas.setCursor(130, 88); canvas.print("BACKSPACE");
+    canvas.setCursor(130, 100); canvas.print("UP / DOWN / LEFT / RIGHT");
     
     canvas.setTextColor(CP_YELLOW);
     canvas.drawCenterString("PRESS COMMA (,) OR ENTER TO EXIT", 120, 115);
