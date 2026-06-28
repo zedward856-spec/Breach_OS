@@ -181,9 +181,6 @@ void handleCreditsInput(Keyboard_Class::KeysState status);
 void drawMessage(String msg, String line2 = "");
 void drawGlitchText(String text, int x, int y, int size, uint16_t color, bool center = true, bool forceGlitch = false) {
     bool canGlitch = insaneMode || forceGlitch;
-    if (appState == STATE_MAIN_MENU && abs(currentMenuScroll - targetMenuScroll) > 0.01) {
-        canGlitch = false;
-    }
     if (!canGlitch) {
         canvas.setTextSize(size);
         canvas.setTextColor(color);
@@ -191,7 +188,21 @@ void drawGlitchText(String text, int x, int y, int size, uint16_t color, bool ce
         else canvas.drawString(text, x, y);
         return;
     }
-    bool glitch = (random(100) < 60); // 60% chance to glitch when called
+    
+    unsigned long timeChunk = millis() / (insaneMode ? 80 : 300);
+    uint32_t seed = timeChunk + text.length();
+    for (unsigned int i = 0; i < text.length(); i++) {
+        seed = (seed * 33) + text[i];
+    }
+    
+    auto localRand = [&seed](int minVal, int maxVal) -> int {
+        seed = (seed * 1103515245 + 12345);
+        int range = maxVal - minVal;
+        if (range <= 0) return minVal;
+        return minVal + ((seed / 65536) % range);
+    };
+    
+    bool glitch = (localRand(0, 100) < 60); // 60% chance to glitch
     canvas.setTextSize(size);
     
     if (!glitch) {
@@ -202,33 +213,33 @@ void drawGlitchText(String text, int x, int y, int size, uint16_t color, bool ce
     }
     
     // Jitter
-    int jx = x + random(-4, 5);
-    int jy = y + random(-2, 3);
+    int jx = x + localRand(-4, 5);
+    int jy = y + localRand(-2, 3);
     
     // Color separation
-    if (random(2) == 0) {
+    if (localRand(0, 2) == 0) {
         canvas.setTextColor(TFT_MAGENTA);
-        if (center) canvas.drawCenterString(text, jx + random(2, 5), jy);
-        else canvas.drawString(text, jx + random(2, 5), jy);
+        if (center) canvas.drawCenterString(text, jx + localRand(2, 5), jy);
+        else canvas.drawString(text, jx + localRand(2, 5), jy);
     }
     
-    canvas.setTextColor(random(2) == 0 ? WHITE : color);
+    canvas.setTextColor(localRand(0, 2) == 0 ? WHITE : color);
     if (center) canvas.drawCenterString(text, jx, jy);
     else canvas.drawString(text, jx, jy);
     
     // Slice (erase horizontal lines)
-    int numSlices = random(1, 4);
+    int numSlices = localRand(1, 4);
     for (int i=0; i<numSlices; i++) {
-        int sy = jy + random(0, size * 8);
+        int sy = jy + localRand(0, size * 8);
         canvas.drawLine(jx - 100, sy, jx + 100, sy, CP_BG);
-        if (random(2) == 0) canvas.drawLine(jx - 100, sy+1, jx + 100, sy+1, CP_BG);
+        if (localRand(0, 2) == 0) canvas.drawLine(jx - 100, sy+1, jx + 100, sy+1, CP_BG);
     }
     
     // Random artifact lines
-    if (random(3) == 0) {
-        int ax = jx + random(-50, 50);
-        int ay = jy + random(0, size * 8);
-        canvas.drawLine(ax, ay, ax + random(10, 30), ay, color);
+    if (localRand(0, 3) == 0) {
+        int ax = jx + localRand(-50, 50);
+        int ay = jy + localRand(0, size * 8);
+        canvas.drawLine(ax, ay, ax + localRand(10, 30), ay, color);
     }
 }
 
@@ -1036,7 +1047,7 @@ void drawMainMenu() {
     canvas.fillScreen(CP_BG);
     
     // Draw headers centered on the right side of the screen to avoid the scroll wheel
-    drawGlitchText("NETWORK NODE", 135, 12, 2, CP_CYAN, true, false);
+    drawGlitchText("NETWORK NODE", 135, 12, 2, CP_CYAN, true, true);
     drawGlitchText("OPERATIVE: " + (isGuest ? String("GUEST") : authUser), 135, 34, 1, CP_DIM);
     
     // Draw rotating wheel arc on the left
