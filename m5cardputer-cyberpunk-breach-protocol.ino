@@ -593,14 +593,7 @@ void drawHardwareMenu() {
     std::vector<String> labels = {"FILES", "BACK"};
     
     for (int i = 0; i < totalItems; i++) {
-        float rawOffset = i - currentHardwareScroll;
-        float offset = fmod(rawOffset, (float)totalItems);
-        float halfItems = (float)totalItems / 2.0;
-        if (offset > halfItems) offset -= (float)totalItems;
-        if (offset < -halfItems) offset += (float)totalItems;
-        
-        if (abs(offset) > 1.5) continue;
-        if (offset < -0.5) continue;
+        float offset = i - currentHardwareScroll;
         
         float angle = offset * 0.391;
         float tickY = 67 + sin(angle) * 110;
@@ -618,7 +611,7 @@ void drawHardwareMenu() {
             canvas.drawLine(tickX, tickY + 1, tickEndX, tickEndY + 1, tColor);
         }
         
-        float scale = 1.0 - abs(offset) * 0.3333;
+        float scale = 1.0 - abs(offset) * 0.2;
         if (scale < 0.1) scale = 0.1;
         float h = 30.0 * scale;
         float y = tickY - h / 2.0;
@@ -719,13 +712,13 @@ void handleHardwareMenuInput(Keyboard_Class::KeysState status) {
             playSound(sound_hover, sound_hover_size);
             hardwareMenuFocus--;
             if (hardwareMenuFocus < 0) hardwareMenuFocus = maxFocus;
-            targetHardwareScroll -= 1.0;
+            targetHardwareScroll = (float)hardwareMenuFocus;
         }
         if (hasDown) {
             playSound(sound_hover, sound_hover_size);
             hardwareMenuFocus++;
             if (hardwareMenuFocus > maxFocus) hardwareMenuFocus = 0;
-            targetHardwareScroll += 1.0;
+            targetHardwareScroll = (float)hardwareMenuFocus;
         }
     }
 }
