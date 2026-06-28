@@ -604,7 +604,7 @@ void drawSplash() {
     
     canvas.setTextColor(CP_YELLOW);
     canvas.setCursor(125, 60);
-    canvas.print("VERSION: v6.0scroll");
+    canvas.print("VERSION: v7.0reborn");
     
     canvas.setTextSize(1);
     canvas.setTextColor(WHITE);
