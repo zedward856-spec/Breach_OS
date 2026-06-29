@@ -281,6 +281,8 @@ void handleFileRenameInput(Keyboard_Class::KeysState status);
 void drawOtaCatalog();
 void handleOtaCatalogInput(Keyboard_Class::KeysState status);
 void performOtaUpdate(String binUrl);
+bool fetchOtaCatalog();
+String resolveOtaFirmwareUrl(String fid);
 void startMp3(String fileName);
 void stopMp3();
 
@@ -701,20 +703,19 @@ bool showSplashBootMenu = false;
 int splashBootFocus = 0;
 
 struct FirmwareCatalogItem {
+    String fid;
     String name;
+    String author;
     String version;
     String binUrl;
     String desc;
 };
 
-std::vector<FirmwareCatalogItem> otaCatalog = {
-    {"BREACH PROTOCOL", "v7.0reborn", "https://github.com/zedward856-spec/m5cardputer-cyberpunk-breach-protocol/releases/download/7.0reborn/m5cardputer-cyberpunk-breach-protocol.ino.bin", "Cyberpunk Breach Protocol App"},
-    {"M5 LAUNCHER", "v2.1.1", "https://github.com/bmorcelli/Launcher/releases/download/v2.1.1/M5Launcher-m5stack-cardputer.bin", "Multi-Binary Loader by bmorcelli"},
-    {"BRUCE MULTI-TOOL", "v1.2", "https://github.com/pr3y/Bruce/releases/download/v1.2/Bruce.bin", "Cardputer Multi-Tool Firmware"},
-    {"MARAUDER PORT", "v0.13.7", "https://github.com/bmorcelli/M5Launcher-FirmwareCatalog/raw/main/Cardputer/Marauder.bin", "WiFi Marauder by bmorcelli"}
-};
+std::vector<FirmwareCatalogItem> otaCatalog;
+bool otaCatalogLoaded = false;
 
 int otaCatalogFocus = 0;
+int otaCatalogScrollOffset = 0;
 
 std::vector<String> dummyLogs = {
     "[ OK ] Init SPI flash layout...",
@@ -1366,7 +1367,7 @@ void drawHardwareSettings() {
 void handleHardwareSettingsInput(Keyboard_Class::KeysState status) {
     bool hasBack = false;
     for (char c : status.word) {
-        if (c == ',' || c == '`') hasBack = true;
+        if (c == '`') hasBack = true;
     }
     
     if (hasBack) {
@@ -1377,7 +1378,7 @@ void handleHardwareSettingsInput(Keyboard_Class::KeysState status) {
         } else {
             appState = STATE_SPLASH;
             showSplashBootMenu = true;
-            splashBootFocus = 3;
+            splashBootFocus = 4;
             logOffset = 0;
             drawSplash();
         }
@@ -2400,7 +2401,7 @@ void drawSplash() {
         canvas.setTextColor(CP_YELLOW);
         canvas.drawCenterString("--- SELECT BOOT NODE ---", 120, 36);
         
-        std::vector<String> options = {"HARDWARE NODE", "NETWORK NODE", "OFFLINE PLAY", "SYSTEM SETTINGS", "OTA CATALOG"};
+        std::vector<String> options = {"HARDWARE NODE", "NETWORK NODE", "OFFLINE PLAY", "OTA CATALOG", "SYSTEM SETTINGS"};
         for (int i = 0; i < 5; i++) {
             bool isSelected = (i == splashBootFocus);
             canvas.setTextColor(isSelected ? CP_CYAN : CP_DIM);
@@ -2482,13 +2483,13 @@ void handleSplashInput(Keyboard_Class::KeysState status) {
             authUser = "GUEST";
             enterMainMenu();
         } else if (splashBootFocus == 3) {
-            appState = STATE_HARDWARE_SETTINGS;
-            settingsFocus = 0;
-            drawHardwareSettings();
-        } else if (splashBootFocus == 4) {
             appState = STATE_OTA_CATALOG;
             otaCatalogFocus = 0;
             drawOtaCatalog();
+        } else if (splashBootFocus == 4) {
+            appState = STATE_HARDWARE_SETTINGS;
+            settingsFocus = 0;
+            drawHardwareSettings();
         }
     }
 }
@@ -4575,9 +4576,33 @@ void drawOtaCatalog() {
         return;
     }
     
+    if (!otaCatalogLoaded) {
+        pushCanvas(); // Show black/connecting screen first
+        if (!fetchOtaCatalog()) {
+            canvas.fillScreen(CP_BG);
+            canvas.setTextColor(CP_RED);
+            canvas.drawCenterString("CATALOG FETCH FAILED", 120, 50);
+            canvas.setTextColor(WHITE);
+            canvas.drawCenterString("PRESS ESC TO GO BACK", 120, 75);
+            pushCanvas();
+            return;
+        }
+    }
+    
+    if (otaCatalog.empty()) {
+        canvas.setTextColor(CP_RED);
+        canvas.drawCenterString("NO FIRMWARES FOUND", 120, 60);
+        pushCanvas();
+        return;
+    }
+    
     int startY = 24;
-    for (int i = 0; i < (int)otaCatalog.size(); i++) {
-        bool isFocus = (i == otaCatalogFocus);
+    int maxDisplay = 5;
+    for (int i = 0; i < maxDisplay; i++) {
+        int idx = otaCatalogScrollOffset + i;
+        if (idx >= (int)otaCatalog.size()) break;
+        
+        bool isFocus = (idx == otaCatalogFocus);
         int rowY = startY + i * 13;
         
         if (isFocus) {
@@ -4589,11 +4614,11 @@ void drawOtaCatalog() {
         }
         
         canvas.setCursor(20, rowY + 2);
-        canvas.print(otaCatalog[i].name);
+        canvas.print(otaCatalog[idx].name);
         
         canvas.setCursor(160, rowY + 2);
         canvas.setTextColor(isFocus ? CP_YELLOW : CP_DIM);
-        canvas.print(otaCatalog[i].version);
+        canvas.print(otaCatalog[idx].author);
     }
     
     canvas.drawLine(10, 93, 230, 93, CP_CYAN);
@@ -4617,7 +4642,7 @@ void handleOtaCatalogInput(Keyboard_Class::KeysState status) {
         playSound(sound_select, sound_select_size);
         appState = STATE_SPLASH;
         showSplashBootMenu = true;
-        splashBootFocus = 4;
+        splashBootFocus = 3;
         drawSplash();
         return;
     }
@@ -4631,24 +4656,148 @@ void handleOtaCatalogInput(Keyboard_Class::KeysState status) {
         return;
     }
     
+    if (!otaCatalogLoaded) {
+        return; // Wait for fetch
+    }
+    
     bool hasUp = false, hasDown = false;
     for (char c : status.word) {
         if (c == ';') hasUp = true;
         if (c == '.') hasDown = true;
     }
     
-    if (hasUp) {
+    if (hasUp && !otaCatalog.empty()) {
         playSound(sound_hover, sound_hover_size);
         otaCatalogFocus = (otaCatalogFocus - 1 + otaCatalog.size()) % otaCatalog.size();
+        if (otaCatalogFocus < otaCatalogScrollOffset) {
+            otaCatalogScrollOffset = otaCatalogFocus;
+        } else if (otaCatalogFocus >= otaCatalogScrollOffset + 5) {
+            otaCatalogScrollOffset = otaCatalogFocus - 4;
+        }
         drawOtaCatalog();
-    } else if (hasDown) {
+    } else if (hasDown && !otaCatalog.empty()) {
         playSound(sound_hover, sound_hover_size);
         otaCatalogFocus = (otaCatalogFocus + 1) % otaCatalog.size();
+        if (otaCatalogFocus < otaCatalogScrollOffset) {
+            otaCatalogScrollOffset = otaCatalogFocus;
+        } else if (otaCatalogFocus >= otaCatalogScrollOffset + 5) {
+            otaCatalogScrollOffset = otaCatalogFocus - 4;
+        }
         drawOtaCatalog();
-    } else if (status.enter) {
+    } else if (status.enter && !otaCatalog.empty()) {
         playSound(sound_select, sound_select_size);
-        performOtaUpdate(otaCatalog[otaCatalogFocus].binUrl);
+        String resolvedUrl = resolveOtaFirmwareUrl(otaCatalog[otaCatalogFocus].fid);
+        if (resolvedUrl != "") {
+            performOtaUpdate(resolvedUrl);
+        } else {
+            canvas.fillScreen(CP_BG);
+            canvas.setTextColor(CP_RED);
+            canvas.setTextSize(1);
+            canvas.drawCenterString("URL RESOLVE FAILED", 120, 50);
+            pushCanvas();
+            delay(2000);
+            drawOtaCatalog();
+        }
     }
+}
+
+bool fetchOtaCatalog() {
+    canvas.fillScreen(CP_BG);
+    canvas.setTextColor(CP_YELLOW);
+    canvas.setTextSize(1);
+    canvas.drawCenterString("FETCHING CATALOG DATABASE...", 120, 50);
+    pushCanvas();
+    
+    WiFiClientSecure secureClient;
+    secureClient.setInsecure();
+    HTTPClient http;
+    
+    // Page 1 is the main firmware database ordered by downloads
+    String url = "https://api.launcherhub.net/firmwares?category=cardputer&order_by=downloads&page=1";
+    
+    if (http.begin(secureClient, url)) {
+        int httpCode = http.GET();
+        if (httpCode == HTTP_CODE_OK) {
+            String payload = http.getString();
+            
+            // Allocate a sufficiently large JSON document. 
+            // 24KB is plenty to deserialize 100 simple entries on ESP32-S3!
+            JsonDocument doc;
+            DeserializationError error = deserializeJson(doc, payload);
+            if (!error) {
+                otaCatalog.clear();
+                JsonArray array = doc.as<JsonArray>();
+                for (JsonVariant v : array) {
+                    FirmwareCatalogItem item;
+                    item.fid = v["fid"].as<String>();
+                    item.name = v["name"].as<String>();
+                    item.author = v["author"].as<String>();
+                    item.version = "LATEST";
+                    item.binUrl = "";
+                    
+                    // Construct short description
+                    item.desc = "by " + item.author;
+                    if (item.desc.length() > 32) {
+                        item.desc = item.desc.substring(0, 29) + "...";
+                    }
+                    
+                    // Format presentation name
+                    if (item.name.length() > 22) {
+                        item.name = item.name.substring(0, 19) + "...";
+                    }
+                    if (item.author.length() > 10) {
+                        item.author = item.author.substring(0, 8) + "..";
+                    }
+                    
+                    otaCatalog.push_back(item);
+                }
+                otaCatalogLoaded = true;
+                otaCatalogFocus = 0;
+                otaCatalogScrollOffset = 0;
+                http.end();
+                return true;
+            }
+        }
+        http.end();
+    }
+    return false;
+}
+
+String resolveOtaFirmwareUrl(String fid) {
+    canvas.fillScreen(CP_BG);
+    canvas.setTextColor(CP_YELLOW);
+    canvas.setTextSize(1);
+    canvas.drawCenterString("RESOLVING BINARY URL...", 120, 50);
+    pushCanvas();
+    
+    WiFiClientSecure secureClient;
+    secureClient.setInsecure();
+    HTTPClient http;
+    String url = "https://api.launcherhub.net/firmwares?fid=" + fid;
+    String resolvedUrl = "";
+    
+    if (http.begin(secureClient, url)) {
+        int httpCode = http.GET();
+        if (httpCode == HTTP_CODE_OK) {
+            String payload = http.getString();
+            JsonDocument doc;
+            DeserializationError error = deserializeJson(doc, payload);
+            if (!error) {
+                JsonArray versions = doc["versions"].as<JsonArray>();
+                if (versions.size() > 0) {
+                    String file = versions[0]["file"].as<String>();
+                    if (file.startsWith("http")) {
+                        resolvedUrl = file;
+                    } else {
+                        // Resolve using CDN_FIRMWARE host!
+                        resolvedUrl = "https://m5burner-cdn.m5stack.com/firmware/" + file;
+                    }
+                }
+            }
+        }
+        http.end();
+    }
+    return resolvedUrl;
 }
 
 void performOtaUpdate(String binUrl) {
