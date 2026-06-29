@@ -676,6 +676,7 @@ String fileManagerCurrentPath = "/";
 String clipboardSourcePath = "";
 String renameInputText = "";
 int fileActionsMenuSelected = 0;
+int settingsTab = 0;
 int settingsFocus = 0;
 bool showSystemFiles = false;
 unsigned long lastFileSelectionTime = 0;
@@ -1242,92 +1243,121 @@ void drawHardwareSettings() {
     
     canvas.setTextColor(CP_YELLOW);
     canvas.setTextSize(1);
-    canvas.drawCenterString("--- SORT SETTINGS SCHEMA ---", 120, 10);
-    canvas.drawLine(10, 20, 230, 20, CP_CYAN);
+    canvas.drawCenterString("--- SYSTEM CONFIG NODE ---", 120, 10);
     
-    // Row 0: Sort Field
-    bool focusField = (settingsFocus == 0);
-    uint16_t fieldBorderColor = focusField ? CP_YELLOW : CP_DIM;
-    canvas.fillRect(15, 24, 210, 15, focusField ? canvas.color565(30, 30, 30) : CP_BG);
-    canvas.drawRect(15, 24, 210, 15, fieldBorderColor);
+    // Draw Tabs
+    int tabX[3] = {12, 94, 154};
+    int tabW[3] = {76, 54, 76};
+    String tabNames[3] = {"HARDWARE", "  OTA  ", "APPEARANCE"};
+    for (int t = 0; t < 3; t++) {
+        bool isActive = (settingsTab == t);
+        bool hasFocus = (settingsFocus == -1 && isActive);
+        
+        uint16_t borderCol = hasFocus ? CP_YELLOW : (isActive ? CP_CYAN : CP_DIM);
+        canvas.drawRect(tabX[t], 22, tabW[t], 14, borderCol);
+        if (hasFocus) {
+            canvas.fillRect(tabX[t] + 1, 23, tabW[t] - 2, 12, canvas.color565(30, 30, 20));
+        }
+        canvas.setTextColor(isActive ? CP_YELLOW : WHITE);
+        canvas.setCursor(tabX[t] + 6, 25);
+        canvas.print(tabNames[t]);
+    }
     
-    canvas.setTextColor(focusField ? CP_YELLOW : WHITE);
-    canvas.setCursor(22, 28);
-    canvas.print("SORT BY:");
+    int rowCount = (settingsTab == 1) ? 4 : 3;
+    int startY = 41;
     
-    canvas.setTextColor(focusField ? WHITE : CP_DIM);
-    canvas.setCursor(120, 28);
-    canvas.print(currentSortField == SORT_FIELD_NAME ? "< NAME >" : "< TYPE >");
-    
-    // Row 1: Sort Order
-    bool focusOrder = (settingsFocus == 1);
-    uint16_t orderBorderColor = focusOrder ? CP_YELLOW : CP_DIM;
-    canvas.fillRect(15, 41, 210, 15, focusOrder ? canvas.color565(30, 30, 30) : CP_BG);
-    canvas.drawRect(15, 41, 210, 15, orderBorderColor);
-    
-    canvas.setTextColor(focusOrder ? CP_YELLOW : WHITE);
-    canvas.setCursor(22, 45);
-    canvas.print("ORDER:");
-    
-    canvas.setTextColor(focusOrder ? WHITE : CP_DIM);
-    canvas.setCursor(120, 45);
-    canvas.print(currentSortOrder == SORT_ORDER_ASC ? "< ASCENDING >" : "< DESCENDING >");
-    
-    // Row 2: System Files
-    bool focusSys = (settingsFocus == 2);
-    uint16_t sysBorderColor = focusSys ? CP_YELLOW : CP_DIM;
-    canvas.fillRect(15, 58, 210, 15, focusSys ? canvas.color565(30, 30, 30) : CP_BG);
-    canvas.drawRect(15, 58, 210, 15, sysBorderColor);
-    
-    canvas.setTextColor(focusSys ? CP_YELLOW : WHITE);
-    canvas.setCursor(22, 62);
-    canvas.print("SYS FILES:");
-    
-    canvas.setTextColor(focusSys ? WHITE : CP_DIM);
-    canvas.setCursor(120, 62);
-    canvas.print(showSystemFiles ? "< SHOW >" : "< HIDE >");
-
-    // Row 3: Glitch Text
-    bool focusGlitch = (settingsFocus == 3);
-    uint16_t glitchBorderColor = focusGlitch ? CP_YELLOW : CP_DIM;
-    canvas.fillRect(15, 75, 210, 15, focusGlitch ? canvas.color565(30, 30, 30) : CP_BG);
-    canvas.drawRect(15, 75, 210, 15, glitchBorderColor);
-    
-    canvas.setTextColor(focusGlitch ? CP_YELLOW : WHITE);
-    canvas.setCursor(22, 79);
-    canvas.print("GLITCH TEXT:");
-    
-    canvas.setTextColor(focusGlitch ? WHITE : CP_DIM);
-    canvas.setCursor(120, 79);
-    String glitchLabel = "";
-    if (insaneMode == 0) glitchLabel = "< OFF >";
-    else if (insaneMode == 1) glitchLabel = "< ON >";
-    else glitchLabel = "< INSANE >";
-    canvas.print(glitchLabel);
-
-    // Row 4: Boot Option
-    bool focusBoot = (settingsFocus == 4);
-    uint16_t bootBorderColor = focusBoot ? CP_YELLOW : CP_DIM;
-    canvas.fillRect(15, 92, 210, 15, focusBoot ? canvas.color565(30, 30, 30) : CP_BG);
-    canvas.drawRect(15, 92, 210, 15, bootBorderColor);
-    
-    canvas.setTextColor(focusBoot ? CP_YELLOW : WHITE);
-    canvas.setCursor(22, 96);
-    canvas.print("BOOT OPTION:");
-    
-    canvas.setTextColor(focusBoot ? WHITE : CP_DIM);
-    canvas.setCursor(120, 96);
-    canvas.print("< LAUNCH MENU >");
+    for (int i = 0; i < rowCount; i++) {
+        bool isFocus = (settingsFocus == i);
+        uint16_t borderCol = isFocus ? CP_YELLOW : CP_DIM;
+        int rowY = startY + i * 17;
+        
+        canvas.fillRect(15, rowY, 210, 15, isFocus ? canvas.color565(30, 30, 30) : CP_BG);
+        canvas.drawRect(15, rowY, 210, 15, borderCol);
+        
+        canvas.setTextColor(isFocus ? CP_YELLOW : WHITE);
+        canvas.setCursor(22, rowY + 3);
+        
+        if (settingsTab == 0) { // HARDWARE
+            if (i == 0) {
+                canvas.print("SORT BY:");
+                canvas.setCursor(120, rowY + 3);
+                canvas.setTextColor(isFocus ? WHITE : CP_DIM);
+                canvas.print(currentSortField == SORT_FIELD_NAME ? "< NAME >" : "< TYPE >");
+            } else if (i == 1) {
+                canvas.print("ORDER:");
+                canvas.setCursor(120, rowY + 3);
+                canvas.setTextColor(isFocus ? WHITE : CP_DIM);
+                canvas.print(currentSortOrder == SORT_ORDER_ASC ? "< ASCENDING >" : "< DESCENDING >");
+            } else if (i == 2) {
+                canvas.print("SYS FILES:");
+                canvas.setCursor(120, rowY + 3);
+                canvas.setTextColor(isFocus ? WHITE : CP_DIM);
+                canvas.print(showSystemFiles ? "< SHOW >" : "< HIDE >");
+            }
+        } else if (settingsTab == 1) { // OTA
+            if (i == 0) {
+                canvas.print("OTA CATALOG:");
+                canvas.setCursor(120, rowY + 3);
+                canvas.setTextColor(isFocus ? WHITE : CP_DIM);
+                canvas.print("< OPEN LIST >");
+            } else if (i == 1) {
+                canvas.print("LAUNCHER:");
+                canvas.setCursor(120, rowY + 3);
+                canvas.setTextColor(isFocus ? WHITE : CP_DIM);
+                canvas.print("< BOOT TO M5 >");
+            } else if (i == 2) {
+                canvas.print("ROM BURNER:");
+                canvas.setCursor(120, rowY + 3);
+                canvas.setTextColor(isFocus ? WHITE : CP_DIM);
+                canvas.print("< STRAP ROM >");
+            } else if (i == 3) {
+                canvas.print("REBOOT:");
+                canvas.setCursor(120, rowY + 3);
+                canvas.setTextColor(isFocus ? WHITE : CP_DIM);
+                canvas.print("< SOFT RESTART >");
+            }
+        } else if (settingsTab == 2) { // APPEARANCE
+            if (i == 0) {
+                canvas.print("GLITCH TEXT:");
+                canvas.setCursor(120, rowY + 3);
+                canvas.setTextColor(isFocus ? WHITE : CP_DIM);
+                String glitchLabel = "";
+                if (insaneMode == 0) glitchLabel = "< OFF >";
+                else if (insaneMode == 1) glitchLabel = "< ON >";
+                else glitchLabel = "< INSANE >";
+                canvas.print(glitchLabel);
+            } else if (i == 1) {
+                canvas.print("BRIGHTNESS:");
+                canvas.setCursor(120, rowY + 3);
+                canvas.setTextColor(isFocus ? WHITE : CP_DIM);
+                canvas.print("< " + String(globalBrightness) + "% >");
+            } else if (i == 2) {
+                canvas.print("VOLUME:");
+                canvas.setCursor(120, rowY + 3);
+                canvas.setTextColor(isFocus ? WHITE : CP_DIM);
+                canvas.print("< " + String(globalVolume) + "% >");
+            }
+        }
+    }
     
     // Footer hints
-    if (settingsFocus == 4) {
-        canvas.setTextColor(CP_YELLOW);
-        canvas.drawCenterString("PRESS ENTER TO BOOT SYSTEM", 120, 114);
-    } else {
+    if (settingsFocus == -1) {
         canvas.setTextColor(CP_DIM);
-        canvas.drawCenterString("UP/DN: SELECT ROW  |  LF/RT: CHANGE", 120, 110);
+        canvas.drawCenterString("LF/RT: SWITCH TAB  |  DN: ENTER SETTINGS", 120, 110);
         canvas.setTextColor(CP_YELLOW);
-        canvas.drawCenterString("ENTER: APPLY  |  ESC/COMMA: BACK", 120, 120);
+        canvas.drawCenterString("ESC/DEL: BACK TO BOOT SELECTOR", 120, 120);
+    } else {
+        if (settingsTab == 1) {
+            canvas.setTextColor(CP_DIM);
+            canvas.drawCenterString("UP/DN: MOVE  |  ENTER: EXECUTE ACTION", 120, 110);
+            canvas.setTextColor(CP_YELLOW);
+            canvas.drawCenterString("ESC/DEL: BACK TO TABS", 120, 120);
+        } else {
+            canvas.setTextColor(CP_DIM);
+            canvas.drawCenterString("UP/DN: MOVE  |  LF/RT: CHANGE VALUE", 120, 110);
+            canvas.setTextColor(CP_YELLOW);
+            canvas.drawCenterString("ENTER: SAVE & APPLY  |  ESC/DEL: TABS", 120, 120);
+        }
     }
     
     pushCanvas();
@@ -1341,30 +1371,16 @@ void handleHardwareSettingsInput(Keyboard_Class::KeysState status) {
     
     if (hasBack) {
         playSound(sound_select, sound_select_size);
-        appState = STATE_SPLASH;
-        showSplashBootMenu = true;
-        splashBootFocus = 3;
-        logOffset = 0;
-        drawSplash();
-        return;
-    }
-    
-    if (status.enter) {
-        playSound(sound_select, sound_select_size);
-        if (settingsFocus == 4) {
+        if (settingsFocus >= 0) {
+            settingsFocus = -1;
+            drawHardwareSettings();
+        } else {
             appState = STATE_SPLASH;
             showSplashBootMenu = true;
-            splashBootFocus = 0;
+            splashBootFocus = 3;
             logOffset = 0;
             drawSplash();
-            return;
         }
-        prefs.putInt("insane", insaneMode);
-        populateFileList(); // Reload files with the new system files toggle filter!
-        fileManagerSelected = 0;
-        fileManagerScrollOffset = 0;
-        appState = STATE_HARDWARE_MENU;
-        drawHardwareMenu();
         return;
     }
     
@@ -1377,37 +1393,128 @@ void handleHardwareSettingsInput(Keyboard_Class::KeysState status) {
         if (c == '/') hasRight = true;
     }
     
+    int maxFocus = (settingsTab == 1) ? 3 : 2;
+    
+    if (settingsFocus == -1) {
+        if (hasLeft) {
+            playSound(sound_hover, sound_hover_size);
+            settingsTab = (settingsTab - 1 + 3) % 3;
+            drawHardwareSettings();
+        } else if (hasRight) {
+            playSound(sound_hover, sound_hover_size);
+            settingsTab = (settingsTab + 1) % 3;
+            drawHardwareSettings();
+        } else if (hasDown) {
+            playSound(sound_hover, sound_hover_size);
+            settingsFocus = 0;
+            drawHardwareSettings();
+        }
+        return;
+    }
+    
     if (hasUp) {
         playSound(sound_hover, sound_hover_size);
-        settingsFocus = (settingsFocus - 1 + 5) % 5;
+        if (settingsFocus == 0) {
+            settingsFocus = -1;
+        } else {
+            settingsFocus--;
+        }
         drawHardwareSettings();
-    }
-    if (hasDown) {
+    } else if (hasDown) {
         playSound(sound_hover, sound_hover_size);
-        settingsFocus = (settingsFocus + 1) % 5;
-        drawHardwareSettings();
+        if (settingsFocus < maxFocus) {
+            settingsFocus++;
+            drawHardwareSettings();
+        }
     }
     
     if (hasLeft || hasRight) {
         playSound(sound_hover, sound_hover_size);
-        if (settingsFocus == 0) {
-            // Toggle Sort Field
-            currentSortField = (currentSortField == SORT_FIELD_NAME) ? SORT_FIELD_TYPE : SORT_FIELD_NAME;
-        } else if (settingsFocus == 1) {
-            // Toggle Sort Order
-            currentSortOrder = (currentSortOrder == SORT_ORDER_ASC) ? SORT_ORDER_DESC : SORT_ORDER_ASC;
-        } else if (settingsFocus == 2) {
-            // Toggle System Files visibility
-            showSystemFiles = !showSystemFiles;
-        } else if (settingsFocus == 3) {
-            // Cycle Glitch Text mode
-            if (hasLeft) {
-                insaneMode = (insaneMode - 1 + 3) % 3;
-            } else {
-                insaneMode = (insaneMode + 1) % 3;
+        if (settingsTab == 0) { // HARDWARE
+            if (settingsFocus == 0) {
+                currentSortField = (currentSortField == SORT_FIELD_NAME) ? SORT_FIELD_TYPE : SORT_FIELD_NAME;
+            } else if (settingsFocus == 1) {
+                currentSortOrder = (currentSortOrder == SORT_ORDER_ASC) ? SORT_ORDER_DESC : SORT_ORDER_ASC;
+            } else if (settingsFocus == 2) {
+                showSystemFiles = !showSystemFiles;
+            }
+        } else if (settingsTab == 2) { // APPEARANCE
+            if (settingsFocus == 0) {
+                if (hasLeft) {
+                    insaneMode = (insaneMode - 1 + 3) % 3;
+                } else {
+                    insaneMode = (insaneMode + 1) % 3;
+                }
+            } else if (settingsFocus == 1) {
+                if (hasLeft) {
+                    globalBrightness -= 5;
+                    if (globalBrightness < 5) globalBrightness = 5;
+                } else {
+                    globalBrightness += 5;
+                    if (globalBrightness > 100) globalBrightness = 100;
+                }
+                M5Cardputer.Display.setBrightness((globalBrightness * 255) / 100);
+                prefs.putInt("brightness", globalBrightness);
+            } else if (settingsFocus == 2) {
+                if (hasLeft) {
+                    globalVolume -= 5;
+                    if (globalVolume < 0) globalVolume = 0;
+                } else {
+                    globalVolume += 5;
+                    if (globalVolume > 100) globalVolume = 100;
+                }
+                M5Cardputer.Speaker.setVolume((globalVolume * 255) / 100);
+                prefs.putInt("volume", globalVolume);
             }
         }
         drawHardwareSettings();
+    }
+    
+    if (status.enter) {
+        playSound(sound_select, sound_select_size);
+        if (settingsTab == 1) { // OTA Actions
+            if (settingsFocus == 0) {
+                appState = STATE_OTA_CATALOG;
+                otaCatalogFocus = 0;
+                drawOtaCatalog();
+            } else if (settingsFocus == 1) {
+                canvas.fillScreen(CP_BG);
+                canvas.setTextColor(CP_RED);
+                canvas.setTextSize(2);
+                canvas.drawCenterString("BOOTING LAUNCHER...", 120, 50);
+                pushCanvas();
+                delay(500);
+                bootToFactory();
+            } else if (settingsFocus == 2) {
+                canvas.fillScreen(CP_BG);
+                canvas.setTextColor(CP_RED);
+                canvas.setTextSize(2);
+                canvas.drawCenterString("ROM DOWNLOAD MODE", 120, 40);
+                canvas.setTextSize(1);
+                canvas.setTextColor(CP_YELLOW);
+                canvas.drawCenterString("CONNECT TO USB", 120, 70);
+                canvas.drawCenterString("AND FLASH FIRMWARE", 120, 85);
+                pushCanvas();
+                delay(1000);
+                REG_WRITE(RTC_CNTL_OPTION1_REG, RTC_CNTL_FORCE_DOWNLOAD_BOOT);
+                ESP.restart();
+            } else if (settingsFocus == 3) {
+                canvas.fillScreen(CP_BG);
+                canvas.setTextColor(CP_RED);
+                canvas.setTextSize(2);
+                canvas.drawCenterString("REBOOTING...", 120, 50);
+                pushCanvas();
+                delay(500);
+                ESP.restart();
+            }
+        } else {
+            prefs.putInt("insane", insaneMode);
+            populateFileList();
+            fileManagerSelected = 0;
+            fileManagerScrollOffset = 0;
+            appState = STATE_HARDWARE_MENU;
+            drawHardwareMenu();
+        }
     }
 }
 
