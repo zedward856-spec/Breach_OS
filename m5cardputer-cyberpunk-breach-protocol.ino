@@ -1,9 +1,9 @@
+#include <FS.h>
+#include <SD.h>
+#include <SPIFFS.h>
 #include "M5Cardputer.h"
 #include <Preferences.h>
 #include <WiFi.h>
-#include <SPIFFS.h>
-#include <FS.h>
-#include <SD.h>
 #include <SPI.h>
 #include <HTTPClient.h>
 #include <vector>
@@ -11,6 +11,7 @@
 #include <ArduinoJson.h>
 #include <WiFiClientSecure.h>
 #include <ArduinoOTA.h>
+#include "Audio.h"
 
 struct RealFile {
     String name;
@@ -615,12 +616,15 @@ bool showSystemFiles = false;
 unsigned long lastFileSelectionTime = 0;
 int marqueeScrollOffset = 0;
 unsigned long lastMarqueeUpdate = 0;
+Audio *audio = nullptr;
 bool isMp3Playing = false;
 String mp3Filename = "";
 unsigned long mp3StartTime = 0;
 unsigned long mp3PausedTime = 0;
 bool mp3IsPaused = false;
 int mp3DurationSeconds = 180;
+bool showImage = false;
+String openedImageName = "";
 
 std::vector<String> dummyLogs = {
     "[ OK ] Init SPI flash layout...",
@@ -1263,6 +1267,27 @@ void handleHardwareSettingsInput(Keyboard_Class::KeysState status) {
 }
 
 void drawFileManager(bool push) {
+    if (showImage) {
+        canvas.startWrite();
+        canvas.fillScreen(CP_BG);
+        
+        canvas.drawRect(5, 5, 230, 125, CP_CYAN);
+        canvas.drawRect(7, 7, 226, 121, CP_DIM);
+        
+        String fullPath = fileManagerCurrentPath + (fileManagerCurrentPath == "/" ? "" : "/") + openedImageName;
+        
+        if (isSDCardManager) {
+            canvas.drawJpgFile(SD, fullPath.c_str(), 8, 8, 224, 119);
+        } else {
+            canvas.drawJpgFile(SPIFFS, fullPath.c_str(), 8, 8, 224, 119);
+        }
+        
+        if (push) {
+            pushCanvas();
+        }
+        return;
+    }
+    
     if (isMp3Playing) {
         canvas.startWrite();
         canvas.fillScreen(CP_BG);
@@ -1287,16 +1312,23 @@ void drawFileManager(bool push) {
         
         // Progress Bar
         canvas.drawRect(40, 56, 160, 4, CP_DIM);
-        unsigned long elapsed = (millis() - mp3StartTime) / 1000;
-        if (elapsed > (unsigned long)mp3DurationSeconds) elapsed = mp3DurationSeconds;
-        int progressW = (elapsed * 160) / mp3DurationSeconds;
+        uint32_t elapsed = 0;
+        uint32_t duration = 180;
+        if (audio) {
+            elapsed = audio->getAudioCurrentTime();
+            duration = audio->getAudioFileDuration();
+            if (duration == 0) duration = 180;
+            mp3DurationSeconds = duration;
+        }
+        int progressW = (elapsed * 160) / duration;
+        if (progressW > 160) progressW = 160;
         canvas.fillRect(40, 56, progressW, 4, CP_CYAN);
         
         // Time Label
         char timeStr[32];
         sprintf(timeStr, "%02d:%02d / %02d:%02d", 
                 (int)(elapsed / 60), (int)(elapsed % 60), 
-                (int)(mp3DurationSeconds / 60), (int)(mp3DurationSeconds % 60));
+                (int)(duration / 60), (int)(duration % 60));
         canvas.setTextColor(CP_DIM);
         canvas.drawCenterString(timeStr, 120, 64);
         
@@ -1437,6 +1469,13 @@ void drawFileManager(bool push) {
 }
 
 void handleFileManagerInput(Keyboard_Class::KeysState status) {
+    if (showImage) {
+        playSound(sound_select, sound_select_size);
+        showImage = false;
+        drawFileManager();
+        return;
+    }
+    
     if (isMp3Playing) {
         // Any keypress stops the MP3 playback
         playSound(sound_select, sound_select_size);
@@ -1546,21 +1585,58 @@ void handleFileManagerInput(Keyboard_Class::KeysState status) {
 void stopMp3() {
     isMp3Playing = false;
     mp3IsPaused = false;
-    M5Cardputer.Speaker.stop();
+    if (audio) {
+        audio->stopSong();
+        delete audio;
+        audio = nullptr;
+    }
+    M5Cardputer.Speaker.begin();
     appState = STATE_FILE_MANAGER;
     drawFileManager();
 }
 
 void startMp3(String fileName) {
-    playSound(intro_wav, intro_wav_len); // Play the native cyberpunk startup wav
-    isMp3Playing = true;
-    mp3Filename = fileName;
-    mp3IsPaused = false;
-    mp3StartTime = millis();
-    mp3PausedTime = 0;
-    mp3DurationSeconds = 180 + random(0, 120); // Track duration: 3-5 mins
-    appState = STATE_FILE_MANAGER;
-    showFileContent = false;
+    M5Cardputer.Speaker.stop();
+    
+    audio = new Audio();
+    audio->setPinout(41, 43, 42);
+    int volLevel = (globalVolume * 21) / 100;
+    audio->setVolume(volLevel);
+    
+    String fullPath = fileManagerCurrentPath + (fileManagerCurrentPath == "/" ? "" : "/") + fileName;
+    
+    bool started = false;
+    if (isSDCardManager) {
+        started = audio->connecttoFS(SD, fullPath.c_str());
+    } else {
+        started = audio->connecttoFS(SPIFFS, fullPath.c_str());
+    }
+    
+    if (started) {
+        isMp3Playing = true;
+        mp3Filename = fileName;
+        mp3IsPaused = false;
+        mp3StartTime = millis();
+        mp3PausedTime = 0;
+        mp3DurationSeconds = 180;
+        appState = STATE_FILE_MANAGER;
+        showFileContent = false;
+    } else {
+        delete audio;
+        audio = nullptr;
+        M5Cardputer.Speaker.begin();
+        
+        canvas.startWrite();
+        canvas.fillScreen(CP_BG);
+        canvas.setTextColor(CP_RED);
+        canvas.drawCenterString("FILE IO ERROR", 120, 50);
+        canvas.setTextColor(CP_YELLOW);
+        canvas.drawCenterString("PRESS ANY KEY", 120, 80);
+        pushCanvas();
+        delay(1500);
+        appState = STATE_FILE_MANAGER;
+        drawFileManager();
+    }
 }
 
 void drawFileActionsMenu() {
@@ -1687,6 +1763,12 @@ void handleFileActionsMenuInput(Keyboard_Class::KeysState status) {
                 lowerName.toLowerCase();
                 if (lowerName.endsWith(".mp3")) {
                     startMp3(targetFile.name);
+                } else if (lowerName.endsWith(".jpg") || lowerName.endsWith(".jpeg")) {
+                    playSound(sound_select, sound_select_size);
+                    openedImageName = targetFile.name;
+                    showImage = true;
+                    appState = STATE_FILE_MANAGER;
+                    drawFileManager();
                 } else {
                     // Open file content
                     readSelectedFileContent(targetFile.name);
@@ -3799,9 +3881,9 @@ void loop() {
         }
         
         if (isMp3Playing) {
-            if (!mp3IsPaused) {
-                unsigned long elapsed = (millis() - mp3StartTime) / 1000;
-                if (elapsed >= (unsigned long)mp3DurationSeconds) {
+            if (audio) {
+                audio->loop();
+                if (!audio->isRunning()) {
                     stopMp3();
                 } else {
                     static unsigned long lastVisualizerUpdate = 0;
@@ -3810,6 +3892,8 @@ void loop() {
                         lastVisualizerUpdate = millis();
                     }
                 }
+            } else {
+                stopMp3();
             }
         } else {
             if (!loadedFiles.empty() && loadedFiles[fileManagerSelected].name.length() > 18) {
