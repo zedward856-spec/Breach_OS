@@ -1596,7 +1596,7 @@ void stopMp3() {
 }
 
 void startMp3(String fileName) {
-    M5Cardputer.Speaker.stop();
+    M5Cardputer.Speaker.end();
     
     audio = new Audio();
     audio->setPinout(41, 43, 42);
