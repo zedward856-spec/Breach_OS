@@ -1127,7 +1127,7 @@ void drawHardwareMenu() {
         if (offset > halfItems) offset -= (float)totalItems;
         if (offset < -halfItems) offset += (float)totalItems;
         
-        if (offset < -0.5) continue;
+        if (offset < -1.5 || offset > 1.5) continue;
         
         float angle = offset * 0.391;
         float tickY = 67 + sin(angle) * 110;
@@ -5147,6 +5147,8 @@ void populatePlaylist() {
     
     File dir;
     if (useSD) {
+        SPI.begin(40, 39, 14, 12);
+        SD.begin(12, SPI, 20000000);
         dir = SD.open(musicDir.c_str());
     } else {
         dir = SPIFFS.open(musicDir.c_str());
@@ -5405,6 +5407,8 @@ void startMp3InPlayer(String fileName) {
     bool started = false;
     
     if (useSD) {
+        SPI.begin(40, 39, 14, 12);
+        SD.begin(12, SPI, 20000000);
         fileSD = new AudioFileSourceSD(fullPath.c_str());
         audioBuffer = new AudioFileSourceBuffer(fileSD, 8192);
         mp3 = new AudioGeneratorMP3();
