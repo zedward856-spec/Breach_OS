@@ -681,6 +681,7 @@ String clipboardSourcePath = "";
 String renameInputText = "";
 int fileActionsMenuSelected = 0;
 int settingsTab = 0;
+int settingsTabScrollOffset = 0;
 int settingsFocus = 0;
 bool showSystemFiles = false;
 unsigned long lastFileSelectionTime = 0;
@@ -715,6 +716,7 @@ struct FirmwareCatalogItem {
 
 std::vector<FirmwareCatalogItem> otaCatalog;
 bool otaCatalogLoaded = false;
+String otaSortField = "downloads";
 
 int otaCatalogFocus = 0;
 int otaCatalogScrollOffset = 0;
@@ -1096,8 +1098,8 @@ void drawHardwareMenu() {
     canvas.drawCircle(-80, 67, 110, CP_DIM);
     canvas.drawCircle(-80, 67, 109, CP_DIM);
     
-    int totalItems = 4;
-    std::vector<String> labels = {"FLASH MEMORY", "SD CARD", "SETTINGS", "BACK"};
+    int totalItems = 3;
+    std::vector<String> labels = {"FLASH MEMORY", "SD CARD", "BACK"};
     
     for (int i = 0; i < totalItems; i++) {
         float rawOffset = i - currentHardwareScroll;
@@ -1201,7 +1203,7 @@ void handleHardwareMenuInput(Keyboard_Class::KeysState status) {
             return;
         }
     } else {
-        if (hasRight && (hardwareMenuFocus == 0 || hardwareMenuFocus == 1 || hardwareMenuFocus == 2)) {
+        if (hasRight && (hardwareMenuFocus == 0 || hardwareMenuFocus == 1)) {
             playSound(sound_select, sound_select_size);
             showHardwareDesc = true;
             return;
@@ -1224,9 +1226,6 @@ void handleHardwareMenuInput(Keyboard_Class::KeysState status) {
             loadingProgress = 0;
             showFileContent = false;
         } else if (hardwareMenuFocus == 2) {
-            appState = STATE_HARDWARE_SETTINGS;
-            drawHardwareSettings();
-        } else if (hardwareMenuFocus == 3) {
             appState = STATE_SPLASH;
             drawSplash();
         }
@@ -1234,7 +1233,7 @@ void handleHardwareMenuInput(Keyboard_Class::KeysState status) {
     }
     
     if (!showHardwareDesc) {
-        int maxFocus = 3;
+        int maxFocus = 2;
         if (hasUp) {
             playSound(sound_hover, sound_hover_size);
             hardwareMenuFocus--;
@@ -1261,12 +1260,22 @@ void drawHardwareSettings() {
     canvas.setTextSize(1);
     canvas.drawCenterString("--- SYSTEM CONFIG NODE ---", 120, 10);
     
-    // Draw Tabs
-    int tabX[3] = {12, 94, 154};
-    int tabW[3] = {76, 54, 76};
-    String tabNames[3] = {"HARDWARE", "  OTA  ", "APPEARANCE"};
+    // Adjust settingsTabScrollOffset
+    if (settingsTab < settingsTabScrollOffset) {
+        settingsTabScrollOffset = settingsTab;
+    } else if (settingsTab >= settingsTabScrollOffset + 3) {
+        settingsTabScrollOffset = settingsTab - 2;
+    }
+    
+    // Draw scrollable tabs
+    int tabX[3] = {12, 84, 154};
+    int tabW[3] = {68, 66, 68};
+    String tabNames[5] = {"HARDWARE", "NETWORK", "OFFLINE", "  OTA  ", "APPEAR"};
     for (int t = 0; t < 3; t++) {
-        bool isActive = (settingsTab == t);
+        int idx = settingsTabScrollOffset + t;
+        if (idx >= 5) break;
+        
+        bool isActive = (settingsTab == idx);
         bool hasFocus = (settingsFocus == -1 && isActive);
         
         uint16_t borderCol = hasFocus ? CP_YELLOW : (isActive ? CP_CYAN : CP_DIM);
@@ -1275,67 +1284,112 @@ void drawHardwareSettings() {
             canvas.fillRect(tabX[t] + 1, 23, tabW[t] - 2, 12, canvas.color565(30, 30, 20));
         }
         canvas.setTextColor(isActive ? CP_YELLOW : WHITE);
-        canvas.setCursor(tabX[t] + 6, 25);
-        canvas.print(tabNames[t]);
+        canvas.setCursor(tabX[t] + 4, 25);
+        canvas.print(tabNames[idx]);
     }
     
-    int rowCount = (settingsTab == 1) ? 4 : 3;
+    // Determine rowCount
+    int rowCount = 3;
+    if (settingsTab == 1) rowCount = 3; // NETWORK: SSID, PASSWORD, SCAN
+    else if (settingsTab == 2) rowCount = 2; // OFFLINE: MP3 PLAY, LOOP MODE
+    else if (settingsTab == 3) rowCount = 5; // OTA: OTA CATALOG, SORT BY, LAUNCHER, ROM BURNER, REBOOT
+    else if (settingsTab == 4) rowCount = 3; // APPEARANCE: GLITCH TEXT, BRIGHTNESS, VOLUME
+    
     int startY = 41;
     
     for (int i = 0; i < rowCount; i++) {
         bool isFocus = (settingsFocus == i);
         uint16_t borderCol = isFocus ? CP_YELLOW : CP_DIM;
-        int rowY = startY + i * 17;
+        int rowY = startY + i * 14; // adjust spacing to fit 5 rows cleanly in bounds!
         
-        canvas.fillRect(15, rowY, 210, 15, isFocus ? canvas.color565(30, 30, 30) : CP_BG);
-        canvas.drawRect(15, rowY, 210, 15, borderCol);
+        canvas.fillRect(15, rowY, 210, 13, isFocus ? canvas.color565(30, 30, 30) : CP_BG);
+        canvas.drawRect(15, rowY, 210, 13, borderCol);
         
         canvas.setTextColor(isFocus ? CP_YELLOW : WHITE);
-        canvas.setCursor(22, rowY + 3);
+        canvas.setCursor(22, rowY + 2);
         
         if (settingsTab == 0) { // HARDWARE
             if (i == 0) {
                 canvas.print("SORT BY:");
-                canvas.setCursor(120, rowY + 3);
+                canvas.setCursor(120, rowY + 2);
                 canvas.setTextColor(isFocus ? WHITE : CP_DIM);
                 canvas.print(currentSortField == SORT_FIELD_NAME ? "< NAME >" : "< TYPE >");
             } else if (i == 1) {
                 canvas.print("ORDER:");
-                canvas.setCursor(120, rowY + 3);
+                canvas.setCursor(120, rowY + 2);
                 canvas.setTextColor(isFocus ? WHITE : CP_DIM);
                 canvas.print(currentSortOrder == SORT_ORDER_ASC ? "< ASCENDING >" : "< DESCENDING >");
             } else if (i == 2) {
                 canvas.print("SYS FILES:");
-                canvas.setCursor(120, rowY + 3);
+                canvas.setCursor(120, rowY + 2);
                 canvas.setTextColor(isFocus ? WHITE : CP_DIM);
                 canvas.print(showSystemFiles ? "< SHOW >" : "< HIDE >");
             }
-        } else if (settingsTab == 1) { // OTA
+        } else if (settingsTab == 1) { // NETWORK
+            if (i == 0) {
+                canvas.print("WIFI SSID:");
+                canvas.setCursor(120, rowY + 2);
+                canvas.setTextColor(isFocus ? WHITE : CP_DIM);
+                String displaySsid = savedSSID == "" ? "< NONE >" : savedSSID;
+                if (displaySsid.length() > 14) displaySsid = displaySsid.substring(0, 11) + "...";
+                canvas.print(displaySsid);
+            } else if (i == 1) {
+                canvas.print("WIFI PASS:");
+                canvas.setCursor(120, rowY + 2);
+                canvas.setTextColor(isFocus ? WHITE : CP_DIM);
+                String displayPass = savedWifiPass == "" ? "< NONE >" : "********";
+                canvas.print(displayPass);
+            } else if (i == 2) {
+                canvas.print("WIFI SCAN:");
+                canvas.setCursor(120, rowY + 2);
+                canvas.setTextColor(isFocus ? WHITE : CP_DIM);
+                canvas.print("< SCAN NETS >");
+            }
+        } else if (settingsTab == 2) { // OFFLINE
+            if (i == 0) {
+                canvas.print("MP3 PLAYER:");
+                canvas.setCursor(120, rowY + 2);
+                canvas.setTextColor(isFocus ? WHITE : CP_DIM);
+                canvas.print(isMp3Playing ? "< STOP PLAYER >" : "< PLAY MP3 >");
+            } else if (i == 1) {
+                canvas.print("PLAY LOOP:");
+                canvas.setCursor(120, rowY + 2);
+                canvas.setTextColor(isFocus ? WHITE : CP_DIM);
+                canvas.print("< ON (REPEAT) >");
+            }
+        } else if (settingsTab == 3) { // OTA
             if (i == 0) {
                 canvas.print("OTA CATALOG:");
-                canvas.setCursor(120, rowY + 3);
+                canvas.setCursor(120, rowY + 2);
                 canvas.setTextColor(isFocus ? WHITE : CP_DIM);
                 canvas.print("< OPEN LIST >");
             } else if (i == 1) {
+                canvas.print("SORT BY:");
+                canvas.setCursor(120, rowY + 2);
+                canvas.setTextColor(isFocus ? WHITE : CP_DIM);
+                if (otaSortField == "downloads") canvas.print("< DOWNLOADS >");
+                else if (otaSortField == "published_at") canvas.print("< TIME >");
+                else canvas.print("< NAME >");
+            } else if (i == 2) {
                 canvas.print("LAUNCHER:");
-                canvas.setCursor(120, rowY + 3);
+                canvas.setCursor(120, rowY + 2);
                 canvas.setTextColor(isFocus ? WHITE : CP_DIM);
                 canvas.print("< BOOT TO M5 >");
-            } else if (i == 2) {
+            } else if (i == 3) {
                 canvas.print("ROM BURNER:");
-                canvas.setCursor(120, rowY + 3);
+                canvas.setCursor(120, rowY + 2);
                 canvas.setTextColor(isFocus ? WHITE : CP_DIM);
                 canvas.print("< STRAP ROM >");
-            } else if (i == 3) {
+            } else if (i == 4) {
                 canvas.print("REBOOT:");
-                canvas.setCursor(120, rowY + 3);
+                canvas.setCursor(120, rowY + 2);
                 canvas.setTextColor(isFocus ? WHITE : CP_DIM);
                 canvas.print("< SOFT RESTART >");
             }
-        } else if (settingsTab == 2) { // APPEARANCE
+        } else if (settingsTab == 4) { // APPEARANCE
             if (i == 0) {
                 canvas.print("GLITCH TEXT:");
-                canvas.setCursor(120, rowY + 3);
+                canvas.setCursor(120, rowY + 2);
                 canvas.setTextColor(isFocus ? WHITE : CP_DIM);
                 String glitchLabel = "";
                 if (insaneMode == 0) glitchLabel = "< OFF >";
@@ -1344,27 +1398,31 @@ void drawHardwareSettings() {
                 canvas.print(glitchLabel);
             } else if (i == 1) {
                 canvas.print("BRIGHTNESS:");
-                canvas.setCursor(120, rowY + 3);
+                canvas.setCursor(120, rowY + 2);
                 canvas.setTextColor(isFocus ? WHITE : CP_DIM);
                 canvas.print("< " + String(globalBrightness) + "% >");
             } else if (i == 2) {
                 canvas.print("VOLUME:");
-                canvas.setCursor(120, rowY + 3);
+                canvas.setCursor(120, rowY + 2);
                 canvas.setTextColor(isFocus ? WHITE : CP_DIM);
                 canvas.print("< " + String(globalVolume) + "% >");
             }
         }
     }
     
-    // Draw scrolling instruction footer text!
+    // Draw scrolling marquee instructions footer text
     String footerText = "";
     if (settingsFocus == -1) {
-        footerText = "  LF/RT: SWITCH TAB  |  DN: ENTER ROWS  |  ESC/DEL: BACK TO BOOT SELECTOR  ";
+        footerText = "  LF/RT: SWITCH TAB  |  DN: ENTER ROWS  |  ESC/DEL: BACK TO SPLASH  ";
     } else {
-        if (settingsTab == 1) {
-            footerText = "  UP/DN: MOVE ROW  |  ENTER: EXECUTE ACTION  |  ESC/DEL: BACK TO TABS  ";
+        if (settingsTab == 1 && settingsFocus == 2) {
+            footerText = "  ENTER: SCAN WIFI NETWORKS  |  ESC/DEL: BACK TO SPLASH  ";
+        } else if (settingsTab == 2 && settingsFocus == 0) {
+            footerText = "  ENTER: PLAY/STOP DEFAULT MP3 PLAYER  |  ESC/DEL: BACK TO SPLASH  ";
+        } else if (settingsTab == 3 && (settingsFocus == 0 || settingsFocus >= 2)) {
+            footerText = "  ENTER: EXECUTE ACTION  |  ESC/DEL: BACK TO SPLASH  ";
         } else {
-            footerText = "  UP/DN: MOVE ROW  |  LF/RT: ADJUST VALUE  |  ENTER: SAVE & EXIT  |  ESC/DEL: BACK TO TABS  ";
+            footerText = "  UP/DN: MOVE ROW  |  LF/RT: ADJUST VALUE  |  ESC/DEL: BACK TO SPLASH  ";
         }
     }
     
@@ -1405,16 +1463,20 @@ void handleHardwareSettingsInput(Keyboard_Class::KeysState status) {
         if (c == '/') hasRight = true;
     }
     
-    int maxFocus = (settingsTab == 1) ? 3 : 2;
+    int maxFocus = 2;
+    if (settingsTab == 1) maxFocus = 2; // NETWORK: SSID, PASSWORD, SCAN
+    else if (settingsTab == 2) maxFocus = 1; // OFFLINE: MP3 PLAY, LOOP MODE
+    else if (settingsTab == 3) maxFocus = 4; // OTA: OTA CATALOG, SORT BY, LAUNCHER, ROM BURNER, REBOOT
+    else if (settingsTab == 4) maxFocus = 2; // APPEARANCE: GLITCH TEXT, BRIGHTNESS, VOLUME
     
     if (settingsFocus == -1) {
         if (hasLeft) {
             playSound(sound_hover, sound_hover_size);
-            settingsTab = (settingsTab - 1 + 3) % 3;
+            settingsTab = (settingsTab - 1 + 5) % 5;
             drawHardwareSettings();
         } else if (hasRight) {
             playSound(sound_hover, sound_hover_size);
-            settingsTab = (settingsTab + 1) % 3;
+            settingsTab = (settingsTab + 1) % 5;
             drawHardwareSettings();
         } else if (hasDown) {
             playSound(sound_hover, sound_hover_size);
@@ -1450,7 +1512,20 @@ void handleHardwareSettingsInput(Keyboard_Class::KeysState status) {
             } else if (settingsFocus == 2) {
                 showSystemFiles = !showSystemFiles;
             }
-        } else if (settingsTab == 2) { // APPEARANCE
+        } else if (settingsTab == 3) { // OTA Sorting
+            if (settingsFocus == 1) {
+                if (hasLeft) {
+                    if (otaSortField == "downloads") otaSortField = "name";
+                    else if (otaSortField == "published_at") otaSortField = "downloads";
+                    else otaSortField = "published_at";
+                } else {
+                    if (otaSortField == "downloads") otaSortField = "published_at";
+                    else if (otaSortField == "published_at") otaSortField = "name";
+                    else otaSortField = "downloads";
+                }
+                otaCatalogLoaded = false; // refresh next fetch
+            }
+        } else if (settingsTab == 4) { // APPEARANCE
             if (settingsFocus == 0) {
                 if (hasLeft) {
                     insaneMode = (insaneMode - 1 + 3) % 3;
@@ -1484,12 +1559,26 @@ void handleHardwareSettingsInput(Keyboard_Class::KeysState status) {
     
     if (status.enter) {
         playSound(sound_select, sound_select_size);
-        if (settingsTab == 1) { // OTA Actions
+        if (settingsTab == 1) { // NETWORK Actions
+            if (settingsFocus == 2) {
+                startWifiScan();
+                drawHardwareSettings();
+            }
+        } else if (settingsTab == 2) { // OFFLINE Actions
+            if (settingsFocus == 0) {
+                if (isMp3Playing) {
+                    stopMp3();
+                } else {
+                    startMp3("/AFTERLIFE.mp3");
+                }
+                drawHardwareSettings();
+            }
+        } else if (settingsTab == 3) { // OTA Actions
             if (settingsFocus == 0) {
                 appState = STATE_OTA_CATALOG;
                 otaCatalogFocus = 0;
                 drawOtaCatalog();
-            } else if (settingsFocus == 1) {
+            } else if (settingsFocus == 2) {
                 canvas.fillScreen(CP_BG);
                 canvas.setTextColor(CP_RED);
                 canvas.setTextSize(2);
@@ -1497,7 +1586,7 @@ void handleHardwareSettingsInput(Keyboard_Class::KeysState status) {
                 pushCanvas();
                 delay(500);
                 bootToFactory();
-            } else if (settingsFocus == 2) {
+            } else if (settingsFocus == 3) {
                 canvas.fillScreen(CP_BG);
                 canvas.setTextColor(CP_RED);
                 canvas.setTextSize(2);
@@ -1510,7 +1599,7 @@ void handleHardwareSettingsInput(Keyboard_Class::KeysState status) {
                 delay(1000);
                 REG_WRITE(RTC_CNTL_OPTION1_REG, RTC_CNTL_FORCE_DOWNLOAD_BOOT);
                 ESP.restart();
-            } else if (settingsFocus == 3) {
+            } else if (settingsFocus == 4) {
                 canvas.fillScreen(CP_BG);
                 canvas.setTextColor(CP_RED);
                 canvas.setTextSize(2);
@@ -1524,8 +1613,10 @@ void handleHardwareSettingsInput(Keyboard_Class::KeysState status) {
             populateFileList();
             fileManagerSelected = 0;
             fileManagerScrollOffset = 0;
-            appState = STATE_HARDWARE_MENU;
-            drawHardwareMenu();
+            appState = STATE_SPLASH; // go directly to splash menu!
+            showSplashBootMenu = true;
+            splashBootFocus = 4;
+            drawSplash();
         }
     }
 }
@@ -2895,12 +2986,12 @@ void drawMainMenu() {
     canvas.drawCircle(-80, 67, 110, CP_DIM);
     canvas.drawCircle(-80, 67, 109, CP_DIM);
     
-    int totalItems = isGuest ? 4 : 6;
+    int totalItems = isGuest ? 3 : 5;
     std::vector<String> labels;
     if (isGuest) {
-        labels = {"HACK", "CONTROLS", "CREDITS", "BACK"};
+        labels = {"HACK", "CREDITS", "BACK"};
     } else {
-        labels = {"HACK", "LEADERBOARD", "ACCOUNT", "CONTROLS", "CREDITS", "BACK"};
+        labels = {"HACK", "LEADERBOARD", "ACCOUNT", "CREDITS", "BACK"};
     }
     
     for (int i = 0; i < totalItems; i++) {
@@ -3025,7 +3116,7 @@ void handleMainMenuInput(Keyboard_Class::KeysState status) {
             return;
         }
     } else {
-        int limit = isGuest ? 3 : 5;
+        int limit = isGuest ? 2 : 4;
         if (hasRight && mainMenuFocus < limit) {
             playSound(sound_select, sound_select_size);
             showMenuDesc = true;
@@ -3040,9 +3131,9 @@ void handleMainMenuInput(Keyboard_Class::KeysState status) {
         
         std::vector<String> labels;
         if (isGuest) {
-            labels = {"HACK", "CONTROLS", "CREDITS", "BACK"};
+            labels = {"HACK", "CREDITS", "BACK"};
         } else {
-            labels = {"HACK", "LEADERBOARD", "ACCOUNT", "CONTROLS", "CREDITS", "BACK"};
+            labels = {"HACK", "LEADERBOARD", "ACCOUNT", "CREDITS", "BACK"};
         }
         
         String selectedLabel = labels[mainMenuFocus];
@@ -4641,16 +4732,16 @@ void drawOtaCatalog() {
         
         canvas.setCursor(20, rowY + 2);
         canvas.print(otaCatalog[idx].name);
-        
-        canvas.setCursor(160, rowY + 2);
-        canvas.setTextColor(isFocus ? CP_YELLOW : CP_DIM);
-        canvas.print(otaCatalog[idx].author);
     }
     
     canvas.drawLine(10, 93, 230, 93, CP_CYAN);
     canvas.setTextColor(WHITE);
     canvas.setCursor(12, 97);
-    canvas.print(otaCatalog[otaCatalogFocus].desc);
+    
+    // Show only the "by [Author Name]" at the bottom
+    String authorText = "by " + otaCatalog[otaCatalogFocus].author;
+    if (authorText.length() > 36) authorText = authorText.substring(0, 33) + "...";
+    canvas.print(authorText);
     
     canvas.setTextColor(CP_YELLOW);
     canvas.drawCenterString("UP/DN: MOVE | ENTER: DETAILS | ESC: BACK", 120, 114);
@@ -4779,7 +4870,7 @@ bool fetchOtaCatalog() {
     if (!secureClientInit) { secureClient.setInsecure(); secureClientInit = true; }
     HTTPClient http;
     
-    String url = "https://api.launcherhub.net/firmwares?category=cardputer&order_by=downloads&page=1";
+    String url = "https://api.launcherhub.net/firmwares?category=cardputer&order_by=" + otaSortField + "&page=1";
     
     if (http.begin(secureClient, url)) {
         int httpCode = http.GET();
@@ -4805,11 +4896,12 @@ bool fetchOtaCatalog() {
                         item.desc = item.desc.substring(0, 29) + "...";
                     }
                     
-                    if (item.name.length() > 22) {
-                        item.name = item.name.substring(0, 19) + "...";
+                    // Widen name limit now that author is not shown on the right side of the row
+                    if (item.name.length() > 34) {
+                        item.name = item.name.substring(0, 31) + "...";
                     }
-                    if (item.author.length() > 10) {
-                        item.author = item.author.substring(0, 8) + "..";
+                    if (item.author.length() > 20) {
+                        item.author = item.author.substring(0, 17) + "...";
                     }
                     
                     otaCatalog.push_back(item);
