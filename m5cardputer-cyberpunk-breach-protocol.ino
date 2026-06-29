@@ -1117,8 +1117,8 @@ void drawHardwareMenu() {
     canvas.drawCircle(-80, 67, 110, CP_DIM);
     canvas.drawCircle(-80, 67, 109, CP_DIM);
     
-    int totalItems = 3;
-    std::vector<String> labels = {"FLASH MEMORY", "SD CARD", "BACK"};
+    int totalItems = 4;
+    std::vector<String> labels = {"FLASH MEMORY", "SD CARD", "MUSIC PLAYER", "BACK"};
     
     for (int i = 0; i < totalItems; i++) {
         float rawOffset = i - currentHardwareScroll;
@@ -1183,9 +1183,9 @@ void drawHardwareMenu() {
             } else if (label == "SD CARD") {
                 line1 = "SD card";
                 line2 = "storage";
-            } else if (label == "SETTINGS") {
-                line1 = "Sorting";
-                line2 = "preferences";
+            } else if (label == "MUSIC PLAYER") {
+                line1 = "Offline";
+                line2 = "player";
             } else if (label == "BACK") {
                 line1 = "Return to";
                 line2 = "terminal";
@@ -1222,7 +1222,7 @@ void handleHardwareMenuInput(Keyboard_Class::KeysState status) {
             return;
         }
     } else {
-        if (hasRight && (hardwareMenuFocus == 0 || hardwareMenuFocus == 1)) {
+        if (hasRight && (hardwareMenuFocus == 0 || hardwareMenuFocus == 1 || hardwareMenuFocus == 2)) {
             playSound(sound_select, sound_select_size);
             showHardwareDesc = true;
             return;
@@ -1245,6 +1245,12 @@ void handleHardwareMenuInput(Keyboard_Class::KeysState status) {
             loadingProgress = 0;
             showFileContent = false;
         } else if (hardwareMenuFocus == 2) {
+            appState = STATE_MUSIC_PLAYER;
+            playlistFocus = 0;
+            playlistScrollOffset = 0;
+            populatePlaylist();
+            drawMusicPlayer();
+        } else if (hardwareMenuFocus == 3) {
             appState = STATE_SPLASH;
             drawSplash();
         }
@@ -1252,7 +1258,7 @@ void handleHardwareMenuInput(Keyboard_Class::KeysState status) {
     }
     
     if (!showHardwareDesc) {
-        int maxFocus = 2;
+        int maxFocus = 3;
         if (hasUp) {
             playSound(sound_hover, sound_hover_size);
             hardwareMenuFocus--;
@@ -2545,11 +2551,7 @@ void handleSplashInput(Keyboard_Class::KeysState status) {
             WiFi.mode(WIFI_OFF);
             isGuest = true;
             authUser = "GUEST";
-            appState = STATE_MUSIC_PLAYER;
-            playlistFocus = 0;
-            playlistScrollOffset = 0;
-            populatePlaylist();
-            drawMusicPlayer();
+            enterMainMenu();
         } else if (splashBootFocus == 3) {
             otaCatalogLoaded = false;
             otaCatalogScrollOffset = 0;
@@ -5289,7 +5291,7 @@ void drawMusicPlayer() {
         canvas.drawCenterString(playText, 120, 113);
     } else {
         canvas.setTextColor(CP_DIM);
-        canvas.drawCenterString("STOPPED | ESC: BACK TO SPLASH", 120, 113);
+        canvas.drawCenterString("STOPPED | ESC: BACK TO HW NODE", 120, 113);
     }
     
     pushCanvas();
@@ -5304,10 +5306,8 @@ void handleMusicPlayerInput(Keyboard_Class::KeysState status) {
     if (hasEsc || status.del) {
         playSound(sound_select, sound_select_size);
         stopMp3();
-        appState = STATE_SPLASH;
-        showSplashBootMenu = true;
-        splashBootFocus = 2;
-        drawSplash();
+        appState = STATE_HARDWARE_MENU;
+        drawHardwareMenu();
         return;
     }
     
