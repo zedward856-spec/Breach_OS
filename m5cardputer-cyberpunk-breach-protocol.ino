@@ -2262,8 +2262,8 @@ void drawSplash() {
     canvas.setTextColor(WHITE);
     
     if (showSplashBootMenu) {
-        canvas.fillRect(15, 33, 210, 94, canvas.color565(15, 15, 15));
-        canvas.drawRect(15, 33, 210, 94, CP_CYAN);
+        canvas.fillRect(2, 33, 236, 94, canvas.color565(15, 15, 15));
+        canvas.drawRect(2, 33, 236, 94, CP_CYAN);
         
         canvas.setTextColor(CP_YELLOW);
         canvas.drawCenterString("--- SELECT BOOT NODE ---", 120, 38);
