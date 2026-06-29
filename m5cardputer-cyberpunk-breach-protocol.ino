@@ -168,7 +168,7 @@ enum AppState {
 AppState appState = STATE_SPLASH;
 
 bool isGuest = false;
-bool insaneMode = false;
+int insaneMode = 1;
 bool lastBreachFailed = false;
 String authUser = "";
 String authPass = "";
@@ -265,7 +265,7 @@ void stopMp3();
 
 void drawMessage(String msg, String line2 = "");
 void drawGlitchText(String text, int x, int y, int size, uint16_t color, bool center = true, bool forceGlitch = false) {
-    bool canGlitch = insaneMode || forceGlitch;
+    bool canGlitch = (insaneMode > 0) || forceGlitch;
     if (!canGlitch) {
         canvas.setTextSize(size);
         canvas.setTextColor(color);
@@ -274,7 +274,7 @@ void drawGlitchText(String text, int x, int y, int size, uint16_t color, bool ce
         return;
     }
     
-    unsigned long timeChunk = millis() / (insaneMode ? 80 : 300);
+    unsigned long timeChunk = millis() / (insaneMode == 2 ? 80 : 300);
     uint32_t seed = timeChunk + text.length();
     for (unsigned int i = 0; i < text.length(); i++) {
         seed = (seed * 33) + text[i];
@@ -1207,50 +1207,68 @@ void drawHardwareSettings() {
     // Row 0: Sort Field
     bool focusField = (settingsFocus == 0);
     uint16_t fieldBorderColor = focusField ? CP_YELLOW : CP_DIM;
-    canvas.fillRect(15, 30, 210, 20, focusField ? canvas.color565(30, 30, 30) : CP_BG);
-    canvas.drawRect(15, 30, 210, 20, fieldBorderColor);
+    canvas.fillRect(15, 27, 210, 17, focusField ? canvas.color565(30, 30, 30) : CP_BG);
+    canvas.drawRect(15, 27, 210, 17, fieldBorderColor);
     
     canvas.setTextColor(focusField ? CP_YELLOW : WHITE);
-    canvas.setCursor(22, 36);
+    canvas.setCursor(22, 32);
     canvas.print("SORT BY:");
     
     canvas.setTextColor(focusField ? WHITE : CP_DIM);
-    canvas.setCursor(120, 36);
+    canvas.setCursor(120, 32);
     canvas.print(currentSortField == SORT_FIELD_NAME ? "< NAME >" : "< TYPE >");
     
     // Row 1: Sort Order
     bool focusOrder = (settingsFocus == 1);
     uint16_t orderBorderColor = focusOrder ? CP_YELLOW : CP_DIM;
-    canvas.fillRect(15, 53, 210, 20, focusOrder ? canvas.color565(30, 30, 30) : CP_BG);
-    canvas.drawRect(15, 53, 210, 20, orderBorderColor);
+    canvas.fillRect(15, 46, 210, 17, focusOrder ? canvas.color565(30, 30, 30) : CP_BG);
+    canvas.drawRect(15, 46, 210, 17, orderBorderColor);
     
     canvas.setTextColor(focusOrder ? CP_YELLOW : WHITE);
-    canvas.setCursor(22, 59);
+    canvas.setCursor(22, 51);
     canvas.print("ORDER:");
     
     canvas.setTextColor(focusOrder ? WHITE : CP_DIM);
-    canvas.setCursor(120, 59);
+    canvas.setCursor(120, 51);
     canvas.print(currentSortOrder == SORT_ORDER_ASC ? "< ASCENDING >" : "< DESCENDING >");
     
     // Row 2: System Files
     bool focusSys = (settingsFocus == 2);
     uint16_t sysBorderColor = focusSys ? CP_YELLOW : CP_DIM;
-    canvas.fillRect(15, 76, 210, 20, focusSys ? canvas.color565(30, 30, 30) : CP_BG);
-    canvas.drawRect(15, 76, 210, 20, sysBorderColor);
+    canvas.fillRect(15, 65, 210, 17, focusSys ? canvas.color565(30, 30, 30) : CP_BG);
+    canvas.drawRect(15, 65, 210, 17, sysBorderColor);
     
     canvas.setTextColor(focusSys ? CP_YELLOW : WHITE);
-    canvas.setCursor(22, 82);
+    canvas.setCursor(22, 70);
     canvas.print("SYS FILES:");
     
     canvas.setTextColor(focusSys ? WHITE : CP_DIM);
-    canvas.setCursor(120, 82);
+    canvas.setCursor(120, 70);
     canvas.print(showSystemFiles ? "< SHOW >" : "< HIDE >");
+
+    // Row 3: Glitch Text
+    bool focusGlitch = (settingsFocus == 3);
+    uint16_t glitchBorderColor = focusGlitch ? CP_YELLOW : CP_DIM;
+    canvas.fillRect(15, 84, 210, 17, focusGlitch ? canvas.color565(30, 30, 30) : CP_BG);
+    canvas.drawRect(15, 84, 210, 17, glitchBorderColor);
+    
+    canvas.setTextColor(focusGlitch ? CP_YELLOW : WHITE);
+    canvas.setCursor(22, 89);
+    canvas.print("GLITCH TEXT:");
+    
+    canvas.setTextColor(focusGlitch ? WHITE : CP_DIM);
+    canvas.setCursor(120, 89);
+    String glitchLabel = "";
+    if (insaneMode == 0) glitchLabel = "< OFF >";
+    else if (insaneMode == 1) glitchLabel = "< ON >";
+    else glitchLabel = "< INSANE >";
+    canvas.print(glitchLabel);
     
     // Footer hints
     canvas.setTextColor(CP_DIM);
-    canvas.drawCenterString("UP/DN: SELECT ROW  |  LF/RT: CHANGE", 120, 100);
+    canvas.drawCenterString("UP/DN: SELECT ROW  |  LF/RT: CHANGE", 120, 105);
     canvas.setTextColor(CP_YELLOW);
-    canvas.drawCenterString("ENTER: APPLY  |  ESC/COMMA: BACK", 120, 115);
+    canvas.drawCenterString("ENTER: APPLY  |  ESC/COMMA: BACK", 120, 116);
     
     pushCanvas();
 }
@@ -1270,6 +1288,7 @@ void handleHardwareSettingsInput(Keyboard_Class::KeysState status) {
     
     if (status.enter) {
         playSound(sound_select, sound_select_size);
+        prefs.putInt("insane", insaneMode);
         populateFileList(); // Reload files with the new system files toggle filter!
         fileManagerSelected = 0;
         fileManagerScrollOffset = 0;
@@ -1289,12 +1308,12 @@ void handleHardwareSettingsInput(Keyboard_Class::KeysState status) {
     
     if (hasUp) {
         playSound(sound_hover, sound_hover_size);
-        settingsFocus = (settingsFocus - 1 + 3) % 3;
+        settingsFocus = (settingsFocus - 1 + 4) % 4;
         drawHardwareSettings();
     }
     if (hasDown) {
         playSound(sound_hover, sound_hover_size);
-        settingsFocus = (settingsFocus + 1) % 3;
+        settingsFocus = (settingsFocus + 1) % 4;
         drawHardwareSettings();
     }
     
@@ -1306,9 +1325,16 @@ void handleHardwareSettingsInput(Keyboard_Class::KeysState status) {
         } else if (settingsFocus == 1) {
             // Toggle Sort Order
             currentSortOrder = (currentSortOrder == SORT_ORDER_ASC) ? SORT_ORDER_DESC : SORT_ORDER_ASC;
-        } else {
+        } else if (settingsFocus == 2) {
             // Toggle System Files visibility
             showSystemFiles = !showSystemFiles;
+        } else if (settingsFocus == 3) {
+            // Cycle Glitch Text mode
+            if (hasLeft) {
+                insaneMode = (insaneMode - 1 + 3) % 3;
+            } else {
+                insaneMode = (insaneMode + 1) % 3;
+            }
         }
         drawHardwareSettings();
     }
@@ -3282,7 +3308,16 @@ void setup() {
     highScore = prefs.getInt("highscore", 0);
     savedSSID = prefs.getString("wifi_ssid", "");
     savedWifiPass = prefs.getString("wifi_pass", "");
-    insaneMode = prefs.getBool("insane", false);
+    if (prefs.isKey("insane")) {
+        insaneMode = prefs.getInt("insane", -1);
+        if (insaneMode == -1) {
+            insaneMode = prefs.getBool("insane", false) ? 2 : 1;
+            prefs.remove("insane");
+            prefs.putInt("insane", insaneMode);
+        }
+    } else {
+        insaneMode = 1;
+    }
     authUser = prefs.getString("user", "");
     authPass = prefs.getString("pass", "");
     globalVolume = prefs.getInt("volume", 80);
@@ -3592,7 +3627,11 @@ void drawAccountMenu() {
     
     uint16_t c2 = (accountFocus == 2) ? CP_YELLOW : WHITE;
     canvas.setTextColor(c2);
-    drawGlitchText("> INSANE MODE: " + String(insaneMode ? "[ON]" : "[OFF]"), 10, 90, 1, c2, false);
+    String modeLabel = "";
+    if (insaneMode == 0) modeLabel = "[OFF]";
+    else if (insaneMode == 1) modeLabel = "[ON]";
+    else modeLabel = "[INSANE]";
+    drawGlitchText("> GLITCH TEXT: " + modeLabel, 10, 90, 1, c2, false);
 
     uint16_t c3 = (accountFocus == 3) ? CP_YELLOW : WHITE;
     drawChippedButton(10, 110, 100, 20, c3);
@@ -3617,8 +3656,8 @@ void handleAccountInput(Keyboard_Class::KeysState status) {
     if (status.enter) {
         playSound(sound_select, sound_select_size);
         if (accountFocus == 2) {
-            insaneMode = !insaneMode;
-            prefs.putBool("insane", insaneMode);
+            insaneMode = (insaneMode + 1) % 3;
+            prefs.putInt("insane", insaneMode);
             drawAccountMenu();
             return;
         } else if (accountFocus == 3) {
@@ -3832,7 +3871,7 @@ void loop() {
         return;
     }
     
-    if (insaneMode) {
+    if (insaneMode == 2) {
         static unsigned long lastInsane = 0;
         static unsigned long nextInsane = 500;
         if (now - lastInsane > nextInsane) {
@@ -3850,7 +3889,7 @@ void loop() {
     }
     
     if (appState == STATE_MAIN_MENU) {
-        if (!insaneMode) {
+        if (insaneMode == 1) {
             static unsigned long lastMenuGlitch = 0;
             static unsigned long nextMenuGlitch = 500;
             if (now - lastMenuGlitch > nextMenuGlitch) {
@@ -3911,7 +3950,7 @@ void loop() {
     }
 
     if (appState == STATE_HARDWARE_MENU) {
-        if (!insaneMode) {
+        if (insaneMode == 1) {
             static unsigned long lastHardwareGlitch = 0;
             static unsigned long nextHardwareGlitch = 500;
             if (now - lastHardwareGlitch > nextHardwareGlitch) {
