@@ -1368,7 +1368,7 @@ void drawHardwareSettings() {
                 canvas.setCursor(120, rowY + 2);
                 canvas.setTextColor(isFocus ? WHITE : CP_DIM);
                 if (otaSortField == "downloads") canvas.print("< DOWNLOADS >");
-                else if (otaSortField == "published_at") canvas.print("< TIME >");
+                else if (otaSortField == "date") canvas.print("< TIME >");
                 else canvas.print("< NAME >");
             } else if (i == 2) {
                 canvas.print("LAUNCHER:");
@@ -1409,31 +1409,6 @@ void drawHardwareSettings() {
             }
         }
     }
-    
-    // Draw scrolling marquee instructions footer text
-    String footerText = "";
-    if (settingsFocus == -1) {
-        footerText = "  LF/RT: SWITCH TAB  |  DN: ENTER ROWS  |  ESC/DEL: BACK TO SPLASH  ";
-    } else {
-        if (settingsTab == 1 && settingsFocus == 2) {
-            footerText = "  ENTER: SCAN WIFI NETWORKS  |  ESC/DEL: BACK TO SPLASH  ";
-        } else if (settingsTab == 2 && settingsFocus == 0) {
-            footerText = "  ENTER: PLAY/STOP DEFAULT MP3 PLAYER  |  ESC/DEL: BACK TO SPLASH  ";
-        } else if (settingsTab == 3 && (settingsFocus == 0 || settingsFocus >= 2)) {
-            footerText = "  ENTER: EXECUTE ACTION  |  ESC/DEL: BACK TO SPLASH  ";
-        } else {
-            footerText = "  UP/DN: MOVE ROW  |  LF/RT: ADJUST VALUE  |  ESC/DEL: BACK TO SPLASH  ";
-        }
-    }
-    
-    int scrollPos = (millis() / 150) % footerText.length();
-    String scrolled = footerText.substring(scrollPos) + footerText.substring(0, scrollPos);
-    if (scrolled.length() > 36) {
-        scrolled = scrolled.substring(0, 36);
-    }
-    
-    canvas.setTextColor(CP_YELLOW);
-    canvas.drawCenterString(scrolled, 120, 113);
     
     pushCanvas();
 }
@@ -4743,9 +4718,6 @@ void drawOtaCatalog() {
     if (authorText.length() > 36) authorText = authorText.substring(0, 33) + "...";
     canvas.print(authorText);
     
-    canvas.setTextColor(CP_YELLOW);
-    canvas.drawCenterString("UP/DN: MOVE | ENTER: DETAILS | ESC: BACK", 120, 114);
-    
     pushCanvas();
 }
 
@@ -5045,16 +5017,6 @@ void drawOtaFirmwareDetails() {
     }
     
     canvas.drawLine(10, 95, 230, 95, CP_CYAN);
-    
-    String detailFooter = "  UP/DN: SELECT VERSION  |  ENTER: DOWNLOAD & FLASH  |  ESC/DEL: BACK TO LIST  ";
-    int scrollPos = (millis() / 150) % detailFooter.length();
-    String scrolled = detailFooter.substring(scrollPos) + detailFooter.substring(0, scrollPos);
-    if (scrolled.length() > 36) {
-        scrolled = scrolled.substring(0, 36);
-    }
-    
-    canvas.setTextColor(CP_YELLOW);
-    canvas.drawCenterString(scrolled, 120, 114);
     
     pushCanvas();
 }
