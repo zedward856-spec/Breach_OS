@@ -690,6 +690,8 @@ bool showImage = false;
 String openedImageName = "";
 float imageScale = 1.0f;
 bool showBootMenu = false;
+bool showSplashBootMenu = false;
+int splashBootFocus = 0;
 
 std::vector<String> dummyLogs = {
     "[ OK ] Init SPI flash layout...",
@@ -1218,74 +1220,93 @@ void drawHardwareSettings() {
     
     canvas.setTextColor(CP_YELLOW);
     canvas.setTextSize(1);
-    canvas.drawCenterString("--- SORT SETTINGS SCHEMA ---", 120, 12);
-    canvas.drawLine(10, 24, 230, 24, CP_CYAN);
+    canvas.drawCenterString("--- SORT SETTINGS SCHEMA ---", 120, 10);
+    canvas.drawLine(10, 20, 230, 20, CP_CYAN);
     
     // Row 0: Sort Field
     bool focusField = (settingsFocus == 0);
     uint16_t fieldBorderColor = focusField ? CP_YELLOW : CP_DIM;
-    canvas.fillRect(15, 27, 210, 17, focusField ? canvas.color565(30, 30, 30) : CP_BG);
-    canvas.drawRect(15, 27, 210, 17, fieldBorderColor);
+    canvas.fillRect(15, 24, 210, 15, focusField ? canvas.color565(30, 30, 30) : CP_BG);
+    canvas.drawRect(15, 24, 210, 15, fieldBorderColor);
     
     canvas.setTextColor(focusField ? CP_YELLOW : WHITE);
-    canvas.setCursor(22, 32);
+    canvas.setCursor(22, 28);
     canvas.print("SORT BY:");
     
     canvas.setTextColor(focusField ? WHITE : CP_DIM);
-    canvas.setCursor(120, 32);
+    canvas.setCursor(120, 28);
     canvas.print(currentSortField == SORT_FIELD_NAME ? "< NAME >" : "< TYPE >");
     
     // Row 1: Sort Order
     bool focusOrder = (settingsFocus == 1);
     uint16_t orderBorderColor = focusOrder ? CP_YELLOW : CP_DIM;
-    canvas.fillRect(15, 46, 210, 17, focusOrder ? canvas.color565(30, 30, 30) : CP_BG);
-    canvas.drawRect(15, 46, 210, 17, orderBorderColor);
+    canvas.fillRect(15, 41, 210, 15, focusOrder ? canvas.color565(30, 30, 30) : CP_BG);
+    canvas.drawRect(15, 41, 210, 15, orderBorderColor);
     
     canvas.setTextColor(focusOrder ? CP_YELLOW : WHITE);
-    canvas.setCursor(22, 51);
+    canvas.setCursor(22, 45);
     canvas.print("ORDER:");
     
     canvas.setTextColor(focusOrder ? WHITE : CP_DIM);
-    canvas.setCursor(120, 51);
+    canvas.setCursor(120, 45);
     canvas.print(currentSortOrder == SORT_ORDER_ASC ? "< ASCENDING >" : "< DESCENDING >");
     
     // Row 2: System Files
     bool focusSys = (settingsFocus == 2);
     uint16_t sysBorderColor = focusSys ? CP_YELLOW : CP_DIM;
-    canvas.fillRect(15, 65, 210, 17, focusSys ? canvas.color565(30, 30, 30) : CP_BG);
-    canvas.drawRect(15, 65, 210, 17, sysBorderColor);
+    canvas.fillRect(15, 58, 210, 15, focusSys ? canvas.color565(30, 30, 30) : CP_BG);
+    canvas.drawRect(15, 58, 210, 15, sysBorderColor);
     
     canvas.setTextColor(focusSys ? CP_YELLOW : WHITE);
-    canvas.setCursor(22, 70);
+    canvas.setCursor(22, 62);
     canvas.print("SYS FILES:");
     
     canvas.setTextColor(focusSys ? WHITE : CP_DIM);
-    canvas.setCursor(120, 70);
+    canvas.setCursor(120, 62);
     canvas.print(showSystemFiles ? "< SHOW >" : "< HIDE >");
 
     // Row 3: Glitch Text
     bool focusGlitch = (settingsFocus == 3);
     uint16_t glitchBorderColor = focusGlitch ? CP_YELLOW : CP_DIM;
-    canvas.fillRect(15, 84, 210, 17, focusGlitch ? canvas.color565(30, 30, 30) : CP_BG);
-    canvas.drawRect(15, 84, 210, 17, glitchBorderColor);
+    canvas.fillRect(15, 75, 210, 15, focusGlitch ? canvas.color565(30, 30, 30) : CP_BG);
+    canvas.drawRect(15, 75, 210, 15, glitchBorderColor);
     
     canvas.setTextColor(focusGlitch ? CP_YELLOW : WHITE);
-    canvas.setCursor(22, 89);
+    canvas.setCursor(22, 79);
     canvas.print("GLITCH TEXT:");
     
     canvas.setTextColor(focusGlitch ? WHITE : CP_DIM);
-    canvas.setCursor(120, 89);
+    canvas.setCursor(120, 79);
     String glitchLabel = "";
     if (insaneMode == 0) glitchLabel = "< OFF >";
     else if (insaneMode == 1) glitchLabel = "< ON >";
     else glitchLabel = "< INSANE >";
     canvas.print(glitchLabel);
+
+    // Row 4: Boot Option
+    bool focusBoot = (settingsFocus == 4);
+    uint16_t bootBorderColor = focusBoot ? CP_YELLOW : CP_DIM;
+    canvas.fillRect(15, 92, 210, 15, focusBoot ? canvas.color565(30, 30, 30) : CP_BG);
+    canvas.drawRect(15, 92, 210, 15, bootBorderColor);
+    
+    canvas.setTextColor(focusBoot ? CP_YELLOW : WHITE);
+    canvas.setCursor(22, 96);
+    canvas.print("BOOT OPTION:");
+    
+    canvas.setTextColor(focusBoot ? WHITE : CP_DIM);
+    canvas.setCursor(120, 96);
+    canvas.print("< LAUNCH MENU >");
     
     // Footer hints
-    canvas.setTextColor(CP_DIM);
-    canvas.drawCenterString("UP/DN: SELECT ROW  |  LF/RT: CHANGE", 120, 105);
-    canvas.setTextColor(CP_YELLOW);
-    canvas.drawCenterString("ENTER: APPLY  |  ESC/COMMA: BACK", 120, 116);
+    if (settingsFocus == 4) {
+        canvas.setTextColor(CP_YELLOW);
+        canvas.drawCenterString("PRESS ENTER TO BOOT SYSTEM", 120, 114);
+    } else {
+        canvas.setTextColor(CP_DIM);
+        canvas.drawCenterString("UP/DN: SELECT ROW  |  LF/RT: CHANGE", 120, 110);
+        canvas.setTextColor(CP_YELLOW);
+        canvas.drawCenterString("ENTER: APPLY  |  ESC/COMMA: BACK", 120, 120);
+    }
     
     pushCanvas();
 }
@@ -1305,6 +1326,14 @@ void handleHardwareSettingsInput(Keyboard_Class::KeysState status) {
     
     if (status.enter) {
         playSound(sound_select, sound_select_size);
+        if (settingsFocus == 4) {
+            appState = STATE_SPLASH;
+            showSplashBootMenu = true;
+            splashBootFocus = 0;
+            logOffset = 0;
+            drawSplash();
+            return;
+        }
         prefs.putInt("insane", insaneMode);
         populateFileList(); // Reload files with the new system files toggle filter!
         fileManagerSelected = 0;
@@ -1325,12 +1354,12 @@ void handleHardwareSettingsInput(Keyboard_Class::KeysState status) {
     
     if (hasUp) {
         playSound(sound_hover, sound_hover_size);
-        settingsFocus = (settingsFocus - 1 + 4) % 4;
+        settingsFocus = (settingsFocus - 1 + 5) % 5;
         drawHardwareSettings();
     }
     if (hasDown) {
         playSound(sound_hover, sound_hover_size);
-        settingsFocus = (settingsFocus + 1) % 4;
+        settingsFocus = (settingsFocus + 1) % 5;
         drawHardwareSettings();
     }
     
@@ -2232,69 +2261,99 @@ void drawSplash() {
     canvas.setTextSize(1);
     canvas.setTextColor(WHITE);
     
-
-    canvas.drawString("> Press ", 5, 105);
-    int x01 = 5 + canvas.textWidth("> Press ");
-    drawGlitchText("1", x01, 105, 1, WHITE, false, true);
-    int x02 = x01 + canvas.textWidth("1");
-    canvas.setTextColor(WHITE);
-    canvas.drawString(" for Hardware Node", x02, 105);
-    
-    canvas.drawString("> Press ", 5, 115);
-    int x1 = 5 + canvas.textWidth("> Press ");
-    drawGlitchText("ENTER", x1, 115, 1, WHITE, false, true);
-    int x2 = x1 + canvas.textWidth("ENTER");
-    canvas.setTextColor(WHITE);
-    canvas.drawString(" to Connect", x2, 115);
-    
-    canvas.drawString("> Press ", 5, 125);
-    int x3 = 5 + canvas.textWidth("> Press ");
-    drawGlitchText("ESC", x3, 125, 1, WHITE, false, true);
-    int x4 = x3 + canvas.textWidth("ESC");
-    canvas.setTextColor(WHITE);
-    canvas.drawString(" to Play Offline", x4, 125);
+    if (showSplashBootMenu) {
+        canvas.fillRect(15, 33, 210, 94, canvas.color565(15, 15, 15));
+        canvas.drawRect(15, 33, 210, 94, CP_CYAN);
+        
+        canvas.setTextColor(CP_YELLOW);
+        canvas.drawCenterString("--- SELECT BOOT NODE ---", 120, 38);
+        
+        std::vector<String> options = {"HARDWARE NODE", "NETWORK NODE", "OFFLINE PLAY", "SYSTEM SETTINGS"};
+        for (int i = 0; i < 4; i++) {
+            bool isSelected = (i == splashBootFocus);
+            canvas.setTextColor(isSelected ? CP_CYAN : CP_DIM);
+            if (isSelected) {
+                canvas.drawCenterString("> [ " + options[i] + " ] <", 120, 56 + i * 15);
+            } else {
+                canvas.drawCenterString(options[i], 120, 56 + i * 15);
+            }
+        }
+        
+        canvas.setTextColor(CP_YELLOW);
+        canvas.drawCenterString("UP/DN: MOVE | ENTER: SELECT | ESC: BACK", 120, 115);
+    } else {
+        canvas.drawString("> Press ", 10, 115);
+        int x1 = 10 + canvas.textWidth("> Press ");
+        drawGlitchText("ENTER", x1, 115, 1, CP_YELLOW, false, true);
+        int x2 = x1 + canvas.textWidth("ENTER");
+        canvas.setTextColor(WHITE);
+        canvas.drawString(" to Select Boot Target", x2, 115);
+    }
     
     pushCanvas();
 }
 
 void handleSplashInput(Keyboard_Class::KeysState status) {
-    if (status.enter) {
-        playSound(sound_select, sound_select_size);
-        if (WiFi.status() == WL_CONNECTED) {
-            appState = STATE_AUTH_MENU;
-            drawAuthMenu();
-        } else {
-            startWifiScan();
+    if (!showSplashBootMenu) {
+        if (status.enter) {
+            playSound(sound_select, sound_select_size);
+            showSplashBootMenu = true;
+            splashBootFocus = 0;
+            drawSplash();
         }
         return;
     }
     
+    bool hasUp = false, hasDown = false;
     bool hasEsc = false;
-    bool hasOne = false;
     for (char c : status.word) {
-        if (c == '`') hasEsc = true; // ESC key on Cardputer
-        if (c == '1') hasOne = true;
+        if (c == ';') hasUp = true;
+        if (c == '.') hasDown = true;
+        if (c == '`') hasEsc = true;
     }
     
-    if (hasOne) {
+    if (hasUp) {
+        playSound(sound_hover, sound_hover_size);
+        splashBootFocus = (splashBootFocus - 1 + 4) % 4;
+        drawSplash();
+    } else if (hasDown) {
+        playSound(sound_hover, sound_hover_size);
+        splashBootFocus = (splashBootFocus + 1) % 4;
+        drawSplash();
+    } else if (hasEsc) {
         playSound(sound_select, sound_select_size);
-        appState = STATE_HARDWARE_MENU;
-        hardwareMenuFocus = 0;
-        currentHardwareScroll = 0;
-        targetHardwareScroll = 0;
-        showHardwareDesc = false;
-        hardwareDescAnimWidth = 0.0;
-        drawHardwareMenu();
-        return;
-    }
-    
-    if (hasEsc) {
+        showSplashBootMenu = false;
+        drawSplash();
+    } else if (status.enter) {
         playSound(sound_select, sound_select_size);
-        WiFi.disconnect(true);
-        WiFi.mode(WIFI_OFF);
-        isGuest = true;
-        authUser = "GUEST";
-        enterMainMenu();
+        showSplashBootMenu = false;
+        
+        if (splashBootFocus == 0) {
+            appState = STATE_HARDWARE_MENU;
+            hardwareMenuFocus = 0;
+            currentHardwareScroll = 0;
+            targetHardwareScroll = 0;
+            showHardwareDesc = false;
+            hardwareDescAnimWidth = 0.0;
+            drawHardwareMenu();
+        } else if (splashBootFocus == 1) {
+            if (WiFi.status() == WL_CONNECTED) {
+                appState = STATE_AUTH_MENU;
+                drawAuthMenu();
+            } else {
+                startWifiScan();
+            }
+        } else if (splashBootFocus == 2) {
+            WiFi.disconnect(true);
+            WiFi.mode(WIFI_OFF);
+            isGuest = true;
+            authUser = "GUEST";
+            enterMainMenu();
+        } else if (splashBootFocus == 3) {
+            appState = STATE_HARDWARE_SETTINGS;
+            settingsFocus = 0;
+            drawHardwareSettings();
+        }
     }
 }
 
@@ -2681,25 +2740,19 @@ void drawMainMenu() {
     canvas.fillScreen(CP_BG);
     
     // Draw headers centered on the right side of the screen to avoid the scroll wheel
-    drawGlitchText(showBootMenu ? "BOOT NODE" : "NETWORK NODE", 135, 12, 2, CP_CYAN, true, true);
-    drawGlitchText(showBootMenu ? "SYSTEM REBOOT PROCESS" : "OPERATIVE: " + (isGuest ? String("GUEST") : authUser), 135, 34, 1, CP_DIM);
+    drawGlitchText("NETWORK NODE", 135, 12, 2, CP_CYAN, true, true);
+    drawGlitchText("OPERATIVE: " + (isGuest ? String("GUEST") : authUser), 135, 34, 1, CP_DIM);
     
     // Draw rotating wheel arc on the left
     canvas.drawCircle(-80, 67, 110, CP_DIM);
     canvas.drawCircle(-80, 67, 109, CP_DIM);
     
-    int totalItems = 0;
+    int totalItems = isGuest ? 4 : 6;
     std::vector<String> labels;
-    if (showBootMenu) {
-        labels = {"REBOOT SYSTEM", "BOOT LAUNCHER", "ROM DOWNLOAD", "CANCEL"};
-        totalItems = labels.size();
+    if (isGuest) {
+        labels = {"HACK", "CONTROLS", "CREDITS", "BACK"};
     } else {
-        if (isGuest) {
-            labels = {"HACK", "CONTROLS", "CREDITS", "BOOT MENU"};
-        } else {
-            labels = {"HACK", "LEADERBOARD", "ACCOUNT", "CONTROLS", "CREDITS", "BOOT MENU"};
-        }
-        totalItems = labels.size();
+        labels = {"HACK", "LEADERBOARD", "ACCOUNT", "CONTROLS", "CREDITS", "BACK"};
     }
     
     for (int i = 0; i < totalItems; i++) {
@@ -2824,7 +2877,7 @@ void handleMainMenuInput(Keyboard_Class::KeysState status) {
             return;
         }
     } else {
-        int limit = showBootMenu ? 3 : (isGuest ? 3 : 5);
+        int limit = isGuest ? 3 : 5;
         if (hasRight && mainMenuFocus < limit) {
             playSound(sound_select, sound_select_size);
             showMenuDesc = true;
@@ -2838,57 +2891,13 @@ void handleMainMenuInput(Keyboard_Class::KeysState status) {
         descAnimWidth = 0.0;
         
         std::vector<String> labels;
-        if (showBootMenu) {
-            labels = {"REBOOT SYSTEM", "BOOT LAUNCHER", "ROM DOWNLOAD", "CANCEL"};
+        if (isGuest) {
+            labels = {"HACK", "CONTROLS", "CREDITS", "BACK"};
         } else {
-            if (isGuest) {
-                labels = {"HACK", "CONTROLS", "CREDITS", "BOOT MENU"};
-            } else {
-                labels = {"HACK", "LEADERBOARD", "ACCOUNT", "CONTROLS", "CREDITS", "BOOT MENU"};
-            }
+            labels = {"HACK", "LEADERBOARD", "ACCOUNT", "CONTROLS", "CREDITS", "BACK"};
         }
         
         String selectedLabel = labels[mainMenuFocus];
-        if (showBootMenu) {
-            if (selectedLabel == "REBOOT SYSTEM") {
-                canvas.fillScreen(CP_BG);
-                canvas.setTextColor(CP_RED);
-                canvas.setTextSize(2);
-                canvas.drawCenterString("REBOOTING...", 120, 50);
-                pushCanvas();
-                delay(500);
-                ESP.restart();
-            } else if (selectedLabel == "BOOT LAUNCHER") {
-                canvas.fillScreen(CP_BG);
-                canvas.setTextColor(CP_RED);
-                canvas.setTextSize(2);
-                canvas.drawCenterString("BOOTING LAUNCHER...", 120, 50);
-                pushCanvas();
-                delay(500);
-                bootToFactory();
-            } else if (selectedLabel == "ROM DOWNLOAD") {
-                canvas.fillScreen(CP_BG);
-                canvas.setTextColor(CP_RED);
-                canvas.setTextSize(2);
-                canvas.drawCenterString("ROM DOWNLOAD MODE", 120, 40);
-                canvas.setTextSize(1);
-                canvas.setTextColor(CP_YELLOW);
-                canvas.drawCenterString("CONNECT TO USB", 120, 70);
-                canvas.drawCenterString("AND FLASH FIRMWARE", 120, 85);
-                pushCanvas();
-                delay(1000);
-                REG_WRITE(RTC_CNTL_OPTION1_REG, RTC_CNTL_FORCE_DOWNLOAD_BOOT);
-                ESP.restart();
-            } else if (selectedLabel == "CANCEL") {
-                showBootMenu = false;
-                mainMenuFocus = 0;
-                currentMenuScroll = 0;
-                targetMenuScroll = 0;
-                drawMainMenu();
-            }
-            return;
-        }
-        
         if (selectedLabel == "HACK") {
             appState = STATE_GRID_SELECT;
             gridMenuFocus = 0;
@@ -2912,18 +2921,20 @@ void handleMainMenuInput(Keyboard_Class::KeysState status) {
         } else if (selectedLabel == "CREDITS") {
             appState = STATE_CREDITS;
             drawCreditsScreen();
-        } else if (selectedLabel == "BOOT MENU") {
-            showBootMenu = true;
-            mainMenuFocus = 0;
-            currentMenuScroll = 0;
-            targetMenuScroll = 0;
-            drawMainMenu();
+        } else if (selectedLabel == "BACK") {
+            canvas.fillScreen(CP_BG);
+            canvas.setTextColor(CP_RED);
+            canvas.setTextSize(2);
+            canvas.drawCenterString("REBOOTING...", 120, 50);
+            pushCanvas();
+            delay(500);
+            ESP.restart();
         }
         return;
     }
     
     if (!showMenuDesc) {
-        int maxFocus = showBootMenu ? 3 : (isGuest ? 3 : 5);
+        int maxFocus = isGuest ? 3 : 5;
         if (hasUp) {
             playSound(sound_hover, sound_hover_size);
             mainMenuFocus--;
