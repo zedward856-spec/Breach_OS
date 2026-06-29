@@ -181,7 +181,9 @@ enum AppState {
     STATE_HARDWARE_SETTINGS,
     STATE_FILE_ACTIONS_MENU,
     STATE_FILE_RENAME_INPUT,
-    STATE_OTA_CATALOG
+    STATE_OTA_CATALOG,
+    STATE_DIR_CONFIRM_POPUP,
+    STATE_MUSIC_PLAYER
 };
 AppState appState = STATE_SPLASH;
 
@@ -286,6 +288,14 @@ String resolveOtaFirmwareUrl(String fid);
 bool fetchOtaFirmwareDetails(String fid);
 void drawOtaFirmwareDetails();
 void startMp3(String fileName);
+void drawDirConfirmPopup();
+void handleDirConfirmPopupInput(Keyboard_Class::KeysState status);
+void drawMusicPlayer();
+void handleMusicPlayerInput(Keyboard_Class::KeysState status);
+void populatePlaylist();
+void playNextTrack();
+void playPrevTrack();
+void startMp3InPlayer(String fileName);
 void stopMp3();
 
 void drawMessage(String msg, String line2 = "");
@@ -529,6 +539,8 @@ void drawCurrentScreen() {
         case STATE_FILE_ACTIONS_MENU: drawFileActionsMenu(); break;
         case STATE_FILE_RENAME_INPUT: drawFileRenameInput(); break;
         case STATE_OTA_CATALOG: drawOtaCatalog(); break;
+        case STATE_DIR_CONFIRM_POPUP: drawDirConfirmPopup(); break;
+        case STATE_MUSIC_PLAYER: drawMusicPlayer(); break;
     }
 }
 
@@ -694,6 +706,12 @@ AudioFileSourceBuffer *audioBuffer = nullptr;
 AudioOutputM5Speaker *audioOut = nullptr;
 bool isMp3Playing = false;
 String mp3PlayLoopMode = "name";
+std::vector<String> playlist;
+int playlistFocus = 0;
+int playlistScrollOffset = 0;
+String musicDir = "/";
+bool isDirSelectionMode = false;
+String pendingSelectedDir = "";
 String mp3Filename = "";
 unsigned long mp3StartTime = 0;
 unsigned long mp3PausedTime = 0;
@@ -1304,9 +1322,9 @@ void drawHardwareSettings() {
     
     // Determine rowCount
     int rowCount = 3;
-    if (settingsTab == 1) rowCount = 3; // NETWORK: SSID, PASSWORD, SCAN
-    else if (settingsTab == 2) rowCount = 1; // OFFLINE: PLAY LOOP ONLY
-    else if (settingsTab == 3) rowCount = 2; // OTA: OTA CATALOG, SORT BY
+    if (settingsTab == 1) rowCount = 2; // NETWORK: SSID, PASSWORD (scan nets removed)
+    else if (settingsTab == 2) rowCount = 2; // OFFLINE: PLAY LOOP, MUSIC DIR
+    else if (settingsTab == 3) rowCount = 1; // OTA: SORT BY ONLY (open list removed)
     else if (settingsTab == 4) rowCount = 3; // APPEARANCE: GLITCH TEXT, BRIGHTNESS, VOLUME
     
     int startY = 41;
@@ -1353,11 +1371,6 @@ void drawHardwareSettings() {
                 canvas.setTextColor(isFocus ? WHITE : CP_DIM);
                 String displayPass = savedWifiPass == "" ? "< NONE >" : "********";
                 canvas.print(displayPass);
-            } else if (i == 2) {
-                canvas.print("WIFI SCAN:");
-                canvas.setCursor(120, rowY + 3);
-                canvas.setTextColor(isFocus ? WHITE : CP_DIM);
-                canvas.print("< SCAN NETS >");
             }
         } else if (settingsTab == 2) { // OFFLINE
             if (i == 0) {
@@ -1366,14 +1379,16 @@ void drawHardwareSettings() {
                 canvas.setTextColor(isFocus ? WHITE : CP_DIM);
                 if (mp3PlayLoopMode == "random") canvas.print("< RANDOM >");
                 else canvas.print("< BY NAME >");
+            } else if (i == 1) {
+                canvas.print("MUSIC DIR:");
+                canvas.setCursor(120, rowY + 3);
+                canvas.setTextColor(isFocus ? WHITE : CP_DIM);
+                String displayDir = musicDir;
+                if (displayDir.length() > 14) displayDir = displayDir.substring(0, 11) + "...";
+                canvas.print(displayDir + " [SET]");
             }
         } else if (settingsTab == 3) { // OTA
             if (i == 0) {
-                canvas.print("OTA CATALOG:");
-                canvas.setCursor(120, rowY + 3);
-                canvas.setTextColor(isFocus ? WHITE : CP_DIM);
-                canvas.print("< OPEN LIST >");
-            } else if (i == 1) {
                 canvas.print("SORT BY:");
                 canvas.setCursor(120, rowY + 3);
                 canvas.setTextColor(isFocus ? WHITE : CP_DIM);
@@ -1434,9 +1449,9 @@ void handleHardwareSettingsInput(Keyboard_Class::KeysState status) {
     }
     
     int maxFocus = 2;
-    if (settingsTab == 1) maxFocus = 2; // NETWORK: SSID, PASSWORD, SCAN
-    else if (settingsTab == 2) maxFocus = 0; // OFFLINE: PLAY LOOP ONLY
-    else if (settingsTab == 3) maxFocus = 1; // OTA: OTA CATALOG, SORT BY
+    if (settingsTab == 1) maxFocus = 1; // NETWORK: SSID, PASSWORD
+    else if (settingsTab == 2) maxFocus = 1; // OFFLINE: PLAY LOOP, MUSIC DIR
+    else if (settingsTab == 3) maxFocus = 0; // OTA: SORT BY
     else if (settingsTab == 4) maxFocus = 2; // APPEARANCE: GLITCH TEXT, BRIGHTNESS, VOLUME
     
     if (settingsFocus == -1) {
@@ -1489,7 +1504,7 @@ void handleHardwareSettingsInput(Keyboard_Class::KeysState status) {
                 prefs.putString("loopMode", mp3PlayLoopMode);
             }
         } else if (settingsTab == 3) { // OTA Sorting
-            if (settingsFocus == 1) {
+            if (settingsFocus == 0) { // SORT BY is now row 0
                 if (hasLeft) {
                     if (otaSortField == "downloads") otaSortField = "name";
                     else if (otaSortField == "date") otaSortField = "downloads";
@@ -1535,15 +1550,15 @@ void handleHardwareSettingsInput(Keyboard_Class::KeysState status) {
     
     if (status.enter) {
         playSound(sound_select, sound_select_size);
-        if (settingsTab == 1 && settingsFocus == 2) { // NETWORK: WiFi Scan
-            startWifiScan();
-            drawHardwareSettings();
-        } else if (settingsTab == 3 && settingsFocus == 0) { // OTA: Open Catalog
-            otaCatalogLoaded = false;
-            otaCatalogScrollOffset = 0;
-            appState = STATE_OTA_CATALOG;
-            otaCatalogFocus = 0;
-            drawOtaCatalog();
+        if (settingsTab == 2 && settingsFocus == 1) { // OFFLINE: MUSIC DIR -> choose folder location automatically
+            isDirSelectionMode = true;
+            isSDCardManager = SD.exists("/OFFLINE") || SD.exists("/") ? true : false; // Default to SD card if present, else SPIFFS
+            appState = STATE_FILE_LOADING;
+            loadingProgress = 0;
+            fileManagerCurrentPath = "/";
+            fileManagerSelected = 0;
+            fileManagerScrollOffset = 0;
+            showFileContent = false;
         } else { // Exit to Splash screen (Boot Node)
             prefs.putInt("insane", insaneMode);
             populateFileList();
@@ -1649,15 +1664,12 @@ void drawFileManager(bool push) {
     
     canvas.setTextColor(CP_YELLOW);
     canvas.setTextSize(1);
-    if (isSDCardManager) {
-        String title = "SD:" + fileManagerCurrentPath;
-        if (title.length() > 30) title = "SD:..." + title.substring(title.length() - 25);
-        canvas.drawCenterString("--- " + title + " ---", 120, 12);
-    } else {
-        String title = "FLASH:" + fileManagerCurrentPath;
-        if (title.length() > 30) title = "FLASH:..." + title.substring(title.length() - 25);
-        canvas.drawCenterString("--- " + title + " ---", 120, 12);
+    String titlePrefix = isDirSelectionMode ? "[DIR] " : (isSDCardManager ? "SD:" : "FLASH:");
+    String title = titlePrefix + fileManagerCurrentPath;
+    if (title.length() > 30) {
+        title = titlePrefix + "..." + fileManagerCurrentPath.substring(fileManagerCurrentPath.length() - (30 - titlePrefix.length() - 3));
     }
+    canvas.drawCenterString("--- " + title + " ---", 120, 12);
     canvas.drawLine(10, 24, 230, 24, CP_CYAN);
     
     if (!showFileContent) {
@@ -1734,7 +1746,7 @@ void drawFileManager(bool push) {
         }
         
         canvas.setTextColor(CP_YELLOW);
-        canvas.drawCenterString("ENTER: OPEN  |  ESC/COMMA: BACK", 120, 114);
+        canvas.drawCenterString(isDirSelectionMode ? "ENTER: CHOOSE FOLDER | ESC: BACK" : "ENTER: OPEN  |  ESC/COMMA: BACK", 120, 114);
     } else {
         // Draw selected file content panel
         canvas.setTextColor(CP_CYAN);
@@ -1823,8 +1835,14 @@ void handleFileManagerInput(Keyboard_Class::KeysState status) {
             populateFileList();
             drawFileManager();
         } else {
-            appState = STATE_HARDWARE_MENU;
-            drawHardwareMenu();
+            if (isDirSelectionMode) {
+                isDirSelectionMode = false;
+                appState = STATE_HARDWARE_SETTINGS;
+                drawHardwareSettings();
+            } else {
+                appState = STATE_HARDWARE_MENU;
+                drawHardwareMenu();
+            }
         }
         return;
     }
@@ -1842,6 +1860,14 @@ void handleFileManagerInput(Keyboard_Class::KeysState status) {
             fileManagerScrollOffset = 0;
             populateFileList();
             drawFileManager();
+        } else if (isDirSelectionMode) {
+            if (loadedFiles[fileManagerSelected].isDir) {
+                pendingSelectedDir = fileManagerCurrentPath + (fileManagerCurrentPath == "/" ? "" : "/") + loadedFiles[fileManagerSelected].name;
+                appState = STATE_DIR_CONFIRM_POPUP;
+                drawDirConfirmPopup();
+            } else {
+                playSound(sound_fail, sound_fail_size);
+            }
         } else {
             appState = STATE_FILE_ACTIONS_MENU;
             fileActionsMenuSelected = 0;
@@ -2519,7 +2545,11 @@ void handleSplashInput(Keyboard_Class::KeysState status) {
             WiFi.mode(WIFI_OFF);
             isGuest = true;
             authUser = "GUEST";
-            enterMainMenu();
+            appState = STATE_MUSIC_PLAYER;
+            playlistFocus = 0;
+            playlistScrollOffset = 0;
+            populatePlaylist();
+            drawMusicPlayer();
         } else if (splashBootFocus == 3) {
             otaCatalogLoaded = false;
             otaCatalogScrollOffset = 0;
@@ -3566,6 +3596,10 @@ void setup() {
     if (mp3PlayLoopMode != "name" && mp3PlayLoopMode != "random") {
         mp3PlayLoopMode = "name";
     }
+    musicDir = prefs.getString("music_dir", "/");
+    if (musicDir == "") {
+        musicDir = "/";
+    }
     if (prefs.isKey("insane")) {
         insaneMode = prefs.getInt("insane", -1);
         if (insaneMode == -1) {
@@ -4276,6 +4310,28 @@ void loop() {
         return;
     }
     
+    if (appState == STATE_DIR_CONFIRM_POPUP) {
+        if (keyChanged && keyPressed) {
+            handleDirConfirmPopupInput(globalStatus);
+        }
+        delay(10);
+        return;
+    }
+    
+    if (appState == STATE_MUSIC_PLAYER) {
+        if (keyChanged && keyPressed) {
+            handleMusicPlayerInput(globalStatus);
+        }
+        // Let marquee titles scroll if needed
+        static unsigned long lastPlayerMarquee = 0;
+        if (millis() - lastPlayerMarquee > 150) {
+            drawMusicPlayer();
+            lastPlayerMarquee = millis();
+        }
+        delay(10);
+        return;
+    }
+    
     if (appState == STATE_FILE_LOADING) {
         drawFileLoading();
         delay(10);
@@ -4290,11 +4346,19 @@ void loop() {
         if (isMp3Playing) {
             if (mp3) {
                 if (!mp3->loop()) {
-                    stopMp3();
+                    if (appState == STATE_MUSIC_PLAYER) {
+                        playNextTrack();
+                    } else {
+                        stopMp3();
+                    }
                 } else {
                     static unsigned long lastVisualizerUpdate = 0;
                     if (millis() - lastVisualizerUpdate > 100) {
-                        drawFileManager();
+                        if (appState == STATE_MUSIC_PLAYER) {
+                            drawMusicPlayer();
+                        } else {
+                            drawFileManager();
+                        }
                         lastVisualizerUpdate = millis();
                     }
                 }
@@ -5072,6 +5136,302 @@ void performOtaUpdate(String binUrl) {
         delay(3000);
     }
     drawOtaCatalog();
+}
+
+void populatePlaylist() {
+    playlist.clear();
+    isSDCardManager = SD.exists("/OFFLINE") || SD.exists("/") ? true : false;
+    bool useSD = isSDCardManager;
+    
+    File dir;
+    if (useSD) {
+        dir = SD.open(musicDir.c_str());
+    } else {
+        dir = SPIFFS.open(musicDir.c_str());
+    }
+    
+    if (dir && dir.isDirectory()) {
+        File file = dir.openNextFile();
+        while (file) {
+            if (!file.isDirectory()) {
+                String name = String(file.name());
+                int lastSlash = name.lastIndexOf('/');
+                if (lastSlash >= 0) {
+                    name = name.substring(lastSlash + 1);
+                }
+                if (name.endsWith(".mp3") || name.endsWith(".MP3")) {
+                    playlist.push_back(name);
+                }
+            }
+            file = dir.openNextFile();
+        }
+        dir.close();
+    }
+    
+    std::sort(playlist.begin(), playlist.end());
+}
+
+void drawDirConfirmPopup() {
+    canvas.startWrite();
+    canvas.fillScreen(CP_BG);
+    
+    canvas.drawRect(5, 15, 230, 95, CP_CYAN);
+    canvas.drawRect(7, 17, 226, 91, CP_DIM);
+    
+    canvas.setTextColor(CP_YELLOW);
+    canvas.setTextSize(1);
+    canvas.drawCenterString("--- SET MUSIC DIRECTORY ---", 120, 25);
+    
+    canvas.setTextColor(WHITE);
+    String displayPath = pendingSelectedDir;
+    if (displayPath.length() > 30) displayPath = "..." + displayPath.substring(displayPath.length() - 26);
+    canvas.drawCenterString(displayPath, 120, 48);
+    
+    canvas.setTextColor(CP_CYAN);
+    canvas.drawCenterString("ENTER: YES (CONFIRM SETTING)", 120, 72);
+    canvas.drawCenterString("ESC/DEL: NO (ENTER FOLDER)", 120, 88);
+    
+    pushCanvas();
+}
+
+void handleDirConfirmPopupInput(Keyboard_Class::KeysState status) {
+    bool hasEsc = false;
+    for (char c : status.word) {
+        if (c == '`') hasEsc = true;
+    }
+    
+    if (hasEsc || status.del) {
+        playSound(sound_select, sound_select_size);
+        // NO -> enter the folder!
+        fileManagerCurrentPath = pendingSelectedDir;
+        fileManagerSelected = 0;
+        fileManagerScrollOffset = 0;
+        appState = STATE_FILE_MANAGER;
+        populateFileList();
+        drawFileManager();
+        return;
+    }
+    
+    if (status.enter) {
+        playSound(sound_select, sound_select_size);
+        // YES -> Confirm selection!
+        musicDir = pendingSelectedDir;
+        prefs.putString("music_dir", musicDir);
+        isDirSelectionMode = false;
+        appState = STATE_HARDWARE_SETTINGS;
+        drawHardwareSettings();
+    }
+}
+
+void drawMusicPlayer() {
+    canvas.startWrite();
+    canvas.fillScreen(CP_BG);
+    
+    canvas.drawRect(5, 5, 230, 125, CP_CYAN);
+    canvas.drawRect(7, 7, 226, 121, CP_DIM);
+    
+    canvas.setTextColor(CP_YELLOW);
+    canvas.setTextSize(1);
+    canvas.drawCenterString("--- NEON WAVE MP3 PLAYER ---", 120, 12);
+    canvas.drawLine(10, 22, 230, 22, CP_CYAN);
+    
+    if (playlist.empty()) {
+        canvas.setTextColor(CP_RED);
+        canvas.drawCenterString("NO MP3 TRACKS FOUND", 120, 52);
+        canvas.setTextColor(CP_DIM);
+        canvas.drawCenterString("DIR: " + musicDir, 120, 72);
+    } else {
+        int startY = 26;
+        int maxPlayDisplay = 5;
+        for (int i = 0; i < maxPlayDisplay; i++) {
+            int idx = playlistScrollOffset + i;
+            if (idx >= (int)playlist.size()) break;
+            
+            bool isFocus = (idx == playlistFocus);
+            bool isCurrent = (isMp3Playing && playlist[idx] == mp3Filename);
+            int rowY = startY + i * 13;
+            
+            if (isFocus) {
+                canvas.fillRect(15, rowY, 210, 13, canvas.color565(30, 30, 30));
+                canvas.drawRect(15, rowY, 210, 13, CP_YELLOW);
+                canvas.setTextColor(CP_CYAN);
+            } else {
+                canvas.setTextColor(isCurrent ? CP_YELLOW : WHITE);
+            }
+            
+            canvas.setCursor(20, rowY + 2);
+            String nameToPrint = playlist[idx];
+            if (nameToPrint.length() > 22) nameToPrint = nameToPrint.substring(0, 19) + "...";
+            canvas.print(nameToPrint);
+            
+            if (isCurrent) {
+                canvas.setCursor(160, rowY + 2);
+                canvas.setTextColor(CP_GREEN);
+                canvas.print("[PLAYING]");
+            }
+        }
+    }
+    
+    canvas.drawLine(10, 94, 230, 94, CP_CYAN);
+    
+    if (isMp3Playing) {
+        // Draw visualizer
+        int startX = 60;
+        for (int i = 0; i < 10; i++) {
+            int h = random(2, 11);
+            canvas.fillRect(startX + i * 11, 108 - h, 7, h, CP_CYAN);
+            canvas.drawRect(startX + i * 11, 108 - h, 7, h, CP_YELLOW);
+        }
+        
+        String playText = "PLAYING: " + mp3Filename;
+        if (playText.length() > 36) playText = playText.substring(0, 33) + "...";
+        canvas.setTextColor(CP_YELLOW);
+        canvas.drawCenterString(playText, 120, 113);
+    } else {
+        canvas.setTextColor(CP_DIM);
+        canvas.drawCenterString("STOPPED | ESC: BACK TO SPLASH", 120, 113);
+    }
+    
+    pushCanvas();
+}
+
+void handleMusicPlayerInput(Keyboard_Class::KeysState status) {
+    bool hasEsc = false;
+    for (char c : status.word) {
+        if (c == '`') hasEsc = true;
+    }
+    
+    if (hasEsc || status.del) {
+        playSound(sound_select, sound_select_size);
+        stopMp3();
+        appState = STATE_SPLASH;
+        showSplashBootMenu = true;
+        splashBootFocus = 2;
+        drawSplash();
+        return;
+    }
+    
+    bool hasUp = false, hasDown = false;
+    bool hasLeft = false, hasRight = false;
+    for (char c : status.word) {
+        if (c == ';') hasUp = true;
+        if (c == '.') hasDown = true;
+        if (c == ',') hasLeft = true;
+        if (c == '/') hasRight = true;
+    }
+    
+    if (hasUp && !playlist.empty()) {
+        playSound(sound_hover, sound_hover_size);
+        playlistFocus = (playlistFocus - 1 + playlist.size()) % playlist.size();
+        if (playlistFocus < playlistScrollOffset) {
+            playlistScrollOffset = playlistFocus;
+        } else if (playlistFocus >= playlistScrollOffset + 5) {
+            playlistScrollOffset = playlistFocus - 4;
+        }
+        drawMusicPlayer();
+    } else if (hasDown && !playlist.empty()) {
+        playSound(sound_hover, sound_hover_size);
+        playlistFocus = (playlistFocus + 1) % playlist.size();
+        if (playlistFocus < playlistScrollOffset) {
+            playlistScrollOffset = playlistFocus;
+        } else if (playlistFocus >= playlistScrollOffset + 5) {
+            playlistScrollOffset = playlistFocus - 4;
+        }
+        drawMusicPlayer();
+    }
+    
+    if (hasLeft && !playlist.empty()) {
+        playSound(sound_select, sound_select_size);
+        playPrevTrack();
+    } else if (hasRight && !playlist.empty()) {
+        playSound(sound_select, sound_select_size);
+        playNextTrack();
+    }
+    
+    if (status.enter && !playlist.empty()) {
+        playSound(sound_select, sound_select_size);
+        if (isMp3Playing && playlist[playlistFocus] == mp3Filename) {
+            stopMp3();
+            drawMusicPlayer();
+        } else {
+            startMp3InPlayer(playlist[playlistFocus]);
+        }
+    }
+}
+
+void playNextTrack() {
+    if (playlist.empty()) return;
+    stopMp3();
+    
+    if (mp3PlayLoopMode == "random") {
+        playlistFocus = random(0, playlist.size());
+    } else {
+        playlistFocus = (playlistFocus + 1) % playlist.size();
+    }
+    
+    if (playlistFocus < playlistScrollOffset) {
+        playlistScrollOffset = playlistFocus;
+    } else if (playlistFocus >= playlistScrollOffset + 5) {
+        playlistScrollOffset = playlistFocus - 4;
+    }
+    
+    startMp3InPlayer(playlist[playlistFocus]);
+}
+
+void playPrevTrack() {
+    if (playlist.empty()) return;
+    stopMp3();
+    
+    if (mp3PlayLoopMode == "random") {
+        playlistFocus = random(0, playlist.size());
+    } else {
+        playlistFocus = (playlistFocus - 1 + playlist.size()) % playlist.size();
+    }
+    
+    if (playlistFocus < playlistScrollOffset) {
+        playlistScrollOffset = playlistFocus;
+    } else if (playlistFocus >= playlistScrollOffset + 5) {
+        playlistScrollOffset = playlistFocus - 4;
+    }
+    
+    startMp3InPlayer(playlist[playlistFocus]);
+}
+
+void startMp3InPlayer(String fileName) {
+    String fullPath = musicDir + (musicDir == "/" ? "" : "/") + fileName;
+    audioOut = new AudioOutputM5Speaker(&M5Cardputer.Speaker, 0);
+    
+    bool useSD = isSDCardManager;
+    bool started = false;
+    
+    if (useSD) {
+        fileSD = new AudioFileSourceSD(fullPath.c_str());
+        audioBuffer = new AudioFileSourceBuffer(fileSD, 8192);
+        mp3 = new AudioGeneratorMP3();
+        started = mp3->begin(audioBuffer, audioOut);
+    } else {
+        fileSPIFFS = new AudioFileSourceSPIFFS(fullPath.c_str());
+        audioBuffer = new AudioFileSourceBuffer(fileSPIFFS, 8192);
+        mp3 = new AudioGeneratorMP3();
+        started = mp3->begin(audioBuffer, audioOut);
+    }
+    
+    if (started) {
+        isMp3Playing = true;
+        mp3Filename = fileName;
+        mp3IsPaused = false;
+        mp3StartTime = millis();
+        mp3PausedTime = 0;
+        mp3DurationSeconds = 180;
+    } else {
+        if (mp3) { delete mp3; mp3 = nullptr; }
+        if (audioBuffer) { delete audioBuffer; audioBuffer = nullptr; }
+        if (fileSD) { delete fileSD; fileSD = nullptr; }
+        if (fileSPIFFS) { delete fileSPIFFS; fileSPIFFS = nullptr; }
+        if (audioOut) { delete audioOut; audioOut = nullptr; }
+        isMp3Playing = false;
+    }
+    drawMusicPlayer();
 }
 
 
