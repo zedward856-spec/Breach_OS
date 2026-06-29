@@ -9,6 +9,9 @@
 #include <vector>
 #include <algorithm>
 #include <ArduinoJson.h>
+#include "esp_partition.h"
+#include "esp_ota_ops.h"
+#include "soc/rtc_cntl_reg.h"
 #include <WiFiClientSecure.h>
 #include <ArduinoOTA.h>
 #include <AudioOutput.h>
@@ -61,6 +64,19 @@ class AudioOutputM5Speaker : public AudioOutput {
     size_t _tri_buffer_index = 0; 
     size_t _tri_index = 0;
 };
+
+void bootToFactory() {
+    const esp_partition_t *partition = esp_partition_find_first(
+        ESP_PARTITION_TYPE_APP, ESP_PARTITION_SUBTYPE_APP_FACTORY, NULL);
+    if (partition == NULL) {
+        partition = esp_partition_find_first(
+            ESP_PARTITION_TYPE_APP, ESP_PARTITION_SUBTYPE_APP_OTA_0, NULL);
+    }
+    if (partition != NULL) {
+        esp_ota_set_boot_partition(partition);
+    }
+    ESP.restart();
+}
 
 enum SortField {
     SORT_FIELD_NAME,
@@ -673,6 +689,7 @@ int mp3DurationSeconds = 180;
 bool showImage = false;
 String openedImageName = "";
 float imageScale = 1.0f;
+bool showBootMenu = false;
 
 std::vector<String> dummyLogs = {
     "[ OK ] Init SPI flash layout...",
@@ -2655,6 +2672,7 @@ void enterMainMenu() {
     targetMenuScroll = 0;
     showMenuDesc = false;
     descAnimWidth = 0.0;
+    showBootMenu = false;
     drawMainMenu();
 }
 
@@ -2663,19 +2681,25 @@ void drawMainMenu() {
     canvas.fillScreen(CP_BG);
     
     // Draw headers centered on the right side of the screen to avoid the scroll wheel
-    drawGlitchText("NETWORK NODE", 135, 12, 2, CP_CYAN, true, true);
-    drawGlitchText("OPERATIVE: " + (isGuest ? String("GUEST") : authUser), 135, 34, 1, CP_DIM);
+    drawGlitchText(showBootMenu ? "BOOT NODE" : "NETWORK NODE", 135, 12, 2, CP_CYAN, true, true);
+    drawGlitchText(showBootMenu ? "SYSTEM REBOOT PROCESS" : "OPERATIVE: " + (isGuest ? String("GUEST") : authUser), 135, 34, 1, CP_DIM);
     
     // Draw rotating wheel arc on the left
     canvas.drawCircle(-80, 67, 110, CP_DIM);
     canvas.drawCircle(-80, 67, 109, CP_DIM);
     
-    int totalItems = isGuest ? 4 : 6;
+    int totalItems = 0;
     std::vector<String> labels;
-    if (isGuest) {
-        labels = {"HACK", "CONTROLS", "CREDITS", "BACK"};
+    if (showBootMenu) {
+        labels = {"REBOOT SYSTEM", "BOOT LAUNCHER", "ROM DOWNLOAD", "CANCEL"};
+        totalItems = labels.size();
     } else {
-        labels = {"HACK", "LEADERBOARD", "ACCOUNT", "CONTROLS", "CREDITS", "BACK"};
+        if (isGuest) {
+            labels = {"HACK", "CONTROLS", "CREDITS", "BOOT MENU"};
+        } else {
+            labels = {"HACK", "LEADERBOARD", "ACCOUNT", "CONTROLS", "CREDITS", "BOOT MENU"};
+        }
+        totalItems = labels.size();
     }
     
     for (int i = 0; i < totalItems; i++) {
@@ -2800,7 +2824,7 @@ void handleMainMenuInput(Keyboard_Class::KeysState status) {
             return;
         }
     } else {
-        int limit = isGuest ? 3 : 5;
+        int limit = showBootMenu ? 3 : (isGuest ? 3 : 5);
         if (hasRight && mainMenuFocus < limit) {
             playSound(sound_select, sound_select_size);
             showMenuDesc = true;
@@ -2814,13 +2838,57 @@ void handleMainMenuInput(Keyboard_Class::KeysState status) {
         descAnimWidth = 0.0;
         
         std::vector<String> labels;
-        if (isGuest) {
-            labels = {"HACK", "CONTROLS", "CREDITS", "BACK"};
+        if (showBootMenu) {
+            labels = {"REBOOT SYSTEM", "BOOT LAUNCHER", "ROM DOWNLOAD", "CANCEL"};
         } else {
-            labels = {"HACK", "LEADERBOARD", "ACCOUNT", "CONTROLS", "CREDITS", "BACK"};
+            if (isGuest) {
+                labels = {"HACK", "CONTROLS", "CREDITS", "BOOT MENU"};
+            } else {
+                labels = {"HACK", "LEADERBOARD", "ACCOUNT", "CONTROLS", "CREDITS", "BOOT MENU"};
+            }
         }
         
         String selectedLabel = labels[mainMenuFocus];
+        if (showBootMenu) {
+            if (selectedLabel == "REBOOT SYSTEM") {
+                canvas.fillScreen(CP_BG);
+                canvas.setTextColor(CP_RED);
+                canvas.setTextSize(2);
+                canvas.drawCenterString("REBOOTING...", 120, 50);
+                pushCanvas();
+                delay(500);
+                ESP.restart();
+            } else if (selectedLabel == "BOOT LAUNCHER") {
+                canvas.fillScreen(CP_BG);
+                canvas.setTextColor(CP_RED);
+                canvas.setTextSize(2);
+                canvas.drawCenterString("BOOTING LAUNCHER...", 120, 50);
+                pushCanvas();
+                delay(500);
+                bootToFactory();
+            } else if (selectedLabel == "ROM DOWNLOAD") {
+                canvas.fillScreen(CP_BG);
+                canvas.setTextColor(CP_RED);
+                canvas.setTextSize(2);
+                canvas.drawCenterString("ROM DOWNLOAD MODE", 120, 40);
+                canvas.setTextSize(1);
+                canvas.setTextColor(CP_YELLOW);
+                canvas.drawCenterString("CONNECT TO USB", 120, 70);
+                canvas.drawCenterString("AND FLASH FIRMWARE", 120, 85);
+                pushCanvas();
+                delay(1000);
+                REG_WRITE(RTC_CNTL_OPTION1_REG, RTC_CNTL_FORCE_DOWNLOAD_BOOT);
+                ESP.restart();
+            } else if (selectedLabel == "CANCEL") {
+                showBootMenu = false;
+                mainMenuFocus = 0;
+                currentMenuScroll = 0;
+                targetMenuScroll = 0;
+                drawMainMenu();
+            }
+            return;
+        }
+        
         if (selectedLabel == "HACK") {
             appState = STATE_GRID_SELECT;
             gridMenuFocus = 0;
@@ -2844,20 +2912,18 @@ void handleMainMenuInput(Keyboard_Class::KeysState status) {
         } else if (selectedLabel == "CREDITS") {
             appState = STATE_CREDITS;
             drawCreditsScreen();
-        } else if (selectedLabel == "BACK") {
-            canvas.fillScreen(CP_BG);
-            canvas.setTextColor(CP_RED);
-            canvas.setTextSize(2);
-            canvas.drawCenterString("REBOOTING...", 120, 50);
-            pushCanvas();
-            delay(500);
-            ESP.restart();
+        } else if (selectedLabel == "BOOT MENU") {
+            showBootMenu = true;
+            mainMenuFocus = 0;
+            currentMenuScroll = 0;
+            targetMenuScroll = 0;
+            drawMainMenu();
         }
         return;
     }
     
     if (!showMenuDesc) {
-        int maxFocus = isGuest ? 3 : 5;
+        int maxFocus = showBootMenu ? 3 : (isGuest ? 3 : 5);
         if (hasUp) {
             playSound(sound_hover, sound_hover_size);
             mainMenuFocus--;
