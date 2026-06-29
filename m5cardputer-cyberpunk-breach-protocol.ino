@@ -1552,7 +1552,7 @@ void handleHardwareSettingsInput(Keyboard_Class::KeysState status) {
         playSound(sound_select, sound_select_size);
         if (settingsTab == 2 && settingsFocus == 1) { // OFFLINE: MUSIC DIR -> choose folder location automatically
             isDirSelectionMode = true;
-            isSDCardManager = SD.exists("/OFFLINE") || SD.exists("/") ? true : false; // Default to SD card if present, else SPIFFS
+            isSDCardManager = true; // Hardcode to SD card browsing as requested
             appState = STATE_FILE_LOADING;
             loadingProgress = 0;
             fileManagerCurrentPath = "/";
@@ -5140,8 +5140,8 @@ void performOtaUpdate(String binUrl) {
 
 void populatePlaylist() {
     playlist.clear();
-    isSDCardManager = SD.exists("/OFFLINE") || SD.exists("/") ? true : false;
-    bool useSD = isSDCardManager;
+    isSDCardManager = true;
+    bool useSD = true;
     
     File dir;
     if (useSD) {
