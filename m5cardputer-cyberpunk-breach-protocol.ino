@@ -1264,100 +1264,103 @@ void drawHardwareSettings() {
         canvas.print(tabNames[t]);
     }
     
-    int rowCount = (settingsTab == 1) ? 4 : 3;
-    int startY = 41;
+    // Separator line
+    canvas.drawLine(10, 42, 230, 42, CP_CYAN);
     
-    for (int i = 0; i < rowCount; i++) {
-        bool isFocus = (settingsFocus == i);
-        uint16_t borderCol = isFocus ? CP_YELLOW : CP_DIM;
-        int rowY = startY + i * 17;
-        
-        canvas.fillRect(15, rowY, 210, 15, isFocus ? canvas.color565(30, 30, 30) : CP_BG);
-        canvas.drawRect(15, rowY, 210, 15, borderCol);
-        
-        canvas.setTextColor(isFocus ? CP_YELLOW : WHITE);
-        canvas.setCursor(22, rowY + 3);
-        
-        if (settingsTab == 0) { // HARDWARE
-            if (i == 0) {
-                canvas.print("SORT BY:");
-                canvas.setCursor(120, rowY + 3);
-                canvas.setTextColor(isFocus ? WHITE : CP_DIM);
-                canvas.print(currentSortField == SORT_FIELD_NAME ? "< NAME >" : "< TYPE >");
-            } else if (i == 1) {
-                canvas.print("ORDER:");
-                canvas.setCursor(120, rowY + 3);
-                canvas.setTextColor(isFocus ? WHITE : CP_DIM);
-                canvas.print(currentSortOrder == SORT_ORDER_ASC ? "< ASCENDING >" : "< DESCENDING >");
-            } else if (i == 2) {
-                canvas.print("SYS FILES:");
-                canvas.setCursor(120, rowY + 3);
-                canvas.setTextColor(isFocus ? WHITE : CP_DIM);
-                canvas.print(showSystemFiles ? "< SHOW >" : "< HIDE >");
-            }
-        } else if (settingsTab == 1) { // OTA
-            if (i == 0) {
-                canvas.print("OTA CATALOG:");
-                canvas.setCursor(120, rowY + 3);
-                canvas.setTextColor(isFocus ? WHITE : CP_DIM);
-                canvas.print("< OPEN LIST >");
-            } else if (i == 1) {
-                canvas.print("LAUNCHER:");
-                canvas.setCursor(120, rowY + 3);
-                canvas.setTextColor(isFocus ? WHITE : CP_DIM);
-                canvas.print("< BOOT TO M5 >");
-            } else if (i == 2) {
-                canvas.print("ROM BURNER:");
-                canvas.setCursor(120, rowY + 3);
-                canvas.setTextColor(isFocus ? WHITE : CP_DIM);
-                canvas.print("< STRAP ROM >");
-            } else if (i == 3) {
-                canvas.print("REBOOT:");
-                canvas.setCursor(120, rowY + 3);
-                canvas.setTextColor(isFocus ? WHITE : CP_DIM);
-                canvas.print("< SOFT RESTART >");
-            }
-        } else if (settingsTab == 2) { // APPEARANCE
-            if (i == 0) {
-                canvas.print("GLITCH TEXT:");
-                canvas.setCursor(120, rowY + 3);
-                canvas.setTextColor(isFocus ? WHITE : CP_DIM);
-                String glitchLabel = "";
-                if (insaneMode == 0) glitchLabel = "< OFF >";
-                else if (insaneMode == 1) glitchLabel = "< ON >";
-                else glitchLabel = "< INSANE >";
-                canvas.print(glitchLabel);
-            } else if (i == 1) {
-                canvas.print("BRIGHTNESS:");
-                canvas.setCursor(120, rowY + 3);
-                canvas.setTextColor(isFocus ? WHITE : CP_DIM);
-                canvas.print("< " + String(globalBrightness) + "% >");
-            } else if (i == 2) {
-                canvas.print("VOLUME:");
-                canvas.setCursor(120, rowY + 3);
-                canvas.setTextColor(isFocus ? WHITE : CP_DIM);
-                canvas.print("< " + String(globalVolume) + "% >");
-            }
+    // Draw the active control container
+    int activeRow = (settingsFocus == -1) ? 0 : settingsFocus;
+    bool isFocused = (settingsFocus >= 0);
+    uint16_t borderCol = isFocused ? CP_YELLOW : CP_DIM;
+    
+    canvas.fillRect(15, 52, 210, 22, isFocused ? canvas.color565(30, 30, 30) : CP_BG);
+    canvas.drawRect(15, 52, 210, 22, borderCol);
+    
+    canvas.setTextColor(isFocused ? CP_YELLOW : WHITE);
+    canvas.setTextSize(1);
+    canvas.setCursor(22, 59);
+    
+    if (settingsTab == 0) { // HARDWARE
+        if (activeRow == 0) {
+            canvas.print("SORT BY:");
+            canvas.setCursor(120, 59);
+            canvas.setTextColor(isFocused ? WHITE : CP_DIM);
+            canvas.print(currentSortField == SORT_FIELD_NAME ? "< NAME >" : "< TYPE >");
+        } else if (activeRow == 1) {
+            canvas.print("ORDER:");
+            canvas.setCursor(120, 59);
+            canvas.setTextColor(isFocused ? WHITE : CP_DIM);
+            canvas.print(currentSortOrder == SORT_ORDER_ASC ? "< ASCENDING >" : "< DESCENDING >");
+        } else if (activeRow == 2) {
+            canvas.print("SYS FILES:");
+            canvas.setCursor(120, 59);
+            canvas.setTextColor(isFocused ? WHITE : CP_DIM);
+            canvas.print(showSystemFiles ? "< SHOW >" : "< HIDE >");
+        }
+    } else if (settingsTab == 1) { // OTA
+        if (activeRow == 0) {
+            canvas.print("OTA CATALOG:");
+            canvas.setCursor(120, 59);
+            canvas.setTextColor(isFocused ? WHITE : CP_DIM);
+            canvas.print("< OPEN LIST >");
+        } else if (activeRow == 1) {
+            canvas.print("LAUNCHER:");
+            canvas.setCursor(120, 59);
+            canvas.setTextColor(isFocused ? WHITE : CP_DIM);
+            canvas.print("< BOOT TO M5 >");
+        } else if (activeRow == 2) {
+            canvas.print("ROM BURNER:");
+            canvas.setCursor(120, 59);
+            canvas.setTextColor(isFocused ? WHITE : CP_DIM);
+            canvas.print("< STRAP ROM >");
+        } else if (activeRow == 3) {
+            canvas.print("REBOOT:");
+            canvas.setCursor(120, 59);
+            canvas.setTextColor(isFocused ? WHITE : CP_DIM);
+            canvas.print("< SOFT RESTART >");
+        }
+    } else if (settingsTab == 2) { // APPEARANCE
+        if (activeRow == 0) {
+            canvas.print("GLITCH TEXT:");
+            canvas.setCursor(120, 59);
+            canvas.setTextColor(isFocused ? WHITE : CP_DIM);
+            String glitchLabel = "";
+            if (insaneMode == 0) glitchLabel = "< OFF >";
+            else if (insaneMode == 1) glitchLabel = "< ON >";
+            else glitchLabel = "< INSANE >";
+            canvas.print(glitchLabel);
+        } else if (activeRow == 1) {
+            canvas.print("BRIGHTNESS:");
+            canvas.setCursor(120, 59);
+            canvas.setTextColor(isFocused ? WHITE : CP_DIM);
+            canvas.print("< " + String(globalBrightness) + "% >");
+        } else if (activeRow == 2) {
+            canvas.print("VOLUME:");
+            canvas.setCursor(120, 59);
+            canvas.setTextColor(isFocused ? WHITE : CP_DIM);
+            canvas.print("< " + String(globalVolume) + "% >");
         }
     }
     
-    // Footer hints
+    // Separator line
+    canvas.drawLine(10, 85, 230, 85, CP_CYAN);
+    
+    // Footer hints Y: 94 to 120
     if (settingsFocus == -1) {
         canvas.setTextColor(CP_DIM);
-        canvas.drawCenterString("LF/RT: SWITCH TAB  |  DN: ENTER SETTINGS", 120, 110);
+        canvas.drawCenterString("LF/RT: SWITCH TAB  |  DN: ENTER ROWS", 120, 96);
         canvas.setTextColor(CP_YELLOW);
-        canvas.drawCenterString("ESC/DEL: BACK TO BOOT SELECTOR", 120, 120);
+        canvas.drawCenterString("ESC/DEL: BACK TO BOOT SELECTOR", 120, 110);
     } else {
         if (settingsTab == 1) {
             canvas.setTextColor(CP_DIM);
-            canvas.drawCenterString("UP/DN: MOVE  |  ENTER: EXECUTE ACTION", 120, 110);
+            canvas.drawCenterString("UP/DN: SWITCH CONTROL  |  ENTER: EXECUTE", 120, 96);
             canvas.setTextColor(CP_YELLOW);
-            canvas.drawCenterString("ESC/DEL: BACK TO TABS", 120, 120);
+            canvas.drawCenterString("ESC/DEL: BACK TO TABS", 120, 110);
         } else {
             canvas.setTextColor(CP_DIM);
-            canvas.drawCenterString("UP/DN: MOVE  |  LF/RT: CHANGE VALUE", 120, 110);
+            canvas.drawCenterString("UP/DN: SWITCH CONTROL  |  LF/RT: ADJUST", 120, 96);
             canvas.setTextColor(CP_YELLOW);
-            canvas.drawCenterString("ENTER: SAVE & APPLY  |  ESC/DEL: TABS", 120, 120);
+            canvas.drawCenterString("ENTER: SAVE & EXIT  |  ESC/DEL: TABS", 120, 110);
         }
     }
     
@@ -4708,11 +4711,9 @@ bool fetchOtaCatalog() {
     canvas.drawCenterString("FETCHING CATALOG DATABASE...", 120, 50);
     pushCanvas();
     
-    WiFiClientSecure secureClient;
-    secureClient.setInsecure();
+    if (!secureClientInit) { secureClient.setInsecure(); secureClientInit = true; }
     HTTPClient http;
     
-    // Page 1 is the main firmware database ordered by downloads
     String url = "https://api.launcherhub.net/firmwares?category=cardputer&order_by=downloads&page=1";
     
     if (http.begin(secureClient, url)) {
@@ -4720,8 +4721,6 @@ bool fetchOtaCatalog() {
         if (httpCode == HTTP_CODE_OK) {
             String payload = http.getString();
             
-            // Allocate a sufficiently large JSON document. 
-            // 24KB is plenty to deserialize 100 simple entries on ESP32-S3!
             JsonDocument doc;
             DeserializationError error = deserializeJson(doc, payload);
             if (!error) {
@@ -4735,13 +4734,11 @@ bool fetchOtaCatalog() {
                     item.version = "LATEST";
                     item.binUrl = "";
                     
-                    // Construct short description
                     item.desc = "by " + item.author;
                     if (item.desc.length() > 32) {
                         item.desc = item.desc.substring(0, 29) + "...";
                     }
                     
-                    // Format presentation name
                     if (item.name.length() > 22) {
                         item.name = item.name.substring(0, 19) + "...";
                     }
@@ -4756,7 +4753,21 @@ bool fetchOtaCatalog() {
                 otaCatalogScrollOffset = 0;
                 http.end();
                 return true;
+            } else {
+                canvas.fillScreen(CP_BG);
+                canvas.setTextColor(CP_RED);
+                canvas.drawCenterString("JSON PARSE ERROR", 120, 50);
+                canvas.setTextColor(WHITE);
+                canvas.drawCenterString(error.c_str(), 120, 75);
+                pushCanvas();
+                delay(3000);
             }
+        } else {
+            canvas.fillScreen(CP_BG);
+            canvas.setTextColor(CP_RED);
+            canvas.drawCenterString("HTTP ERROR: " + String(httpCode), 120, 50);
+            pushCanvas();
+            delay(3000);
         }
         http.end();
     }
@@ -4770,8 +4781,7 @@ String resolveOtaFirmwareUrl(String fid) {
     canvas.drawCenterString("RESOLVING BINARY URL...", 120, 50);
     pushCanvas();
     
-    WiFiClientSecure secureClient;
-    secureClient.setInsecure();
+    if (!secureClientInit) { secureClient.setInsecure(); secureClientInit = true; }
     HTTPClient http;
     String url = "https://api.launcherhub.net/firmwares?fid=" + fid;
     String resolvedUrl = "";
@@ -4789,7 +4799,6 @@ String resolveOtaFirmwareUrl(String fid) {
                     if (file.startsWith("http")) {
                         resolvedUrl = file;
                     } else {
-                        // Resolve using CDN_FIRMWARE host!
                         resolvedUrl = "https://m5burner-cdn.m5stack.com/firmware/" + file;
                     }
                 }
@@ -4807,11 +4816,10 @@ void performOtaUpdate(String binUrl) {
     canvas.drawCenterString("CONNECTING SECURE ENDPOINT...", 120, 40);
     pushCanvas();
     
-    WiFiClientSecure client;
-    client.setInsecure();
+    if (!secureClientInit) { secureClient.setInsecure(); secureClientInit = true; }
     HTTPClient http;
     
-    if (http.begin(client, binUrl)) {
+    if (http.begin(secureClient, binUrl)) {
         int httpCode = http.GET();
         if (httpCode == HTTP_CODE_OK) {
             int contentLength = http.getSize();
