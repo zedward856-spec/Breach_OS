@@ -1264,105 +1264,103 @@ void drawHardwareSettings() {
         canvas.print(tabNames[t]);
     }
     
-    // Separator line
-    canvas.drawLine(10, 42, 230, 42, CP_CYAN);
+    int rowCount = (settingsTab == 1) ? 4 : 3;
+    int startY = 41;
     
-    // Draw the active control container
-    int activeRow = (settingsFocus == -1) ? 0 : settingsFocus;
-    bool isFocused = (settingsFocus >= 0);
-    uint16_t borderCol = isFocused ? CP_YELLOW : CP_DIM;
-    
-    canvas.fillRect(15, 52, 210, 22, isFocused ? canvas.color565(30, 30, 30) : CP_BG);
-    canvas.drawRect(15, 52, 210, 22, borderCol);
-    
-    canvas.setTextColor(isFocused ? CP_YELLOW : WHITE);
-    canvas.setTextSize(1);
-    canvas.setCursor(22, 59);
-    
-    if (settingsTab == 0) { // HARDWARE
-        if (activeRow == 0) {
-            canvas.print("SORT BY:");
-            canvas.setCursor(120, 59);
-            canvas.setTextColor(isFocused ? WHITE : CP_DIM);
-            canvas.print(currentSortField == SORT_FIELD_NAME ? "< NAME >" : "< TYPE >");
-        } else if (activeRow == 1) {
-            canvas.print("ORDER:");
-            canvas.setCursor(120, 59);
-            canvas.setTextColor(isFocused ? WHITE : CP_DIM);
-            canvas.print(currentSortOrder == SORT_ORDER_ASC ? "< ASCENDING >" : "< DESCENDING >");
-        } else if (activeRow == 2) {
-            canvas.print("SYS FILES:");
-            canvas.setCursor(120, 59);
-            canvas.setTextColor(isFocused ? WHITE : CP_DIM);
-            canvas.print(showSystemFiles ? "< SHOW >" : "< HIDE >");
-        }
-    } else if (settingsTab == 1) { // OTA
-        if (activeRow == 0) {
-            canvas.print("OTA CATALOG:");
-            canvas.setCursor(120, 59);
-            canvas.setTextColor(isFocused ? WHITE : CP_DIM);
-            canvas.print("< OPEN LIST >");
-        } else if (activeRow == 1) {
-            canvas.print("LAUNCHER:");
-            canvas.setCursor(120, 59);
-            canvas.setTextColor(isFocused ? WHITE : CP_DIM);
-            canvas.print("< BOOT TO M5 >");
-        } else if (activeRow == 2) {
-            canvas.print("ROM BURNER:");
-            canvas.setCursor(120, 59);
-            canvas.setTextColor(isFocused ? WHITE : CP_DIM);
-            canvas.print("< STRAP ROM >");
-        } else if (activeRow == 3) {
-            canvas.print("REBOOT:");
-            canvas.setCursor(120, 59);
-            canvas.setTextColor(isFocused ? WHITE : CP_DIM);
-            canvas.print("< SOFT RESTART >");
-        }
-    } else if (settingsTab == 2) { // APPEARANCE
-        if (activeRow == 0) {
-            canvas.print("GLITCH TEXT:");
-            canvas.setCursor(120, 59);
-            canvas.setTextColor(isFocused ? WHITE : CP_DIM);
-            String glitchLabel = "";
-            if (insaneMode == 0) glitchLabel = "< OFF >";
-            else if (insaneMode == 1) glitchLabel = "< ON >";
-            else glitchLabel = "< INSANE >";
-            canvas.print(glitchLabel);
-        } else if (activeRow == 1) {
-            canvas.print("BRIGHTNESS:");
-            canvas.setCursor(120, 59);
-            canvas.setTextColor(isFocused ? WHITE : CP_DIM);
-            canvas.print("< " + String(globalBrightness) + "% >");
-        } else if (activeRow == 2) {
-            canvas.print("VOLUME:");
-            canvas.setCursor(120, 59);
-            canvas.setTextColor(isFocused ? WHITE : CP_DIM);
-            canvas.print("< " + String(globalVolume) + "% >");
+    for (int i = 0; i < rowCount; i++) {
+        bool isFocus = (settingsFocus == i);
+        uint16_t borderCol = isFocus ? CP_YELLOW : CP_DIM;
+        int rowY = startY + i * 17;
+        
+        canvas.fillRect(15, rowY, 210, 15, isFocus ? canvas.color565(30, 30, 30) : CP_BG);
+        canvas.drawRect(15, rowY, 210, 15, borderCol);
+        
+        canvas.setTextColor(isFocus ? CP_YELLOW : WHITE);
+        canvas.setCursor(22, rowY + 3);
+        
+        if (settingsTab == 0) { // HARDWARE
+            if (i == 0) {
+                canvas.print("SORT BY:");
+                canvas.setCursor(120, rowY + 3);
+                canvas.setTextColor(isFocus ? WHITE : CP_DIM);
+                canvas.print(currentSortField == SORT_FIELD_NAME ? "< NAME >" : "< TYPE >");
+            } else if (i == 1) {
+                canvas.print("ORDER:");
+                canvas.setCursor(120, rowY + 3);
+                canvas.setTextColor(isFocus ? WHITE : CP_DIM);
+                canvas.print(currentSortOrder == SORT_ORDER_ASC ? "< ASCENDING >" : "< DESCENDING >");
+            } else if (i == 2) {
+                canvas.print("SYS FILES:");
+                canvas.setCursor(120, rowY + 3);
+                canvas.setTextColor(isFocus ? WHITE : CP_DIM);
+                canvas.print(showSystemFiles ? "< SHOW >" : "< HIDE >");
+            }
+        } else if (settingsTab == 1) { // OTA
+            if (i == 0) {
+                canvas.print("OTA CATALOG:");
+                canvas.setCursor(120, rowY + 3);
+                canvas.setTextColor(isFocus ? WHITE : CP_DIM);
+                canvas.print("< OPEN LIST >");
+            } else if (i == 1) {
+                canvas.print("LAUNCHER:");
+                canvas.setCursor(120, rowY + 3);
+                canvas.setTextColor(isFocus ? WHITE : CP_DIM);
+                canvas.print("< BOOT TO M5 >");
+            } else if (i == 2) {
+                canvas.print("ROM BURNER:");
+                canvas.setCursor(120, rowY + 3);
+                canvas.setTextColor(isFocus ? WHITE : CP_DIM);
+                canvas.print("< STRAP ROM >");
+            } else if (i == 3) {
+                canvas.print("REBOOT:");
+                canvas.setCursor(120, rowY + 3);
+                canvas.setTextColor(isFocus ? WHITE : CP_DIM);
+                canvas.print("< SOFT RESTART >");
+            }
+        } else if (settingsTab == 2) { // APPEARANCE
+            if (i == 0) {
+                canvas.print("GLITCH TEXT:");
+                canvas.setCursor(120, rowY + 3);
+                canvas.setTextColor(isFocus ? WHITE : CP_DIM);
+                String glitchLabel = "";
+                if (insaneMode == 0) glitchLabel = "< OFF >";
+                else if (insaneMode == 1) glitchLabel = "< ON >";
+                else glitchLabel = "< INSANE >";
+                canvas.print(glitchLabel);
+            } else if (i == 1) {
+                canvas.print("BRIGHTNESS:");
+                canvas.setCursor(120, rowY + 3);
+                canvas.setTextColor(isFocus ? WHITE : CP_DIM);
+                canvas.print("< " + String(globalBrightness) + "% >");
+            } else if (i == 2) {
+                canvas.print("VOLUME:");
+                canvas.setCursor(120, rowY + 3);
+                canvas.setTextColor(isFocus ? WHITE : CP_DIM);
+                canvas.print("< " + String(globalVolume) + "% >");
+            }
         }
     }
     
-    // Separator line
-    canvas.drawLine(10, 85, 230, 85, CP_CYAN);
-    
-    // Footer hints Y: 94 to 120
+    // Draw scrolling instruction footer text!
+    String footerText = "";
     if (settingsFocus == -1) {
-        canvas.setTextColor(CP_DIM);
-        canvas.drawCenterString("LF/RT: SWITCH TAB  |  DN: ENTER ROWS", 120, 96);
-        canvas.setTextColor(CP_YELLOW);
-        canvas.drawCenterString("ESC/DEL: BACK TO BOOT SELECTOR", 120, 110);
+        footerText = "  LF/RT: SWITCH TAB  |  DN: ENTER ROWS  |  ESC/DEL: BACK TO BOOT SELECTOR  ";
     } else {
         if (settingsTab == 1) {
-            canvas.setTextColor(CP_DIM);
-            canvas.drawCenterString("UP/DN: SWITCH CONTROL  |  ENTER: EXECUTE", 120, 96);
-            canvas.setTextColor(CP_YELLOW);
-            canvas.drawCenterString("ESC/DEL: BACK TO TABS", 120, 110);
+            footerText = "  UP/DN: MOVE ROW  |  ENTER: EXECUTE ACTION  |  ESC/DEL: BACK TO TABS  ";
         } else {
-            canvas.setTextColor(CP_DIM);
-            canvas.drawCenterString("UP/DN: SWITCH CONTROL  |  LF/RT: ADJUST", 120, 96);
-            canvas.setTextColor(CP_YELLOW);
-            canvas.drawCenterString("ENTER: SAVE & EXIT  |  ESC/DEL: TABS", 120, 110);
+            footerText = "  UP/DN: MOVE ROW  |  LF/RT: ADJUST VALUE  |  ENTER: SAVE & EXIT  |  ESC/DEL: BACK TO TABS  ";
         }
     }
+    
+    int scrollPos = (millis() / 150) % footerText.length();
+    String scrolled = footerText.substring(scrollPos) + footerText.substring(0, scrollPos);
+    if (scrolled.length() > 36) {
+        scrolled = scrolled.substring(0, 36);
+    }
+    
+    canvas.setTextColor(CP_YELLOW);
+    canvas.drawCenterString(scrolled, 120, 113);
     
     pushCanvas();
 }
