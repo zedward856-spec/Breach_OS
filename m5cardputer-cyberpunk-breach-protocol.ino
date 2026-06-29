@@ -281,7 +281,7 @@ void stopMp3();
 
 void drawMessage(String msg, String line2 = "");
 void drawGlitchText(String text, int x, int y, int size, uint16_t color, bool center = true, bool forceGlitch = false) {
-    bool canGlitch = (insaneMode > 0) || forceGlitch;
+    bool canGlitch = (insaneMode == 2) || (insaneMode == 1 && forceGlitch);
     if (!canGlitch) {
         canvas.setTextSize(size);
         canvas.setTextColor(color);
