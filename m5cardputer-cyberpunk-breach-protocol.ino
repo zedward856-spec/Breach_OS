@@ -672,6 +672,7 @@ bool mp3IsPaused = false;
 int mp3DurationSeconds = 180;
 bool showImage = false;
 String openedImageName = "";
+float imageScale = 1.0f;
 
 std::vector<String> dummyLogs = {
     "[ OK ] Init SPI flash layout...",
@@ -1324,10 +1325,16 @@ void drawFileManager(bool push) {
         String fullPath = fileManagerCurrentPath + (fileManagerCurrentPath == "/" ? "" : "/") + openedImageName;
         
         if (isSDCardManager) {
-            canvas.drawJpgFile(SD, fullPath.c_str(), 8, 8, 224, 119);
+            canvas.drawJpgFile(SD, fullPath.c_str(), 8, 8, 224, 105, 0, 0, imageScale, imageScale);
         } else {
-            canvas.drawJpgFile(SPIFFS, fullPath.c_str(), 8, 8, 224, 119);
+            canvas.drawJpgFile(SPIFFS, fullPath.c_str(), 8, 8, 224, 105, 0, 0, imageScale, imageScale);
         }
+        
+        canvas.setTextColor(CP_YELLOW);
+        canvas.setTextSize(1);
+        char scaleStr[48];
+        sprintf(scaleStr, "ZOOM: %.2fx | UP/DOWN: ZOOM | ESC: EXIT", imageScale);
+        canvas.drawCenterString(scaleStr, 120, 115);
         
         if (push) {
             pushCanvas();
@@ -1511,9 +1518,30 @@ void drawFileManager(bool push) {
 
 void handleFileManagerInput(Keyboard_Class::KeysState status) {
     if (showImage) {
-        playSound(sound_select, sound_select_size);
-        showImage = false;
-        drawFileManager();
+        bool hasZoomIn = false, hasZoomOut = false;
+        bool hasExit = false;
+        for (char c : status.word) {
+            if (c == ';') hasZoomIn = true;
+            if (c == '.') hasZoomOut = true;
+            if (c == ',' || c == '`') hasExit = true;
+        }
+        if (status.enter || status.del) hasExit = true;
+        
+        if (hasZoomIn) {
+            playSound(sound_hover, sound_hover_size);
+            imageScale += 0.25f;
+            if (imageScale > 4.0f) imageScale = 4.0f;
+            drawFileManager();
+        } else if (hasZoomOut) {
+            playSound(sound_hover, sound_hover_size);
+            imageScale -= 0.25f;
+            if (imageScale < 0.25f) imageScale = 0.25f;
+            drawFileManager();
+        } else if (hasExit) {
+            playSound(sound_select, sound_select_size);
+            showImage = false;
+            drawFileManager();
+        }
         return;
     }
     
@@ -1829,6 +1857,7 @@ void handleFileActionsMenuInput(Keyboard_Class::KeysState status) {
                 } else if (lowerName.endsWith(".jpg") || lowerName.endsWith(".jpeg")) {
                     playSound(sound_select, sound_select_size);
                     openedImageName = targetFile.name;
+                    imageScale = 1.0f;
                     showImage = true;
                     appState = STATE_FILE_MANAGER;
                     drawFileManager();
