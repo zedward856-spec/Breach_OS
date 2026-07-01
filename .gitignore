@@ -1,1 +1,27 @@
+# Local Hermes planning/session artifacts
+.hermes/
+
+# Local tool installs
+.tools/
+
+# Website generated/dependency files
+website/node_modules/
+website/.next/
+website/out/
+website/dist/
 website/data/
+website/.env*.local
+
+# Arduino/build/release generated outputs
+build/
+dist/
+*.elf
+*.map
+*.partitions.bin
+*.bootloader.bin
+
+# OS/editor noise
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
