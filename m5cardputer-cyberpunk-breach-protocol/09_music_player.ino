@@ -167,7 +167,7 @@ void handleMusicPlayerInput(Keyboard_Class::KeysState status) {
     
     if (hasEsc || status.del) {
         playSound(sound_select, sound_select_size);
-        stopMp3();
+        stopMp3Playback();
         appState = STATE_HARDWARE_MENU;
         drawHardwareMenu();
         return;
@@ -192,14 +192,16 @@ void handleMusicPlayerInput(Keyboard_Class::KeysState status) {
         }
         drawMusicPlayer();
     } else if (hasDown && !playlist.empty()) {
-        playSound(sound_hover, sound_hover_size);
+        playSound(sound_select, sound_select_size);
+        stopMp3Playback();
         playlistFocus = (playlistFocus + 1) % playlist.size();
         if (playlistFocus < playlistScrollOffset) {
             playlistScrollOffset = playlistFocus;
         } else if (playlistFocus >= playlistScrollOffset + 5) {
             playlistScrollOffset = playlistFocus - 4;
         }
-        drawMusicPlayer();
+        startMp3InPlayer(playlist[playlistFocus]);
+        return;
     }
     
     if (hasLeft && !playlist.empty()) {
@@ -213,7 +215,7 @@ void handleMusicPlayerInput(Keyboard_Class::KeysState status) {
     if (status.enter && !playlist.empty()) {
         playSound(sound_select, sound_select_size);
         if (isMp3Playing && playlist[playlistFocus] == mp3Filename) {
-            stopMp3();
+            stopMp3Playback();
             drawMusicPlayer();
         } else {
             startMp3InPlayer(playlist[playlistFocus]);
@@ -223,7 +225,7 @@ void handleMusicPlayerInput(Keyboard_Class::KeysState status) {
 
 void playNextTrack() {
     if (playlist.empty()) return;
-    stopMp3();
+    stopMp3Playback();
     
     if (mp3PlayLoopMode == "random") {
         playlistFocus = random(0, playlist.size());
@@ -242,7 +244,7 @@ void playNextTrack() {
 
 void playPrevTrack() {
     if (playlist.empty()) return;
-    stopMp3();
+    stopMp3Playback();
     
     if (mp3PlayLoopMode == "random") {
         playlistFocus = random(0, playlist.size());

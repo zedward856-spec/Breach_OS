@@ -135,11 +135,8 @@ void handleSplashInput(Keyboard_Class::KeysState status) {
             authUser = "GUEST";
             enterMainMenu();
         } else if (splashBootFocus == 3) {
-            otaCatalogLoaded = false;
-            otaCatalogScrollOffset = 0;
-            appState = STATE_OTA_CATALOG;
-            otaCatalogFocus = 0;
-            drawOtaCatalog();
+            resumeOtaAfterWifi = false;
+            enterOtaCatalog();
         } else if (splashBootFocus == 4) {
             appState = STATE_HARDWARE_SETTINGS;
             settingsFocus = 0;
@@ -166,7 +163,12 @@ void startWifiScan() {
             drawProgressBar(100, "LINK ONLINE!", CP_GREEN);
             playSound(wifi_finished_wav, wifi_finished_wav_len);
             delay(1000);
-            enterMainMenu();
+            if (resumeOtaAfterWifi) {
+                resumeOtaAfterWifi = false;
+                enterOtaCatalog();
+            } else {
+                enterMainMenu();
+            }
             return;
         }
     }
@@ -446,6 +448,7 @@ void handleWifiScanInput(Keyboard_Class::KeysState status) {
     if (status.enter && wifiList.size() > 0) {
         playSound(sound_select, sound_select_size);
         if (wifiList[wifiSelection] == "[PLAY OFFLINE]") {
+            resumeOtaAfterWifi = false;
             WiFi.disconnect(true);
             WiFi.mode(WIFI_OFF);
             isGuest = true;
@@ -508,8 +511,13 @@ void handleWifiPassInput(Keyboard_Class::KeysState status) {
             prefs.putString("wifi_pass", wifiPass);
             savedSSID = wifiList[wifiSelection];
             savedWifiPass = wifiPass;
-            appState = STATE_AUTH_MENU;
-            drawAuthMenu();
+            if (resumeOtaAfterWifi) {
+                resumeOtaAfterWifi = false;
+                enterOtaCatalog();
+            } else {
+                appState = STATE_AUTH_MENU;
+                drawAuthMenu();
+            }
         } else {
             playSound(sound_fail, sound_fail_size);
             drawProgressBar(100, "LINK ERROR: OFFLINE", CP_RED);
@@ -542,9 +550,11 @@ void drawMainMenu() {
     canvas.startWrite();
     canvas.fillScreen(CP_BG);
     
-    // Draw headers centered on the right side of the screen to avoid the scroll wheel
-    drawGlitchText("NETWORK NODE", 135, 12, 2, CP_CYAN, true, true);
-    drawGlitchText("OPERATIVE: " + (isGuest ? String("GUEST") : authUser), 135, 34, 1, CP_DIM);
+    // Compact header stays above the wheel buttons; username sits on the right.
+    String headerUser = isGuest ? String("GUEST") : authUser;
+    if (headerUser.length() > 10) headerUser = headerUser.substring(0, 9) + "~";
+    drawGlitchText("NETWORK NODE", 72, 4, 1, CP_CYAN, true, true);
+    drawGlitchText(headerUser, 188, 4, 1, CP_DIM, true, true);
     
     // Draw rotating wheel arc on the left
     canvas.drawCircle(-80, 67, 110, CP_DIM);
@@ -566,10 +576,9 @@ void drawMainMenu() {
         if (offset > halfItems) offset -= (float)totalItems;
         if (offset < -halfItems) offset += (float)totalItems;
         
-        // Don't draw items too far off screen
+        // Keep both scroll directions visible; clipping negative offsets hides the
+        // newly selected row during upward travel and makes it flash into place.
         if (abs(offset) > 1.5) continue;
-        
-        if (offset < -0.5) continue;
         
         // Calculate tick position on the arc
         float angle = offset * 0.391; // ~22.4 degrees in radians
@@ -672,6 +681,12 @@ void handleMainMenuInput(Keyboard_Class::KeysState status) {
         if (c == '/') hasRight = true;
         if (c == ',') hasLeft = true;
     }
+    int maxFocus = isGuest ? 2 : 4;
+    if (mainMenuFocus < 0 || mainMenuFocus > maxFocus) {
+        mainMenuFocus = 0;
+        currentMenuScroll = 0;
+        targetMenuScroll = 0;
+    }
     
     if (showMenuDesc) {
         if (hasLeft || hasUp || hasDown) {
@@ -680,8 +695,7 @@ void handleMainMenuInput(Keyboard_Class::KeysState status) {
             return;
         }
     } else {
-        int limit = isGuest ? 2 : 4;
-        if (hasRight && mainMenuFocus < limit) {
+        if (hasRight && mainMenuFocus < maxFocus) {
             playSound(sound_select, sound_select_size);
             showMenuDesc = true;
             return;
@@ -725,19 +739,16 @@ void handleMainMenuInput(Keyboard_Class::KeysState status) {
             appState = STATE_CREDITS;
             drawCreditsScreen();
         } else if (selectedLabel == "BACK") {
-            canvas.fillScreen(CP_BG);
-            canvas.setTextColor(CP_RED);
-            canvas.setTextSize(2);
-            canvas.drawCenterString("REBOOTING...", 120, 50);
-            pushCanvas();
-            delay(500);
-            ESP.restart();
+            appState = STATE_SPLASH;
+            showSplashBootMenu = true;
+            splashBootFocus = 1;
+            logOffset = 0;
+            drawSplash();
         }
         return;
     }
     
     if (!showMenuDesc) {
-        int maxFocus = isGuest ? 3 : 5;
         if (hasUp) {
             playSound(sound_hover, sound_hover_size);
             mainMenuFocus--;

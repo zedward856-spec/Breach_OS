@@ -326,9 +326,11 @@ void drawHardwareMenu() {
     canvas.startWrite();
     canvas.fillScreen(CP_BG);
     
-    // Draw title
-    drawGlitchText("HARDWARE NODE", 135, 12, 2, CP_CYAN, true, true);
-    drawGlitchText("OPERATIVE: " + (isGuest ? String("GUEST") : authUser), 135, 34, 1, CP_DIM);
+    // Compact header matches NETWORK NODE; username sits on the right.
+    String headerUser = isGuest ? String("GUEST") : authUser;
+    if (headerUser.length() > 10) headerUser = headerUser.substring(0, 9) + "~";
+    drawGlitchText("HARDWARE NODE", 72, 4, 1, CP_CYAN, true, true);
+    drawGlitchText(headerUser, 188, 4, 1, CP_DIM, true, true);
     
     // Draw rotating wheel arc
     canvas.drawCircle(-80, 67, 110, CP_DIM);
@@ -344,7 +346,8 @@ void drawHardwareMenu() {
         if (offset > halfItems) offset -= (float)totalItems;
         if (offset < -halfItems) offset += (float)totalItems;
         
-        if (offset < -0.1 || offset > 1.5) continue;
+        // Keep the upper row visible like NETWORK NODE.
+        if (abs(offset) > 1.5) continue;
         
         float angle = offset * 0.391;
         float tickY = 67 + sin(angle) * 110;
@@ -372,7 +375,7 @@ void drawHardwareMenu() {
         int textSize = isSelected ? 2 : 1;
         uint16_t color = isSelected ? CP_YELLOW : CP_DIM;
         
-        canvas.drawRect(x, y, w, h, color);
+        drawChippedButton(x, y, w, h, color);
         canvas.setTextColor(color);
         canvas.setTextSize(textSize);
         
@@ -387,7 +390,7 @@ void drawHardwareMenu() {
         int y = 52;
         int h = 30;
         canvas.fillRect(x, y, (int)hardwareDescAnimWidth, h, CP_BG);
-        canvas.drawRect(x, y, (int)hardwareDescAnimWidth, h, CP_YELLOW);
+        drawChippedButton(x, y, (int)hardwareDescAnimWidth, h, CP_YELLOW);
         
         if (hardwareDescAnimWidth > 160.0) {
             canvas.setTextColor(CP_YELLOW);
@@ -423,12 +426,10 @@ void drawHardwareMenu() {
 
 void handleHardwareMenuInput(Keyboard_Class::KeysState status) {
     bool hasUp = false, hasDown = false;
-    bool hasRight = false;
     bool hasLeft = false;
     for (char c : status.word) {
         if (c == ';') hasUp = true;
         if (c == '.') hasDown = true;
-        if (c == '/') hasRight = true;
         if (c == ',') hasLeft = true;
     }
     
@@ -436,12 +437,6 @@ void handleHardwareMenuInput(Keyboard_Class::KeysState status) {
         if (hasLeft || hasUp || hasDown) {
             playSound(sound_select, sound_select_size);
             showHardwareDesc = false;
-            return;
-        }
-    } else {
-        if (hasRight && (hardwareMenuFocus == 0 || hardwareMenuFocus == 1 || hardwareMenuFocus == 2)) {
-            playSound(sound_select, sound_select_size);
-            showHardwareDesc = true;
             return;
         }
     }
@@ -469,6 +464,9 @@ void handleHardwareMenuInput(Keyboard_Class::KeysState status) {
             drawMusicPlayer();
         } else if (hardwareMenuFocus == 3) {
             appState = STATE_SPLASH;
+            showSplashBootMenu = true;
+            splashBootFocus = 0;
+            logOffset = 0;
             drawSplash();
         }
         return;
@@ -737,6 +735,7 @@ void handleHardwareSettingsInput(Keyboard_Class::KeysState status) {
                     else if (otaSortField == "date") otaSortField = "name";
                     else otaSortField = "downloads";
                 }
+                otaCatalogPage = 1;
                 otaCatalogLoaded = false; // refresh next fetch
             }
         } else if (settingsTab == 4) { // APPEARANCE
@@ -1143,7 +1142,7 @@ void handleFileManagerInput(Keyboard_Class::KeysState status) {
     }
 }
 
-void stopMp3() {
+void stopMp3Playback() {
     isMp3Playing = false;
     mp3IsPaused = false;
     if (mp3) {
@@ -1171,6 +1170,10 @@ void stopMp3() {
         delete audioOut;
         audioOut = nullptr;
     }
+}
+
+void stopMp3() {
+    stopMp3Playback();
     appState = STATE_FILE_MANAGER;
     drawFileManager();
 }

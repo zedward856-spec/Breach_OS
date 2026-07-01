@@ -272,9 +272,9 @@ void drawProgressBar(int progress, String statusText, uint16_t color) {
     canvas.startWrite();
     canvas.fillScreen(CP_BG);
     
-    // Draw Cyberpunk framed container
-    canvas.drawRect(20, 20, 200, 95, color);
-    canvas.drawRect(22, 22, 196, 91, CP_DIM);
+    // Draw Cyberpunk framed container with chipped bottom-right corners.
+    drawChippedButton(20, 20, 200, 95, color);
+    drawChippedButton(22, 22, 196, 91, CP_DIM);
     
     // Header
     canvas.setTextColor(CP_YELLOW);

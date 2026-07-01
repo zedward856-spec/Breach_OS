@@ -189,6 +189,7 @@ std::vector<String> wifiList;
 int wifiSelection = 0;
 int wifiScrollOffset = 0;
 String wifiPass = "";
+bool resumeOtaAfterWifi = false;
 
 struct LeaderboardEntry {
     String username;
@@ -270,6 +271,7 @@ void handleFileActionsMenuInput(Keyboard_Class::KeysState status);
 void drawFileRenameInput();
 void handleFileRenameInput(Keyboard_Class::KeysState status);
 void drawOtaCatalog();
+void enterOtaCatalog();
 void handleOtaCatalogInput(Keyboard_Class::KeysState status);
 void performOtaUpdate(String binUrl);
 bool fetchOtaCatalog();
@@ -285,6 +287,7 @@ void populatePlaylist();
 void playNextTrack();
 void playPrevTrack();
 void startMp3InPlayer(String fileName);
+void stopMp3Playback();
 void stopMp3();
 void drawMessage(String msg);
 void drawMessage(String msg, String line2);
@@ -375,6 +378,8 @@ std::vector<FirmwareCatalogItem> otaCatalog;
 bool otaCatalogLoaded = false;
 String otaSortField = "downloads";
 
+int otaCatalogPage = 1;
+int otaCatalogTotal = 0;
 int otaCatalogFocus = 0;
 int otaCatalogScrollOffset = 0;
 
@@ -386,6 +391,7 @@ struct FirmwareVersionItem {
 };
 std::vector<FirmwareVersionItem> otaVersions;
 int otaVersionFocus = 0;
+int otaDescScrollOffset = 0;
 String otaDetailDesc = "";
 String otaDetailAuthor = "";
 int otaDetailStars = 0;
