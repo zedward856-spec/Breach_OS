@@ -1,10 +1,10 @@
-# M5Cardputer Cyberpunk 2077 Breach Protocol
+# Breach_OS
 
 
 ![Main_Menu](Images/Main_Menu.jpg)
 ![Network_Node](Images/Network_Node.jpg)
 ![Scroll_Wheel](Images/Scroll_Wheel.jpg)
-A perfectly faithful, standalone port of the iconic Cyberpunk 2077 Breach Protocol minigame for the **M5Stack Cardputer**, written in pure C++.
+Breach_OS is a standalone M5Stack Cardputer firmware built around the iconic Cyberpunk 2077 Breach Protocol minigame, written in pure C++.
 
 ## Features
 - **100% Authentic Mechanics:** True "active line" constraints. You can only move left/right on rows and up/down on columns. Selecting a node flips the axis.
@@ -30,7 +30,7 @@ A perfectly faithful, standalone port of the iconic Cyberpunk 2077 Breach Protoc
 ## Installation
 You can flash the provided firmware directly to your M5Cardputer using M5Burner or `esptool`.
 
-1. Download `cardputer_breach.ino.merged.bin` from this repository.
+1. Download `Breach_OS.ino.merged.bin` from this repository.
 2. Flash the binary to address `0x0` on your ESP32-S3 (M5Cardputer).
 
 ## Controls
