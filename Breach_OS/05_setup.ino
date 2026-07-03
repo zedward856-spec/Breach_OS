@@ -38,7 +38,8 @@ void setup() {
     sshPort = prefs.getString("ssh_port", "22");
     if (sshPort == "") sshPort = "22";
     sshUser = prefs.getString("ssh_user", "");
-    sshPass = prefs.getString("ssh_pass", "");
+    prefs.remove("ssh_pass");
+    sshPass = "";
     sshTarget = prefs.getString("ssh_target", "");
     if (sshTarget == "") {
         sshTarget = (sshUser == "") ? sshHost : sshUser + "@" + sshHost;

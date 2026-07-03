@@ -517,6 +517,23 @@ bool isSshStopRequested() {
     return stopRequested;
 }
 
+TaskHandle_t getSshTaskHandle() {
+    TaskHandle_t handle = NULL;
+    if (!lockSshState()) return NULL;
+    handle = sshTaskHandle;
+    unlockSshState();
+    return handle;
+}
+
+void snapshotSshState(String &status, bool &connected, bool &shellReady, TaskHandle_t &taskHandle) {
+    if (!lockSshState()) return;
+    status = sshStatus;
+    connected = sshConnected;
+    shellReady = sshShellReady;
+    taskHandle = sshTaskHandle;
+    unlockSshState();
+}
+
 void closeSshSession() {
     if (lockSshState()) {
         sshStopRequested = true;
@@ -524,16 +541,15 @@ void closeSshSession() {
     }
 
     unsigned long start = millis();
-    while (sshTaskHandle != NULL && millis() - start < 1200) delay(20);
+    while (getSshTaskHandle() != NULL && millis() - start < 1200) delay(20);
 
-    if (sshTaskHandle == NULL && lockSshState()) {
+    if (getSshTaskHandle() == NULL && lockSshState()) {
         sshConnected = false;
         sshShellReady = false;
-        sshSession = NULL;
-        sshChannel = NULL;
         sshQueuedCommand = "";
+        sshWorkerPass = "";
         unlockSshState();
-    } else if (sshTaskHandle != NULL) {
+    } else if (getSshTaskHandle() != NULL) {
         setSshStatus("CLOSING", false, false);
     }
 }
@@ -546,6 +562,11 @@ void pollSshTerminal() {
 
 void drawSshTerminal() {
     pollSshTerminal();
+    String statusSnapshot = "";
+    bool connectedSnapshot = false;
+    bool shellReadySnapshot = false;
+    TaskHandle_t taskSnapshot = NULL;
+    snapshotSshState(statusSnapshot, connectedSnapshot, shellReadySnapshot, taskSnapshot);
 
     canvas.startWrite();
     canvas.fillScreen(CP_BG);
@@ -560,9 +581,9 @@ void drawSshTerminal() {
     String title = sshTarget == "" ? sshHost : sshTarget;
     if (sshPort != "" && sshPort != "22") title += ":" + sshPort;
     if (title.length() > 18) title = title.substring(0, 17) + "~";
-    canvas.setTextColor(sshConnected ? CP_GREEN : CP_RED);
+    canvas.setTextColor(connectedSnapshot ? CP_GREEN : CP_RED);
     canvas.setCursor(12, 28);
-    canvas.print(sshConnected ? "CONNECTED" : "OFFLINE");
+    canvas.print(connectedSnapshot ? "CONNECTED" : "OFFLINE");
     canvas.setTextColor(CP_DIM);
     canvas.setCursor(82, 28);
     canvas.print(title);
@@ -613,6 +634,11 @@ void drawSshScreen() {
         drawSshTerminal();
         return;
     }
+    String statusSnapshot = "";
+    bool connectedSnapshot = false;
+    bool shellReadySnapshot = false;
+    TaskHandle_t taskSnapshot = NULL;
+    snapshotSshState(statusSnapshot, connectedSnapshot, shellReadySnapshot, taskSnapshot);
 
     canvas.startWrite();
     canvas.fillScreen(CP_BG);
@@ -630,9 +656,9 @@ void drawSshScreen() {
     canvas.setCursor(12, 27);
     canvas.print(wifiOnline ? "LINK: ONLINE" : "LINK: OFFLINE");
 
-    String statusText = sshStatus == "" ? String("READY") : sshStatus;
+    String statusText = statusSnapshot == "" ? String("READY") : statusSnapshot;
     if (statusText.length() > 13) statusText = statusText.substring(0, 12) + "~";
-    canvas.setTextColor(sshConnected ? CP_GREEN : CP_DIM);
+    canvas.setTextColor(connectedSnapshot ? CP_GREEN : CP_DIM);
     canvas.setCursor(120, 27);
     canvas.print("SSH:" + statusText);
 
@@ -675,9 +701,28 @@ bool trySshKeyFile(ssh_session session, const String &authSecret, const char* pa
     return rc == SSH_AUTH_SUCCESS;
 }
 
+bool verifySshKnownHost(ssh_session session) {
+    enum ssh_known_hosts_e state = ssh_session_is_known_server(session);
+    if (state == SSH_KNOWN_HOSTS_OK) return true;
+    if (state == SSH_KNOWN_HOSTS_NOT_FOUND || state == SSH_KNOWN_HOSTS_UNKNOWN) {
+        if (ssh_session_update_known_hosts(session) == SSH_OK) {
+            queueSshOutput("[HOSTKEY] trusted\n");
+            return true;
+        }
+        queueSshOutput("[HOSTKEY] store failed\n");
+        return false;
+    }
+    if (state == SSH_KNOWN_HOSTS_CHANGED || state == SSH_KNOWN_HOSTS_OTHER) {
+        queueSshOutput("[HOSTKEY] changed\n");
+        return false;
+    }
+    queueSshOutput("[HOSTKEY] check failed\n");
+    return false;
+}
+
 bool authenticateSshSession(ssh_session session, const String &authSecret) {
     if (authSecret != "") {
-        queueSshOutput(String("[AUTH] password try len=") + authSecret.length() + "\n");
+        queueSshOutput("[AUTH] password try\n");
         int rc = ssh_userauth_password(session, NULL, authSecret.c_str());
         if (rc == SSH_AUTH_SUCCESS) {
             queueSshOutput("[AUTH] password\n");
@@ -688,7 +733,7 @@ bool authenticateSshSession(ssh_session session, const String &authSecret) {
         rc = ssh_userauth_kbdint(session, NULL, NULL);
         while (rc == SSH_AUTH_INFO && !isSshStopRequested()) {
             int prompts = ssh_userauth_kbdint_getnprompts(session);
-            queueSshOutput(String("[AUTH] keyboard prompts=") + prompts + "\n");
+            queueSshOutput("[AUTH] keyboard try\n");
             for (int i = 0; i < prompts; i++) {
                 ssh_userauth_kbdint_setanswer(session, i, authSecret.c_str());
             }
@@ -740,6 +785,51 @@ bool authenticateSshSession(ssh_session session, const String &authSecret) {
     return false;
 }
 
+bool drainSshStream(ssh_session session, ssh_channel channel, char *buffer, bool &pollingEnabled,
+                    int isStderr, String &finalStatus, bool &finalFailed) {
+    if (!pollingEnabled) return true;
+    int available = ssh_channel_poll(channel, isStderr);
+    if (available == SSH_ERROR) {
+        const char* sshError = ssh_get_error(session);
+        bool channelEnded = ssh_channel_is_eof(channel) || ssh_channel_is_closed(channel);
+        if (!channelEnded && (sshError == NULL || sshError[0] == '\0')) {
+            pollingEnabled = false;
+            return true;
+        }
+        finalStatus = "POLL FAIL";
+        finalFailed = true;
+        queueSshOutput(String("[ERR] poll failed: ") + (sshError ? sshError : "") + "\n");
+        return false;
+    }
+    if (available <= 0) return true;
+
+    int readSize = available < (int)(SSH_IO_BUFFER_SIZE - 1) ? available : (int)(SSH_IO_BUFFER_SIZE - 1);
+    int n = ssh_channel_read(channel, buffer, readSize, isStderr);
+    if (n > 0) {
+        String chunk = "";
+        chunk.reserve(n);
+        for (int i = 0; i < n; i++) {
+            char c = buffer[i];
+            if (c == '\r') continue;
+            if (c == '\n' || (c >= 32 && c <= 126)) chunk += c;
+        }
+        if (chunk != "") queueSshOutput(chunk);
+        return true;
+    }
+    if (n == SSH_AGAIN) return true;
+    if (n == 0) {
+        if (ssh_channel_is_eof(channel) || ssh_channel_is_closed(channel)) {
+            finalStatus = "SSH CLOSED";
+            return false;
+        }
+        return true;
+    }
+    finalStatus = "READ FAIL";
+    finalFailed = true;
+    queueSshOutput("[ERR] SSH read failed\n");
+    return false;
+}
+
 void sshWorkerTask(void *pvParameters) {
     char *buffer = (char *)malloc(SSH_IO_BUFFER_SIZE);
     ssh_session session = NULL;
@@ -752,7 +842,7 @@ void sshWorkerTask(void *pvParameters) {
     String user = "";
     String authSecret = "";
     int port = 22;
-    int strictHostKeyChecking = 0;
+    long timeoutSec = 8;
     const char* knownHostsPath = "/spiffs/ssh_known_hosts";
     const char* globalKnownHostsPath = "/spiffs/ssh_global_known_hosts";
 
@@ -760,6 +850,7 @@ void sshWorkerTask(void *pvParameters) {
         host = sshWorkerHost;
         user = sshWorkerUser;
         authSecret = sshWorkerPass;
+        sshWorkerPass = "";
         port = sshWorkerPort;
         unlockSshState();
     } else {
@@ -778,7 +869,7 @@ void sshWorkerTask(void *pvParameters) {
 
     setSshStatus("CONNECTING", false, false);
     queueSshOutput("[BRUCE] SSH worker task started\n");
-    Serial.printf("[SSHDBG] task start host=%s port=%d user=%s freeHeap=%u\n", host.c_str(), port, user.c_str(), (unsigned)ESP.getFreeHeap());
+    Serial.printf("[SSHDBG] task start freeHeap=%u\n", (unsigned)ESP.getFreeHeap());
 
     session = ssh_new();
     if (session == NULL) {
@@ -793,7 +884,7 @@ void sshWorkerTask(void *pvParameters) {
     ssh_options_set(session, SSH_OPTIONS_USER, user.c_str());
     ssh_options_set(session, SSH_OPTIONS_KNOWNHOSTS, knownHostsPath);
     ssh_options_set(session, SSH_OPTIONS_GLOBAL_KNOWNHOSTS, globalKnownHostsPath);
-    ssh_options_set(session, SSH_OPTIONS_STRICTHOSTKEYCHECK, &strictHostKeyChecking);
+    ssh_options_set(session, SSH_OPTIONS_TIMEOUT, &timeoutSec);
 
     if (WiFi.status() != WL_CONNECTED) {
         finalStatus = "WIFI OFFLINE";
@@ -813,6 +904,12 @@ void sshWorkerTask(void *pvParameters) {
 
     queueSshOutput("[SSH] connect ok\n");
     Serial.printf("[SSHDBG] connect ok\n");
+    if (!verifySshKnownHost(session)) {
+        finalStatus = "HOSTKEY FAIL";
+        finalFailed = true;
+        goto SSH_EXIT;
+    }
+
     setSshStatus("AUTH", false, false);
     if (!authenticateSshSession(session, authSecret)) {
         finalStatus = authSecret == "" ? String("AUTH NEEDED") : String("AUTH FAIL");
@@ -822,6 +919,7 @@ void sshWorkerTask(void *pvParameters) {
     }
 
     queueSshOutput("[SSH] auth ok\n");
+    authSecret = "";
     Serial.printf("[SSHDBG] auth ok\n");
     setSshStatus("CHANNEL", false, false);
     channel = ssh_channel_new(session);
@@ -885,59 +983,12 @@ void sshWorkerTask(void *pvParameters) {
             continue;
         }
 
-        auto drainSshStream = [&](int isStderr) -> bool {
-            if (isStderr == 0 && !stdoutPollingEnabled) return true;
-            if (isStderr != 0 && !stderrPollingEnabled) return true;
-
-            int available = ssh_channel_poll(channel, isStderr);
-            if (available == SSH_ERROR) {
-                const char* sshError = ssh_get_error(session);
-                bool channelEnded = ssh_channel_is_eof(channel) || ssh_channel_is_closed(channel);
-                if (!channelEnded && (sshError == NULL || sshError[0] == '\0')) {
-                    if (isStderr == 0) stdoutPollingEnabled = false;
-                    else stderrPollingEnabled = false;
-                    return true;
-                }
-                finalStatus = "POLL FAIL";
-                finalFailed = true;
-                queueSshOutput(String("[ERR] poll failed: ") + (sshError ? sshError : "") + "\n");
-                return false;
-            }
-            if (available <= 0) return true;
-
-            int readSize = available < (int)(SSH_IO_BUFFER_SIZE - 1) ? available : (int)(SSH_IO_BUFFER_SIZE - 1);
-            int n = ssh_channel_read(channel, buffer, readSize, isStderr);
-            if (n > 0) {
-                String chunk = "";
-                chunk.reserve(n);
-                for (int i = 0; i < n; i++) {
-                    char c = buffer[i];
-                    if (c == '\r') continue;
-                    if (c == '\n' || (c >= 32 && c <= 126)) chunk += c;
-                }
-                if (chunk != "") queueSshOutput(chunk);
-                return true;
-            }
-            if (n == SSH_AGAIN) return true;
-            if (n == 0) {
-                if (ssh_channel_is_eof(channel) || ssh_channel_is_closed(channel)) {
-                    finalStatus = "SSH CLOSED";
-                    return false;
-                }
-                return true;
-            }
-            finalStatus = "READ FAIL";
-            finalFailed = true;
-            queueSshOutput("[ERR] SSH read failed\n");
-            return false;
-        };
-
-        if (!drainSshStream(0)) goto SSH_EXIT;
+        if (!drainSshStream(session, channel, buffer, stdoutPollingEnabled, 0, finalStatus, finalFailed)) goto SSH_EXIT;
         if (isSshOutputBackedUp()) {
             vTaskDelay(pdMS_TO_TICKS(20));
             continue;
         }
-        if (!drainSshStream(1)) goto SSH_EXIT;
+        if (!drainSshStream(session, channel, buffer, stderrPollingEnabled, 1, finalStatus, finalFailed)) goto SSH_EXIT;
         vTaskDelay(pdMS_TO_TICKS(10));
     }
 
@@ -961,7 +1012,8 @@ SSH_EXIT:
     authSecret = "";
 
     if (lockSshState()) {
-        sshTaskHandle = NULL;
+        sshTaskExited = true;
+        if (sshTaskHandle == xTaskGetCurrentTaskHandle()) sshTaskHandle = NULL;
         sshStopRequested = false;
         sshWorkerPass = "";
         sshConnected = false;
@@ -1015,11 +1067,11 @@ bool connectSshProfile() {
     prefs.putString("ssh_host", sshHost);
     prefs.putString("ssh_user", sshUser);
     prefs.putString("ssh_port", sshPort);
-    prefs.putString("ssh_pass", sshPass);
+    prefs.remove("ssh_pass");
 
     closeSshSession();
-    if (sshTaskHandle != NULL) {
-        sshStatus = "SSH BUSY";
+    if (getSshTaskHandle() != NULL) {
+        setSshStatus("SSH BUSY", false, false);
         drawMessage("SSH BUSY", "CLOSING OLD SESSION");
         delay(1200);
         return false;
@@ -1034,21 +1086,21 @@ bool connectSshProfile() {
     sshQueuedOutput = "";
 
     if (WiFi.status() != WL_CONNECTED) {
-        sshStatus = "WIFI OFFLINE";
+        setSshStatus("WIFI OFFLINE", false, false);
         playSound(sound_fail, sound_fail_size);
         drawProgressBar(100, "SSH WIFI OFFLINE", CP_RED);
         delay(1200);
         return false;
     }
     if (sshHost == "") {
-        sshStatus = "HOST REQUIRED";
+        setSshStatus("HOST REQUIRED", false, false);
         playSound(sound_fail, sound_fail_size);
         drawMessage("SSH HOST", "REQUIRED");
         delay(1200);
         return false;
     }
     if (sshUser == "") {
-        sshStatus = "USER REQUIRED";
+        setSshStatus("USER REQUIRED", false, false);
         playSound(sound_fail, sound_fail_size);
         drawMessage("USE user@host", "FOR SSH TARGET");
         delay(1400);
@@ -1057,7 +1109,7 @@ bool connectSshProfile() {
 
     long portValue = sshPort.toInt();
     if (portValue < 1 || portValue > 65535) {
-        sshStatus = "BAD PORT";
+        setSshStatus("BAD PORT", false, false);
         playSound(sound_fail, sound_fail_size);
         drawMessage("SSH PORT", "INVALID");
         delay(1200);
@@ -1069,7 +1121,7 @@ bool connectSshProfile() {
     if (WiFi.hostByName(sshHost.c_str(), resolvedIp)) {
         sshHost = resolvedIp.toString();
     } else {
-        sshStatus = "DNS FAIL";
+        setSshStatus("DNS FAIL", false, false);
         playSound(sound_fail, sound_fail_size);
         drawMessage("SSH DNS FAIL", sshHost);
         delay(1400);
@@ -1086,7 +1138,7 @@ bool connectSshProfile() {
     appendSshTerminal("[BRUCE] starting 32KB SSH task\n");
 
     if (!initSshMutex()) {
-        sshStatus = "MUTEX FAIL";
+        setSshStatus("MUTEX FAIL", false, false);
         playSound(sound_fail, sound_fail_size);
         drawMessage("SSH MUTEX", "FAILED");
         delay(1200);
@@ -1099,6 +1151,7 @@ bool connectSshProfile() {
         sshWorkerPass = sshPass;
         sshWorkerPort = (int)portValue;
         sshStopRequested = false;
+        sshTaskExited = false;
         sshConnected = false;
         sshShellReady = false;
         sshStatus = "CONNECTING";
@@ -1115,16 +1168,23 @@ bool connectSshProfile() {
         &workerHandle
     );
     if (created != pdPASS || workerHandle == NULL) {
-        sshStatus = "TASK FAIL";
+        sshPass = "";
+        if (lockSshState()) {
+            sshWorkerPass = "";
+            sshTaskExited = true;
+            unlockSshState();
+        }
+        setSshStatus("TASK FAIL", false, false);
         playSound(sound_fail, sound_fail_size);
         drawProgressBar(100, "SSH TASK FAIL", CP_RED);
         delay(1400);
         return false;
     }
     if (lockSshState()) {
-        sshTaskHandle = workerHandle;
+        if (!sshTaskExited) sshTaskHandle = workerHandle;
         unlockSshState();
     }
+    sshPass = "";
     drawProgressBar(100, "SSH TASK STARTED", CP_CYAN);
     delay(500);
     return true;
@@ -1141,7 +1201,7 @@ void handleSshInput(Keyboard_Class::KeysState status) {
         if (exitTerminal) {
             playSound(sound_select, sound_select_size);
             closeSshSession();
-            sshStatus = "CLOSED";
+            setSshStatus("CLOSED", false, false);
             sshTerminalMode = false;
             return;
         }
@@ -1160,13 +1220,17 @@ void handleSshInput(Keyboard_Class::KeysState status) {
 
         if (status.enter) {
             String line = sshInputLine;
+            String statusSnapshot = "";
+            bool connectedSnapshot = false;
+            bool shellReadySnapshot = false;
+            TaskHandle_t taskSnapshot = NULL;
+            snapshotSshState(statusSnapshot, connectedSnapshot, shellReadySnapshot, taskSnapshot);
             appendSshTerminal(String("> ") + line + "\n");
-            if (sshConnected && sshTaskHandle != NULL) {
+            if (connectedSnapshot && taskSnapshot != NULL) {
                 queueSshCommand(line + "\r");
             } else {
                 appendSshTerminal("[NOT CONNECTED]\n");
-                sshConnected = false;
-                sshStatus = "DISCONNECTED";
+                setSshStatus("DISCONNECTED", false, false);
             }
             sshInputLine = "";
         }
@@ -1205,7 +1269,7 @@ void handleSshInput(Keyboard_Class::KeysState status) {
             if (sshPort == "") sshPort = "22";
             prefs.putString("ssh_target", sshTarget);
             prefs.putString("ssh_port", sshPort);
-            prefs.putString("ssh_pass", sshPass);
+            prefs.remove("ssh_pass");
             connectSshProfile();
             drawSshScreen();
             return;

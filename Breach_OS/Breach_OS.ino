@@ -93,20 +93,17 @@ enum SortOrder {
 };
 SortField currentSortField = SORT_FIELD_NAME;
 SortOrder currentSortOrder = SORT_ORDER_ASC;
-
+WiFiClient otaDataClient;
 WiFiClientSecure secureClient;
 WiFiClient sshClient;
-ssh_session sshSession = NULL;
-ssh_channel sshChannel = NULL;
 SemaphoreHandle_t sshMutex = NULL;
 TaskHandle_t sshTaskHandle = NULL;
+static constexpr uint32_t BREACH_SSH_TASK_STACK_SIZE = 1024 * 32;
+static constexpr size_t SSH_IO_BUFFER_SIZE = 256;
+static constexpr size_t SSH_MAX_QUEUE_BYTES = 3072;
 bool secureClientInit = false;
 bool otaInit = false;
 bool sshLibReady = false;
-
-static constexpr uint32_t BREACH_SSH_TASK_STACK_SIZE = 1024 * 32;
-static constexpr size_t SSH_IO_BUFFER_SIZE = 256;
-static constexpr size_t SSH_MAX_QUEUE_BYTES = 1024;
 
 #define API_URL "https://m5cardputer-cyberpunk-breach-protoc.vercel.app/api"
 
@@ -257,6 +254,7 @@ String sshWorkerUser = "";
 String sshWorkerPass = "";
 int sshWorkerPort = 22;
 bool sshStopRequested = false;
+bool sshTaskExited = false;
 
 int currentPhase = 1;
 int accumulatedScore = 0;
@@ -297,6 +295,11 @@ void pollSshTerminal();
 void closeSshSession();
 bool trySshKeyFile(ssh_session session, const String &authSecret, const char* path);
 bool authenticateSshSession(ssh_session session, const String &authSecret);
+TaskHandle_t getSshTaskHandle();
+void snapshotSshState(String &status, bool &connected, bool &shellReady, TaskHandle_t &taskHandle);
+bool verifySshKnownHost(ssh_session session);
+bool drainSshStream(ssh_session session, ssh_channel channel, char *buffer, bool &pollingEnabled,
+                    int isStderr, String &finalStatus, bool &finalFailed);
 void sshWorkerTask(void *pvParameters);
 void drawGridSelect();
 void drawPhaseTransition();
