@@ -81,7 +81,9 @@ void drawGridSelect() {
             canvas.print(descs[i]);
         }
     }
-    
+
+    drawWheelPositionIndicator(gridMenuFocus, 4);
+
     pushCanvas();
 }
 

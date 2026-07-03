@@ -1,0 +1,356 @@
+M5CARDPUTER CYBERPUNK BREACH PROTOCOL
+MENU SYSTEM BRANCH MAP
+
+Generated from the current split Arduino sketch folder:
+D:\Cardputer\m5cardputer-cyberpunk-breach-protocol-master\m5cardputer-cyberpunk-breach-protocol
+
+Naming rule for future UI/code discussions
+----------------------------------------
+Use the visible top/header text first, then include code identifiers in parentheses.
+This avoids confusion between what the user sees and what the firmware calls it.
+
+Important clarification:
+- BREACH PROTOCOL screen = the former "splash screen".
+  Code: STATE_SPLASH / drawSplash() / handleSplashInput()
+  File: m5cardputer-cyberpunk-breach-protocol/03_splash_network_menus.ino
+
+- SELECT BOOT NODE = the boot-node selection menu shown inside the BREACH PROTOCOL screen.
+  Code: showSplashBootMenu + splashBootFocus inside STATE_SPLASH.
+  This is the visible boot menu with HARDWARE NODE, NETWORK NODE, OFFLINE PLAY,
+  OTA CATALOG, and SYSTEM SETTINGS.
+
+- Do not call SELECT BOOT NODE the "main menu" unless you explicitly mean the
+  user-facing boot selector. In code, STATE_MAIN_MENU is a different screen.
+
+- NETWORK NODE menu = the code-level STATE_MAIN_MENU screen after login/offline entry.
+  Code: STATE_MAIN_MENU / drawMainMenu() / handleMainMenuInput()
+  Visible header: NETWORK NODE
+
+Input legend used by most screens
+---------------------------------
+ENTER       Select / confirm
+;           Up
+.           Down
+,           Left / back on some screens
+/           Right / description / next on some screens
+` / ESC     Back / cancel on most screens
+DEL         Delete text, or back on some screens
+- / +       Global volume down/up
+[ / ]       Global brightness down/up
+
+Whole menu branch
+-----------------
+
+BOOT
+└─ BREACH PROTOCOL screen
+   Code: STATE_SPLASH / drawSplash() / handleSplashInput()
+   File: 03_splash_network_menus.ino
+   Top text: Breach_Protocol
+   Status text: WIFI: CONNECTED or WIFI: CONNECTING
+   Version text: VERSION: v9.0split
+   Initial prompt: Press ENTER to Select Boot Target
+
+   └─ SELECT BOOT NODE
+      Code: showSplashBootMenu == true, selected by splashBootFocus
+      Visible header: --- SELECT BOOT NODE ---
+      Options:
+
+      ├─ HARDWARE NODE
+      │  Code: STATE_HARDWARE_MENU / drawHardwareMenu() / handleHardwareMenuInput()
+      │  File: 02_hardware_file_manager.ino
+      │  Visible header: HARDWARE NODE
+      │
+      │  ├─ FLASH MEMORY
+      │  │  Code path:
+      │  │  STATE_FILE_LOADING -> drawFileLoading()
+      │  │  then STATE_FILE_MANAGER -> drawFileManager()
+      │  │  File manager title prefix: FLASH:
+      │  │
+      │  │  └─ FLASH file manager
+      │  │     Code: STATE_FILE_MANAGER / drawFileManager() / handleFileManagerInput()
+      │  │     Branches:
+      │  │     ├─ Folder / ".." -> navigate down/up inside file manager
+      │  │     ├─ File -> ACTION MENU
+      │  │     │  Code: STATE_FILE_ACTIONS_MENU / drawFileActionsMenu()
+      │  │     │  Visible header: --- ACTION MENU ---
+      │  │     │  ├─ 1. OPEN
+      │  │     │  │  ├─ Folder -> navigate into folder
+      │  │     │  │  ├─ .mp3 -> NEURAL MUSIC LINK playback view inside file manager
+      │  │     │  │  ├─ .jpg/.jpeg -> image viewer with zoom
+      │  │     │  │  └─ other file -> file content panel
+      │  │     │  ├─ 2. RENAME -> RENAME FILE dialog
+      │  │     │  │  Code: STATE_FILE_RENAME_INPUT / drawFileRenameInput()
+      │  │     │  ├─ 3. DELETE -> returns to file manager
+      │  │     │  ├─ 4. COPY -> stores clipboard source, returns to file manager
+      │  │     │  └─ 5. PASTE -> copies into current directory, returns to file manager
+      │  │     └─ ESC/comma at root -> HARDWARE NODE
+      │  │
+      │  ├─ SD CARD
+      │  │  Code path:
+      │  │  STATE_FILE_LOADING -> drawFileLoading()
+      │  │  then STATE_FILE_MANAGER -> drawFileManager()
+      │  │  File manager title prefix: SD:
+      │  │  Branches are the same as FLASH file manager.
+      │  │
+      │  ├─ MUSIC PLAYER
+      │  │  Code: STATE_MUSIC_PLAYER / drawMusicPlayer() / handleMusicPlayerInput()
+      │  │  File: 09_music_player.ino
+      │  │  Visible header: --- NEON WAVE MP3 PLAYER ---
+      │  │  Branches:
+      │  │  ├─ Track list -> ENTER toggles play/stop selected track
+      │  │  ├─ Left/right -> previous/next track
+      │  │  └─ ESC/DEL -> HARDWARE NODE
+      │  │
+      │  └─ BACK
+      │     -> BREACH PROTOCOL screen
+      │
+      ├─ NETWORK NODE
+      │  Entry logic from SELECT BOOT NODE:
+      │  ├─ If WiFi is connected -> AUTH menu
+      │  └─ If WiFi is not connected -> Wi-Fi scan
+      │
+      │  ├─ ACCOUNT NAME / PASSWORD auth menu
+      │  │  Code: STATE_AUTH_MENU / drawAuthMenu() / handleAuthInput()
+      │  │  File: 03_splash_network_menus.ino
+      │  │  Visible fields/options:
+      │  │  ├─ ACCOUNT NAME
+      │  │  ├─ PASSWORD
+      │  │  ├─ REMEMBER ME toggle
+      │  │  ├─ LOGIN
+      │  │  │  ├─ success -> NETWORK NODE menu
+      │  │  │  └─ failure -> ACCESS DENIED, then auth menu
+      │  │  └─ GUEST -> NETWORK NODE menu as guest
+      │  │
+      │  └─ WIFI TRANSCEIVER MODULE SCAN
+      │     Code: STATE_WIFI_SCAN / drawWifiScan() / handleWifiScanInput()
+      │     Visible header: --- WIFI TRANSCEIVER MODULE SCAN ---
+      │
+      │     ├─ [PLAY OFFLINE]
+      │     │  -> NETWORK NODE menu as guest
+      │     │  Code path: WiFi.disconnect(true), WiFi.mode(WIFI_OFF), isGuest = true
+      │     │
+      │     └─ Wi-Fi SSID row
+      │        -> WIFI PASSWORD screen
+      │        Code: STATE_WIFI_PASS / drawWifiPass() / handleWifiPassInput()
+      │        Visible prompt: NETWORK: <SSID> / ENTER PASSWORD:
+      │        Branches:
+      │        ├─ success -> AUTH menu
+      │        ├─ failure -> WIFI TRANSCEIVER MODULE SCAN
+      │        └─ DEL/type characters -> edit password text
+      │
+      ├─ OFFLINE PLAY
+      │  Code path:
+      │  WiFi.disconnect(true), WiFi.mode(WIFI_OFF), isGuest = true, authUser = GUEST
+      │  -> NETWORK NODE menu as guest
+      │
+      ├─ OTA CATALOG
+      │  Code: STATE_OTA_CATALOG / drawOtaCatalog() / handleOtaCatalogInput()
+      │  File: 08_ota.ino
+      │  Visible header: --- OTA FIRMWARE CATALOG ---
+      │  Branches:
+      │  ├─ WiFi not connected
+      │  │  ├─ ENTER -> Wi-Fi scan flow
+      │  │  └─ ESC -> BREACH PROTOCOL screen with SELECT BOOT NODE focused on OTA CATALOG
+      │  ├─ Firmware list
+      │  │  └─ ENTER -> firmware details screen
+      │  │     Code: otaDetailMode == true / drawOtaFirmwareDetails()
+      │  │     Visible header: selected firmware name
+      │  │     Visible section: SELECT VERSION
+      │  │     ├─ Up/down -> version selection
+      │  │     ├─ ENTER -> performOtaUpdate(downloadUrl)
+      │  │     │  ├─ FLASH COMPLETE! -> REBOOTING SYSTEM
+      │  │     │  └─ errors -> error screen, then return path depends on failure point
+      │  │     └─ ESC -> OTA FIRMWARE CATALOG
+      │  └─ ESC from catalog -> BREACH PROTOCOL screen with SELECT BOOT NODE focused on OTA CATALOG
+      │
+      └─ SYSTEM SETTINGS
+         Code: STATE_HARDWARE_SETTINGS / drawHardwareSettings() / handleHardwareSettingsInput()
+         File: 02_hardware_file_manager.ino
+         Visible header: --- SYSTEM CONFIG NODE ---
+         Tabs/branches:
+         ├─ HARDWARE tab
+         │  ├─ SORT BY: NAME / TYPE
+         │  ├─ ORDER: ASCENDING / DESCENDING
+         │  └─ SYS FILES: SHOW / HIDE
+         ├─ NETWORK tab
+         │  ├─ WIFI SSID display
+         │  └─ WIFI PASS display
+         ├─ OFFLINE tab
+         │  ├─ PLAY LOOP: RANDOM / BY NAME
+         │  └─ MUSIC DIR [SET]
+         │     -> SD-card directory picker
+         │        Code path: STATE_FILE_LOADING -> STATE_FILE_MANAGER with isDirSelectionMode
+         │        └─ SET MUSIC DIRECTORY popup
+         │           Code: STATE_DIR_CONFIRM_POPUP / drawDirConfirmPopup()
+         │           File: 09_music_player.ino
+         │           ├─ ENTER: YES -> save musicDir, return to SYSTEM CONFIG NODE
+         │           └─ ESC/DEL: NO -> enter selected folder in directory picker
+         ├─ OTA tab
+         │  └─ SORT BY: DOWNLOADS / TIME / NAME
+         ├─ APPEAR tab
+         │  ├─ GLITCH TEXT: OFF / ON / INSANE
+         │  ├─ BRIGHTNESS
+         │  └─ VOLUME
+         └─ ESC or normal exit -> BREACH PROTOCOL screen with SELECT BOOT NODE focused on SYSTEM SETTINGS
+
+
+NETWORK NODE menu branch
+------------------------
+This is the code STATE_MAIN_MENU screen. It is not the SELECT BOOT NODE menu.
+
+NETWORK NODE menu
+Code: STATE_MAIN_MENU / drawMainMenu() / handleMainMenuInput()
+File: 03_splash_network_menus.ino
+Visible header: NETWORK NODE
+
+Authenticated options:
+├─ HACK
+├─ LEADERBOARD
+├─ ACCOUNT
+├─ SSH
+├─ CREDITS
+└─ BACK
+
+Guest options:
+├─ HACK
+├─ SSH
+├─ CREDITS
+└─ BACK
+
+Branches:
+
+├─ HACK
+│  -> GRID SELECT
+│  Code: STATE_GRID_SELECT / drawGridSelect() / handleGridSelectInput()
+│  File: 04_gameplay.ino
+│  Options:
+│  ├─ 3x3 -> BREACH gameplay
+│  ├─ 4x4 -> BREACH gameplay
+│  ├─ 5x5 -> BREACH gameplay
+│  └─ BACK -> NETWORK NODE menu
+│
+│  BREACH gameplay
+│  Code: STATE_PLAYING / drawScreen()
+│  Runtime handling: 07_loop.ino
+│  Visible sections: PHASE, TIMER, SEQUENCE REQUIRED, BUFFER
+│  Branches:
+│  ├─ ESC/backtick -> GRID SELECT
+│  ├─ Correct sequence -> PHASE COMPLETE
+│  │  Code: STATE_PHASE_TRANSITION / drawPhaseTransition() / handlePhaseTransitionInput()
+│  │  ├─ CONTINUE -> next phase -> BREACH gameplay
+│  │  ├─ SAVE & EXIT -> save score -> NETWORK NODE menu
+│  │  └─ At phase 8: SAVE SCORE -> NETWORK NODE menu
+│  └─ Wrong sequence or timer expires -> SYSTEM LOCKED
+│     Code: STATE_FAILED_SCREEN / drawGameOverFailed()
+│     └─ ENTER -> NETWORK NODE menu
+│
+├─ LEADERBOARD
+│  Code: STATE_LEADERBOARD / drawLeaderboard()
+│  File: 04_gameplay.ino + input handling in 07_loop.ino
+│  Visible header: GLOBAL SCORES
+│  Branches:
+│  ├─ Up/down -> scroll/fetch more scores
+│  └─ ENTER/DEL -> NETWORK NODE menu
+│
+├─ ACCOUNT
+│  Code: STATE_ACCOUNT / drawAccountMenu() / handleAccountInput()
+│  File: 06_account.ino
+│  Visible header: OPERATIVE PROFILE
+│  Branches:
+│  ├─ NAME field
+│  ├─ PASS field
+│  ├─ GLITCH TEXT: OFF / ON / INSANE
+│  ├─ UPDATE -> update account, then NETWORK NODE menu
+│  └─ BACK -> NETWORK NODE menu
+│
+├─ SSH
+│  Code: STATE_SSH / drawSshScreen() / handleSshInput()
+│  File: 01_core_ui.ino + input handling in 07_loop.ino
+│  Visible header: --- SSH QUICK CONNECT ---
+│  Branches:
+│  ├─ TARGET field -> type user@host or ssh user@host, DEL edits
+│  ├─ PASS field -> optional password/passphrase; blank tries SD/SPIFFS key auth
+│  ├─ CONNECT -> parse target, resolve host, start Bruce-style SSH task, open PTY shell channel
+│  ├─ SSH TERMINAL -> type line, ENTER queues to SSH task, DEL edits, ESC closes session
+│  └─ ESC/comma -> NETWORK NODE menu
+│
+├─ CREDITS
+│  Code: STATE_CREDITS / drawCreditsScreen() / handleCreditsInput()
+│  File: 01_core_ui.ino
+│  Visible header: --- CYBERDECK CREDITS SCHEMA ---
+│  └─ ENTER/ESC/comma -> NETWORK NODE menu
+│
+└─ BACK
+   Code path: STATE_SPLASH with SELECT BOOT NODE focused on NETWORK NODE.
+   Effect: returns to BREACH PROTOCOL screen.
+
+
+Defined but not currently reachable from visible NETWORK NODE labels
+-------------------------------------------------------------------
+CONTROLS screen
+Code: STATE_CONTROLS / drawControlsScreen() / handleControlsInput()
+File: 01_core_ui.ino
+Visible header: --- CYBERDECK INPUT SCHEMATICS ---
+Exit: ENTER/ESC/comma -> NETWORK NODE menu
+Note: drawMainMenu() has old description text for CONTROLS, but the current labels list does not expose a CONTROLS option.
+
+
+Code reference map
+------------------
+BREACH PROTOCOL screen / SELECT BOOT NODE:
+  STATE_SPLASH
+  drawSplash()
+  handleSplashInput()
+  03_splash_network_menus.ino
+
+NETWORK NODE menu:
+  STATE_MAIN_MENU
+  drawMainMenu()
+  handleMainMenuInput()
+  03_splash_network_menus.ino
+
+Auth/Wi-Fi flow:
+  STATE_AUTH_MENU / drawAuthMenu() / handleAuthInput()
+  STATE_WIFI_SCAN / drawWifiScan() / handleWifiScanInput()
+  STATE_WIFI_PASS / drawWifiPass() / handleWifiPassInput()
+  03_splash_network_menus.ino
+
+Gameplay flow:
+  STATE_GRID_SELECT / drawGridSelect() / handleGridSelectInput()
+  STATE_PLAYING / drawScreen()
+  STATE_PHASE_TRANSITION / drawPhaseTransition() / handlePhaseTransitionInput()
+  STATE_FAILED_SCREEN / drawGameOverFailed()
+  04_gameplay.ino and 07_loop.ino
+
+Hardware/files/settings flow:
+  STATE_HARDWARE_MENU / drawHardwareMenu() / handleHardwareMenuInput()
+  STATE_FILE_LOADING / drawFileLoading()
+  STATE_FILE_MANAGER / drawFileManager() / handleFileManagerInput()
+  STATE_HARDWARE_SETTINGS / drawHardwareSettings() / handleHardwareSettingsInput()
+  STATE_FILE_ACTIONS_MENU / drawFileActionsMenu() / handleFileActionsMenuInput()
+  STATE_FILE_RENAME_INPUT / drawFileRenameInput() / handleFileRenameInput()
+  02_hardware_file_manager.ino
+
+OTA flow:
+  STATE_OTA_CATALOG / drawOtaCatalog() / handleOtaCatalogInput()
+  drawOtaFirmwareDetails()
+  performOtaUpdate()
+  08_ota.ino
+
+Music flow:
+  STATE_MUSIC_PLAYER / drawMusicPlayer() / handleMusicPlayerInput()
+  STATE_DIR_CONFIRM_POPUP / drawDirConfirmPopup() / handleDirConfirmPopupInput()
+  09_music_player.ino
+
+Account flow:
+  STATE_ACCOUNT / drawAccountMenu() / handleAccountInput()
+  06_account.ino
+
+SSH flow:
+  STATE_SSH / drawSshScreen() / handleSshInput()
+  01_core_ui.ino and 07_loop.ino
+
+Core utility screens:
+  STATE_CONTROLS / drawControlsScreen() / handleControlsInput()
+  STATE_CREDITS / drawCreditsScreen() / handleCreditsInput()
+  01_core_ui.ino

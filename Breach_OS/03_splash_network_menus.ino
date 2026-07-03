@@ -10,6 +10,82 @@ void drawChippedButton(int x, int y, int w, int h, uint16_t color) {
     canvas.drawLine(x + w, y + h - chip, x + w - chip, y + h, color);
 }
 
+void resetSplashBootScroll() {
+    currentSplashBootScroll = splashBootFocus;
+    targetSplashBootScroll = splashBootFocus;
+}
+
+void drawWheelPositionArcBar(int cx, int cy, int radius, float startAngle, float endAngle, uint16_t color) {
+    int lastX = cx + cos(startAngle) * radius;
+    int lastY = cy + sin(startAngle) * radius;
+
+    for (int i = 1; i <= 18; i++) {
+        float t = (float)i / 18.0;
+        float angle = startAngle + (endAngle - startAngle) * t;
+        int x = cx + cos(angle) * radius;
+        int y = cy + sin(angle) * radius;
+        canvas.drawLine(lastX, lastY, x, y, color);
+        lastX = x;
+        lastY = y;
+    }
+}
+
+void drawWheelPositionArcEndCap(int cx, int cy, int innerR, int outerR, float angle, bool forward, uint16_t color) {
+    float midR = (innerR + outerR) / 2.0;
+    float capR = (outerR - innerR) / 2.0;
+    float ux = cos(angle);
+    float uy = sin(angle);
+    float tx = -sin(angle);
+    float ty = cos(angle);
+    if (!forward) {
+        tx = -tx;
+        ty = -ty;
+    }
+
+    int lastX = cx + ux * outerR;
+    int lastY = cy + uy * outerR;
+    for (int i = 1; i <= 8; i++) {
+        float t = PI * (float)i / 8.0;
+        float radial = cos(t) * capR;
+        float tangent = sin(t) * capR;
+        int x = cx + ux * midR + ux * radial + tx * tangent;
+        int y = cy + uy * midR + uy * radial + ty * tangent;
+        canvas.drawLine(lastX, lastY, x, y, color);
+        lastX = x;
+        lastY = y;
+    }
+}
+
+void drawWheelPositionIndicator(int focus, int totalItems) {
+    const int cx = -80;
+    const int cy = 67;
+    const int outerR = 95;
+    const int innerR = 89;
+    const float startAngle = -0.40;
+    const float endAngle = 0.40;
+
+    drawWheelPositionArcBar(cx, cy, outerR, startAngle, endAngle, CP_DIM);
+    drawWheelPositionArcBar(cx, cy, innerR, startAngle, endAngle, CP_DIM);
+    drawWheelPositionArcEndCap(cx, cy, innerR, outerR, startAngle, false, CP_DIM);
+    drawWheelPositionArcEndCap(cx, cy, innerR, outerR, endAngle, true, CP_DIM);
+
+    if (totalItems <= 1) return;
+
+    float pos = focus;
+    float ratio = pos / (float)(totalItems - 1);
+    if (ratio < 0.0) ratio = 0.0;
+    if (ratio > 1.0) ratio = 1.0;
+
+    float angle = startAngle + ratio * (endAngle - startAngle);
+    int dotR = (outerR + innerR) / 2;
+    int dotX = cx + (int)(cos(angle) * dotR);
+    int dotY = cy + (int)(sin(angle) * dotR);
+
+    canvas.fillCircle(dotX, dotY, 5, CP_BG);
+    canvas.drawCircle(dotX, dotY, 5, CP_CYAN);
+    canvas.fillCircle(dotX, dotY, 4, CP_CYAN);
+}
+
 void drawSplash() {
     canvas.startWrite();
     canvas.fillScreen(CP_BG);
@@ -41,31 +117,68 @@ void drawSplash() {
     
     canvas.setTextColor(CP_YELLOW);
     canvas.setCursor(116, 24);
-    canvas.print("FW: Breach_OS");
+    canvas.print("v1.0_OS");
     
     canvas.setTextSize(1);
     canvas.setTextColor(WHITE);
     
     if (showSplashBootMenu) {
-        canvas.fillRect(2, 33, 236, 94, canvas.color565(15, 15, 15));
-        canvas.drawRect(2, 33, 236, 94, CP_CYAN);
-        
-        canvas.setTextColor(CP_YELLOW);
-        canvas.drawCenterString("--- SELECT BOOT NODE ---", 120, 36);
-        
+        canvas.fillScreen(CP_BG);
+
+        drawGlitchText("SELECT BOOT NODE", 120, 4, 1, CP_CYAN, true, true);
+
+        canvas.drawCircle(-80, 67, 110, CP_DIM);
+        canvas.drawCircle(-80, 67, 109, CP_DIM);
+
+        int totalItems = 5;
         std::vector<String> options = {"HARDWARE NODE", "NETWORK NODE", "OFFLINE PLAY", "OTA CATALOG", "SYSTEM SETTINGS"};
-        for (int i = 0; i < 5; i++) {
+        for (int i = 0; i < totalItems; i++) {
+            float rawOffset = i - currentSplashBootScroll;
+            float offset = fmod(rawOffset, (float)totalItems);
+            float halfItems = (float)totalItems / 2.0;
+            if (offset > halfItems) offset -= (float)totalItems;
+            if (offset < -halfItems) offset += (float)totalItems;
+
+            if (abs(offset) > 1.5) continue;
+
+            float angle = offset * 0.391;
+            float tickY = 67 + sin(angle) * 110;
+            float tickX = -80 + cos(angle) * 110;
+
             bool isSelected = (i == splashBootFocus);
-            canvas.setTextColor(isSelected ? CP_CYAN : CP_DIM);
+            uint16_t tColor = isSelected ? CP_CYAN : CP_DIM;
+
+            float tickEndX = -80 + cos(angle) * (isSelected ? 117 : 115);
+            float tickEndY = 67 + sin(angle) * (isSelected ? 117 : 115);
+
+            canvas.drawLine(tickX, tickY, tickEndX, tickEndY, tColor);
+            canvas.drawLine(tickX, tickY - 1, tickEndX, tickEndY - 1, tColor);
             if (isSelected) {
-                canvas.drawCenterString("> [ " + options[i] + " ] <", 120, 48 + i * 13);
-            } else {
-                canvas.drawCenterString(options[i], 120, 48 + i * 13);
+                canvas.drawLine(tickX, tickY + 1, tickEndX, tickEndY + 1, tColor);
             }
+
+            float scale = 1.0 - abs(offset) * 0.3333;
+            if (scale < 0.1) scale = 0.1;
+            float h = 30.0 * scale;
+            float y = tickY - h / 2.0;
+            float w = 195.0 * scale;
+            float x = tickX + 10;
+
+            int textSize = isSelected ? 2 : 1;
+            uint16_t color = isSelected ? CP_YELLOW : CP_DIM;
+
+            drawChippedButton(x, y, w, h, color);
+
+            canvas.setTextColor(color);
+            canvas.setTextSize(textSize);
+
+            float textY = y + (isSelected ? 7 : 6);
+            float textX = x + 15;
+            canvas.setCursor(textX, textY);
+            canvas.print(options[i]);
         }
-        
-        canvas.setTextColor(CP_YELLOW);
-        canvas.drawCenterString("UP/DN: MOVE | ENTER: SELECT | ESC: BACK", 120, 115);
+
+        drawWheelPositionIndicator(splashBootFocus, totalItems);
     } else {
         canvas.drawString("> Press ", 10, 115);
         int x1 = 10 + canvas.textWidth("> Press ");
@@ -84,6 +197,7 @@ void handleSplashInput(Keyboard_Class::KeysState status) {
             playSound(sound_select, sound_select_size);
             showSplashBootMenu = true;
             splashBootFocus = 0;
+            resetSplashBootScroll();
             drawSplash();
         }
         return;
@@ -100,10 +214,12 @@ void handleSplashInput(Keyboard_Class::KeysState status) {
     if (hasUp) {
         playSound(sound_hover, sound_hover_size);
         splashBootFocus = (splashBootFocus - 1 + 5) % 5;
+        targetSplashBootScroll -= 1.0;
         drawSplash();
     } else if (hasDown) {
         playSound(sound_hover, sound_hover_size);
         splashBootFocus = (splashBootFocus + 1) % 5;
+        targetSplashBootScroll += 1.0;
         drawSplash();
     } else if (hasEsc) {
         playSound(sound_select, sound_select_size);
@@ -560,12 +676,12 @@ void drawMainMenu() {
     canvas.drawCircle(-80, 67, 110, CP_DIM);
     canvas.drawCircle(-80, 67, 109, CP_DIM);
     
-    int totalItems = isGuest ? 3 : 5;
+    int totalItems = isGuest ? 4 : 6;
     std::vector<String> labels;
     if (isGuest) {
-        labels = {"HACK", "CREDITS", "BACK"};
+        labels = {"HACK", "SSH", "CREDITS", "BACK"};
     } else {
-        labels = {"HACK", "LEADERBOARD", "ACCOUNT", "CREDITS", "BACK"};
+        labels = {"HACK", "LEADERBOARD", "ACCOUNT", "SSH", "CREDITS", "BACK"};
     }
     
     for (int i = 0; i < totalItems; i++) {
@@ -623,7 +739,9 @@ void drawMainMenu() {
         canvas.setCursor(textX, textY);
         canvas.print(labels[i]);
     }
-    
+
+    drawWheelPositionIndicator(mainMenuFocus, totalItems);
+
     if (descAnimWidth >= 10.0) {
         int x = 40;
         int y = 52; // selected button y (67 - 15)
@@ -650,6 +768,9 @@ void drawMainMenu() {
             } else if (label == "ACCOUNT") {
                 line1 = "Operative";
                 line2 = "profile";
+            } else if (label == "SSH") {
+                line1 = "Remote shell";
+                line2 = "terminal";
             } else if (label == "CONTROLS") {
                 line1 = "Keyboard";
                 line2 = "bindings";
@@ -681,7 +802,7 @@ void handleMainMenuInput(Keyboard_Class::KeysState status) {
         if (c == '/') hasRight = true;
         if (c == ',') hasLeft = true;
     }
-    int maxFocus = isGuest ? 2 : 4;
+    int maxFocus = isGuest ? 3 : 5;
     if (mainMenuFocus < 0 || mainMenuFocus > maxFocus) {
         mainMenuFocus = 0;
         currentMenuScroll = 0;
@@ -709,9 +830,9 @@ void handleMainMenuInput(Keyboard_Class::KeysState status) {
         
         std::vector<String> labels;
         if (isGuest) {
-            labels = {"HACK", "CREDITS", "BACK"};
+            labels = {"HACK", "SSH", "CREDITS", "BACK"};
         } else {
-            labels = {"HACK", "LEADERBOARD", "ACCOUNT", "CREDITS", "BACK"};
+            labels = {"HACK", "LEADERBOARD", "ACCOUNT", "SSH", "CREDITS", "BACK"};
         }
         
         String selectedLabel = labels[mainMenuFocus];
@@ -732,6 +853,10 @@ void handleMainMenuInput(Keyboard_Class::KeysState status) {
             appState = STATE_ACCOUNT;
             accountFocus = 0;
             accountStatsFetched = false;
+        } else if (selectedLabel == "SSH") {
+            sshFocus = 0;
+            appState = STATE_SSH;
+            drawSshScreen();
         } else if (selectedLabel == "CONTROLS") {
             appState = STATE_CONTROLS;
             drawControlsScreen();
@@ -742,6 +867,7 @@ void handleMainMenuInput(Keyboard_Class::KeysState status) {
             appState = STATE_SPLASH;
             showSplashBootMenu = true;
             splashBootFocus = 1;
+            resetSplashBootScroll();
             logOffset = 0;
             drawSplash();
         }

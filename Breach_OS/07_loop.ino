@@ -14,16 +14,22 @@ void loop() {
     unsigned long now = millis();
     
     if (isMp3Playing) {
-        if (mp3) {
-            if (!mp3->loop()) {
-                if (appState == STATE_MUSIC_PLAYER) {
-                    playNextTrack();
-                } else {
-                    stopMp3();
+        if (mp3 || wav) {
+            static unsigned long lastVisualizerUpdate = 0;
+            if (mp3IsPaused) {
+                if (millis() - lastVisualizerUpdate > 150) {
+                    if (appState == STATE_MUSIC_PLAYER) drawMusicPlayer();
+                    lastVisualizerUpdate = millis();
                 }
             } else {
-                static unsigned long lastVisualizerUpdate = 0;
-                if (millis() - lastVisualizerUpdate > 100) {
+                bool stillPlaying = mp3 ? mp3->loop() : wav->loop();
+                if (!stillPlaying) {
+                    if (appState == STATE_MUSIC_PLAYER) {
+                        playNextTrack();
+                    } else {
+                        stopMp3();
+                    }
+                } else if (millis() - lastVisualizerUpdate > 100) {
                     if (appState == STATE_MUSIC_PLAYER) {
                         drawMusicPlayer();
                     } else if (appState == STATE_FILE_MANAGER) {
@@ -125,6 +131,18 @@ void loop() {
         if (keyChanged && keyPressed) {
             handleSplashInput(globalStatus);
         }
+
+        bool needsRedraw = false;
+        if (showSplashBootMenu && abs(currentSplashBootScroll - targetSplashBootScroll) > 0.01) {
+            currentSplashBootScroll += (targetSplashBootScroll - currentSplashBootScroll) * 0.3;
+            if (abs(currentSplashBootScroll - targetSplashBootScroll) <= 0.01) {
+                currentSplashBootScroll = targetSplashBootScroll;
+            }
+            needsRedraw = true;
+        }
+        if (needsRedraw) {
+            drawSplash();
+        }
         delay(10);
         return;
     }
@@ -171,6 +189,7 @@ void loop() {
             if (appState == STATE_AUTH_MENU) drawAuthMenu();
             else if (appState == STATE_MAIN_MENU) drawMainMenu();
             else if (appState == STATE_ACCOUNT) drawAccountMenu();
+            else if (appState == STATE_SSH) drawSshScreen();
             else if (appState == STATE_GRID_SELECT) drawGridSelect();
             else if (appState == STATE_PHASE_TRANSITION) drawPhaseTransition();
             else if (appState == STATE_FAILED_SCREEN) drawGameOverFailed();
@@ -237,6 +256,24 @@ void loop() {
         if (keyChanged && keyPressed) {
             handleCreditsInput(globalStatus);
             if (appState == STATE_CREDITS) drawCreditsScreen();
+        }
+        delay(10);
+        return;
+    }
+
+    if (appState == STATE_SSH) {
+        pollSshTerminal();
+        static unsigned long lastSshTerminalDraw = 0;
+        if (sshTerminalDirty && now - lastSshTerminalDraw > 100) {
+            drawSshScreen();
+            sshTerminalDirty = false;
+            lastSshTerminalDraw = now;
+        }
+        if (keyChanged && keyPressed) {
+            handleSshInput(globalStatus);
+            if (appState == STATE_SSH) drawSshScreen();
+            sshTerminalDirty = false;
+            lastSshTerminalDraw = now;
         }
         delay(10);
         return;
@@ -320,6 +357,8 @@ void loop() {
     }
     
     if (appState == STATE_MUSIC_PLAYER) {
+        Keyboard_Class::KeysState musicStatus = M5Cardputer.Keyboard.keysState();
+        updateMusicInputGate(musicStatus.enter);
         if (keyChanged && keyPressed) {
             handleMusicPlayerInput(globalStatus);
         }

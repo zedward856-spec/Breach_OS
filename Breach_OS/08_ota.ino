@@ -9,6 +9,11 @@ const char OTA_M5LAUNCHER_CARDPUTER_DESC[] =
     "download wirelessly from M5Burner, or send binaries from your computer or phone through its WebUI. "
     "Tutorial: https://youtu.be/odlHWZ03shI Support: https://buymeacoffee.com/bmorcelliz "
     "Wiki: https://github.com/bmorcelli/Launcher/wiki/Obtaining-binaries-to-launch";
+bool otaDescTransferDataValid = false;
+size_t otaDescTransferDoneBytes = 0;
+size_t otaDescTransferTotalBytes = 0;
+unsigned long otaDescTransferStartedAt = 0;
+const unsigned long OTA_DETAIL_ANIM_FRAME_MS = 45;
 
 void enterOtaCatalog() {
     otaDetailMode = false;
@@ -43,6 +48,10 @@ String formatOtaBytes(size_t bytes) {
     return String(bytes) + " B";
 }
 
+String formatOtaBytesOrUnknown(size_t bytes) {
+    return bytes == 0 ? String("?") : formatOtaBytes(bytes);
+}
+
 String formatOtaEta(unsigned long seconds) {
     if (seconds == 0) return "--";
     if (seconds >= 60) return String(seconds / 60) + "m " + String(seconds % 60) + "s";
@@ -51,8 +60,12 @@ String formatOtaEta(unsigned long seconds) {
 
 String formatOtaDataRatio(size_t doneBytes, size_t totalBytes) {
     String doneText = (doneBytes == 0) ? String("0 B") : formatOtaBytes(doneBytes);
-    if (totalBytes == 0) return doneText;
-    return doneText + "/" + formatOtaBytes(totalBytes);
+    String totalText = (totalBytes == 0) ? String(doneBytes == 0 ? "0 B" : "?") : formatOtaBytes(totalBytes);
+    return doneText + "/" + totalText;
+}
+
+String formatOtaDownloadedBytes(size_t bytes) {
+    return bytes == 0 ? String("0 B") : formatOtaBytes(bytes);
 }
 
 int calculateOtaStreamProgress(size_t doneBytes, size_t totalBytes) {
@@ -60,6 +73,29 @@ int calculateOtaStreamProgress(size_t doneBytes, size_t totalBytes) {
     int progress = (int)(((uint64_t)doneBytes * 100ULL) / totalBytes);
     if (progress > 99) progress = 99;
     return progress;
+}
+
+void drawOtaLoadingStrip(int x, int y, int w, int h, uint16_t color, unsigned long animStartedAt) {
+    canvas.drawRect(x, y, w, h, color);
+    int innerX = x + 2;
+    int innerY = y + 2;
+    int innerW = w - 4;
+    int innerH = h - 4;
+    canvas.fillRect(innerX, innerY, innerW, innerH, CP_BG);
+
+    int stripW = innerW / 4;
+    if (stripW < 22) stripW = 22;
+    int span = innerW + stripW;
+    unsigned long elapsed = (animStartedAt > 0 && millis() > animStartedAt) ? millis() - animStartedAt : 0;
+    int stripX = innerX - stripW + (int)((elapsed / 24) % span);
+    int clipX = stripX;
+    int clipW = stripW;
+    if (clipX < innerX) {
+        clipW -= innerX - clipX;
+        clipX = innerX;
+    }
+    if (clipX + clipW > innerX + innerW) clipW = innerX + innerW - clipX;
+    if (clipW > 0) canvas.fillRect(clipX, innerY, clipW, innerH, color);
 }
 
 void drawOtaTransferProgress(int progress, String statusText, size_t doneBytes, size_t totalBytes, unsigned long startedAt, uint16_t color) {
@@ -97,7 +133,7 @@ void drawOtaTransferProgress(int progress, String statusText, size_t doneBytes, 
 
     canvas.setTextColor(CP_DIM);
     canvas.setCursor(24, 88);
-    canvas.print("SIZE: " + formatOtaBytes(totalBytes));
+    canvas.print("DATA: " + formatOtaDataRatio(doneBytes, totalBytes));
     canvas.setCursor(24, 100);
     canvas.print("RATE: " + formatOtaBytes(bytesPerSecond) + "/s");
     canvas.setCursor(24, 112);
@@ -115,11 +151,6 @@ void drawOtaDetailProgressWithData(int versionProgress, int descProgress, size_t
 
     unsigned long elapsed = (startedAt > 0 && millis() > startedAt) ? millis() - startedAt : 0;
     size_t bytesPerSecond = (elapsed > 0 && doneBytes > 0) ? (size_t)(((uint64_t)doneBytes * 1000ULL) / elapsed) : 0;
-    unsigned long etaSeconds = 0;
-    if (bytesPerSecond > 0 && totalBytes > doneBytes) {
-        etaSeconds = (totalBytes - doneBytes) / bytesPerSecond;
-        if (etaSeconds == 0) etaSeconds = 1;
-    }
 
     canvas.startWrite();
     canvas.fillScreen(CP_BG);
@@ -144,19 +175,21 @@ void drawOtaDetailProgressWithData(int versionProgress, int descProgress, size_t
     canvas.setTextColor(CP_YELLOW);
     canvas.setCursor(24, 70);
     canvas.print("DESCRIPTION");
-    canvas.setCursor(184, 70);
-    canvas.print(String(descProgress) + "%");
-    canvas.drawRect(35, 81, 170, 11, CP_YELLOW);
-    int descFill = (166 * descProgress) / 100;
-    if (descFill > 0) canvas.fillRect(37, 83, descFill, 7, CP_YELLOW);
+    if (descProgress >= 100) {
+        canvas.drawRect(35, 81, 170, 11, CP_GREEN);
+        canvas.fillRect(37, 83, 166, 7, CP_GREEN);
+    } else if (versionProgress < 100) {
+        canvas.drawRect(35, 81, 170, 11, CP_YELLOW);
+        canvas.fillRect(37, 83, 166, 7, CP_BG);
+    } else {
+        drawOtaLoadingStrip(35, 81, 170, 11, CP_YELLOW, startedAt);
+    }
 
     canvas.setTextColor(CP_DIM);
     canvas.setCursor(24, 94);
-    canvas.print(dataLabel + ": " + formatOtaDataRatio(dataDoneBytes, dataTotalBytes));
+    canvas.print(dataLabel + ": " + formatOtaDownloadedBytes(dataDoneBytes));
     canvas.setCursor(24, 107);
     canvas.print("RATE: " + formatOtaBytes(bytesPerSecond) + "/s");
-    canvas.setCursor(132, 107);
-    canvas.print("ETA: " + formatOtaEta(etaSeconds));
 
     pushCanvas();
 }
@@ -165,8 +198,33 @@ void drawOtaDetailProgress(int versionProgress, int descProgress, size_t doneByt
     drawOtaDetailProgressWithData(versionProgress, descProgress, doneBytes, totalBytes, startedAt, color, "DATA", doneBytes, totalBytes);
 }
 
+void resetOtaDescriptionTransferStats() {
+    otaDescTransferDataValid = false;
+    otaDescTransferDoneBytes = 0;
+    otaDescTransferTotalBytes = 0;
+    otaDescTransferStartedAt = 0;
+}
+
+void rememberOtaDescriptionTransfer(size_t doneBytes, size_t totalBytes, unsigned long startedAt) {
+    otaDescTransferDataValid = true;
+    otaDescTransferDoneBytes = doneBytes;
+    otaDescTransferTotalBytes = totalBytes;
+    otaDescTransferStartedAt = startedAt;
+}
+
+void drawOtaDescriptionStreamProgress(int versionProgress, size_t receivedBytes, size_t, unsigned long startedAt, uint16_t color) {
+    size_t visibleTotalBytes = receivedBytes;
+    int progress = receivedBytes > 0 ? 99 : 0;
+    drawOtaDetailProgressWithData(versionProgress, progress, receivedBytes, visibleTotalBytes, startedAt, color, "DATA", receivedBytes, visibleTotalBytes);
+}
+
 String fetchOtaFirmwareDescription(String fid, int versionProgress) {
-    if (fid == OTA_M5LAUNCHER_CARDPUTER_FID) return String(OTA_M5LAUNCHER_CARDPUTER_DESC);
+    if (fid == OTA_M5LAUNCHER_CARDPUTER_FID) {
+        unsigned long streamStart = millis();
+        rememberOtaDescriptionTransfer(0, 0, streamStart);
+        drawOtaDetailProgressWithData(versionProgress, 100, 0, 0, streamStart, CP_GREEN, "DATA", 0, 0);
+        return String(OTA_M5LAUNCHER_CARDPUTER_DESC);
+    }
 
     if (!secureClientInit) { secureClient.setInsecure(); secureClientInit = true; }
     HTTPClient http;
@@ -206,7 +264,8 @@ String fetchOtaFirmwareDescription(String fid, int versionProgress) {
     unsigned long lastDescDraw = 0;
     int depth = 0;
     unsigned long lastByte = millis();
-    drawOtaDetailProgressWithData(versionProgress, 0, 0, totalBytes, streamStart, CP_CYAN, "DATA", 0, 0);
+    drawOtaDescriptionStreamProgress(versionProgress, 0, totalBytes, streamStart, CP_CYAN);
+    lastDraw = streamStart;
 
     while (http.connected() && (remaining > 0 || remaining == -1)) {
         while (stream->available()) {
@@ -215,9 +274,8 @@ String fetchOtaFirmwareDescription(String fid, int versionProgress) {
             receivedBytes++;
             lastByte = millis();
 
-            if (!captureDescProgress && lastByte - lastDraw > 250) {
-                int progress = calculateOtaStreamProgress(receivedBytes, totalBytes);
-                drawOtaDetailProgressWithData(versionProgress, progress, receivedBytes, totalBytes, streamStart, CP_CYAN, "DATA", receivedBytes, 0);
+            if (!captureDescProgress && lastByte - lastDraw > OTA_DETAIL_ANIM_FRAME_MS) {
+                drawOtaDescriptionStreamProgress(versionProgress, receivedBytes, totalBytes, streamStart, CP_CYAN);
                 lastDraw = lastByte;
             }
 
@@ -225,9 +283,8 @@ String fetchOtaFirmwareDescription(String fid, int versionProgress) {
                 if (escape) {
                     if (captureToken) {
                         if (captureDescProgress) {
-                            if (lastByte - lastDescDraw > 150) {
-                                int progress = calculateOtaStreamProgress(receivedBytes, totalBytes);
-                                drawOtaDetailProgressWithData(versionProgress, progress, receivedBytes, totalBytes, streamStart, CP_CYAN, "DATA", receivedBytes, 0);
+                            if (lastByte - lastDescDraw > OTA_DETAIL_ANIM_FRAME_MS) {
+                                drawOtaDescriptionStreamProgress(versionProgress, receivedBytes, totalBytes, streamStart, CP_CYAN);
                                 lastDescDraw = lastByte;
                             }
                         }
@@ -271,9 +328,8 @@ String fetchOtaFirmwareDescription(String fid, int versionProgress) {
                     tokenTruncated = false;
                 } else if (captureToken) {
                     if (captureDescProgress) {
-                        if (lastByte - lastDescDraw > 150) {
-                            int progress = calculateOtaStreamProgress(receivedBytes, totalBytes);
-                            drawOtaDetailProgressWithData(versionProgress, progress, receivedBytes, totalBytes, streamStart, CP_CYAN, "DATA", receivedBytes, 0);
+                        if (lastByte - lastDescDraw > OTA_DETAIL_ANIM_FRAME_MS) {
+                            drawOtaDescriptionStreamProgress(versionProgress, receivedBytes, totalBytes, streamStart, CP_CYAN);
                             lastDescDraw = lastByte;
                         }
                     }
@@ -293,8 +349,7 @@ String fetchOtaFirmwareDescription(String fid, int versionProgress) {
                     captureDescProgress = (expectingValue && valueKey == "description" && itemFid == fid);
                     if (captureDescProgress) {
                         lastDescDraw = millis();
-                        int progress = calculateOtaStreamProgress(receivedBytes, totalBytes);
-                        drawOtaDetailProgressWithData(versionProgress, progress, receivedBytes, totalBytes, streamStart, CP_CYAN, "DATA", receivedBytes, 0);
+                        drawOtaDescriptionStreamProgress(versionProgress, receivedBytes, totalBytes, streamStart, CP_CYAN);
                     }
                 }
             } else if (c == '{') {
@@ -335,6 +390,11 @@ String fetchOtaFirmwareDescription(String fid, int versionProgress) {
             if (foundTargetDesc) break;
         }
         if (foundTargetDesc) break;
+        unsigned long now = millis();
+        if (now - lastDraw > OTA_DETAIL_ANIM_FRAME_MS) {
+            drawOtaDescriptionStreamProgress(versionProgress, receivedBytes, totalBytes, streamStart, CP_CYAN);
+            lastDraw = now;
+        }
         if (remaining == 0 || millis() - lastByte > 12000) break;
         delay(1);
     }
@@ -342,9 +402,11 @@ String fetchOtaFirmwareDescription(String fid, int versionProgress) {
     http.end();
     if (foundTargetDesc) {
         size_t finalTotal = receivedBytes;
+        rememberOtaDescriptionTransfer(receivedBytes, finalTotal, streamStart);
         drawOtaDetailProgressWithData(versionProgress, 100, finalTotal, finalTotal, streamStart, CP_GREEN, "DATA", receivedBytes, finalTotal);
         return foundDesc;
     }
+    rememberOtaDescriptionTransfer(receivedBytes, receivedBytes, streamStart);
     return "";
 }
 
@@ -543,7 +605,7 @@ void handleOtaCatalogInput(Keyboard_Class::KeysState status) {
             } else {
                 downloadUrl = "https://m5burner-cdn.m5stack.com/firmware/" + file;
             }
-            performOtaUpdate(downloadUrl);
+            performOtaUpdate(downloadUrl, otaVersions[otaVersionFocus].sizeBytes);
         }
         return;
     }
@@ -559,6 +621,7 @@ void handleOtaCatalogInput(Keyboard_Class::KeysState status) {
         appState = STATE_SPLASH;
         showSplashBootMenu = true;
         splashBootFocus = 3;
+        resetSplashBootScroll();
         drawSplash();
         return;
     }
@@ -723,6 +786,7 @@ bool fetchOtaCatalog() {
 }
 
 bool fetchOtaFirmwareDetails(String fid) {
+    resetOtaDescriptionTransferStats();
     drawOtaDetailProgress(0, 0, 0, 0, 0, CP_CYAN);
     
     if (!secureClientInit) { secureClient.setInsecure(); secureClientInit = true; }
@@ -793,6 +857,8 @@ bool fetchOtaFirmwareDetails(String fid) {
                     ver.version = v["version"].as<String>();
                     ver.file = v["file"].as<String>();
                     ver.publishedAt = v["published_at"].as<String>();
+                    ver.sizeBytes = v["Fs"].as<size_t>();
+                    if (ver.sizeBytes == 0) ver.sizeBytes = v["as"].as<size_t>();
                     otaVersions.push_back(ver);
                 }
                 http.end();
@@ -808,7 +874,12 @@ bool fetchOtaFirmwareDetails(String fid) {
                         }
                     }
                 }
-                drawOtaDetailProgress(100, 100, totalBytes, totalBytes, streamStart, CP_GREEN);
+                if (otaDescTransferDataValid) {
+                    drawOtaDetailProgressWithData(100, 100, otaDescTransferDoneBytes, otaDescTransferTotalBytes, otaDescTransferStartedAt, CP_GREEN, "DATA", otaDescTransferDoneBytes, otaDescTransferTotalBytes);
+                } else {
+                    drawOtaDetailProgress(100, 100, receivedBytes, totalBytes, streamStart, CP_GREEN);
+                }
+                if (otaDescTransferDataValid && otaDescTransferTotalBytes > 0) delay(700);
                 otaDescScrollOffset = 0;
                 otaDetailDesc = cleanOtaDescription(detailDesc);
                 return true;
@@ -866,7 +937,13 @@ void drawOtaFirmwareDetails() {
         canvas.drawCenterString(verText, 120, 100);
 
         canvas.setTextColor(CP_YELLOW);
-        canvas.drawCenterString(otaVersions[otaVersionFocus].publishedAt, 120, 116);
+        String sizeText = "SIZE " + formatOtaBytesOrUnknown(otaVersions[otaVersionFocus].sizeBytes);
+        String dateText = otaVersions[otaVersionFocus].publishedAt;
+        if (dateText.length() > 12) dateText = dateText.substring(0, 10);
+        canvas.setCursor(14, 116);
+        canvas.print(sizeText);
+        canvas.setCursor(138, 116);
+        canvas.print(dateText);
     } else {
         canvas.setTextColor(CP_RED);
         canvas.drawCenterString("NO VERSIONS FOUND", 120, 100);
@@ -878,6 +955,10 @@ void drawOtaFirmwareDetails() {
 }
 
 void performOtaUpdate(String binUrl) {
+    performOtaUpdate(binUrl, 0);
+}
+
+void performOtaUpdate(String binUrl, size_t expectedBytes) {
     drawOtaTransferProgress(0, "CONNECTING SECURE ENDPOINT", 0, 0, 0, CP_CYAN);
     
     if (!secureClientInit) { secureClient.setInsecure(); secureClientInit = true; }
@@ -887,37 +968,39 @@ void performOtaUpdate(String binUrl) {
         int httpCode = http.GET();
         if (httpCode == HTTP_CODE_OK) {
             int contentLength = http.getSize();
-            if (contentLength <= 0) {
-                contentLength = 3145728; // fallback to partition max size
-            }
+            size_t transferTotal = (contentLength > 0) ? (size_t)contentLength : expectedBytes;
+            size_t updateSize = (transferTotal > 0) ? transferTotal : UPDATE_SIZE_UNKNOWN;
             
-            bool canBegin = Update.begin(contentLength);
+            bool canBegin = Update.begin(updateSize);
             if (canBegin) {
                 WiFiClient* stream = http.getStreamPtr();
                 size_t written = 0;
+                int remaining = (contentLength > 0) ? contentLength : -1;
                 uint8_t buff[2048] = { 0 };
                 unsigned long lastUpdate = 0;
                 unsigned long downloadStart = millis();
-                drawOtaTransferProgress(0, "FLASHING OTA STREAM", 0, contentLength, downloadStart, CP_CYAN);
+                drawOtaTransferProgress(0, "FLASHING OTA STREAM", 0, transferTotal, downloadStart, CP_CYAN);
                 
-                while (http.connected() && (written < contentLength)) {
+                while (http.connected() && (remaining > 0 || remaining == -1)) {
                     size_t size = stream->available();
                     if (size) {
                         int c = stream->readBytes(buff, ((size > sizeof(buff)) ? sizeof(buff) : size));
                         Update.write(buff, c);
                         written += c;
+                        if (remaining > 0) remaining -= c;
                         
                         unsigned long currentMillis = millis();
                         if (currentMillis - lastUpdate > 250) {
-                            int progress = (written * 100) / contentLength;
-                            if (progress > 100) progress = 100;
-                            drawOtaTransferProgress(progress, "FLASHING OTA STREAM", written, contentLength, downloadStart, CP_CYAN);
+                            int progress = calculateOtaStreamProgress(written, transferTotal);
+                            drawOtaTransferProgress(progress, "FLASHING OTA STREAM", written, transferTotal, downloadStart, CP_CYAN);
                             lastUpdate = currentMillis;
                         }
                     }
+                    if (remaining == 0 || (remaining == -1 && transferTotal > 0 && written >= transferTotal)) break;
                     delay(1);
                 }
-                drawOtaTransferProgress(100, "OTA STREAM COMPLETE", contentLength, contentLength, downloadStart, CP_GREEN);
+                size_t finalTotal = (transferTotal > 0) ? transferTotal : written;
+                drawOtaTransferProgress(100, "OTA STREAM COMPLETE", written, finalTotal, downloadStart, CP_GREEN);
                 
                 if (Update.end()) {
                     if (Update.isFinished()) {

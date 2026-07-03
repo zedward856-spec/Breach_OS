@@ -100,6 +100,81 @@ void drawMessage(String msg, String line2) {
     }
     pushCanvas();
 }
+
+uint16_t audioSpectrumLevelFromAmp(uint32_t amp) {
+    uint32_t level = amp / 96;
+    if (level > 255) level = 255;
+    return (uint16_t)level;
+}
+
+void resetAudioSpectrum() {
+    for (int i = 0; i < AUDIO_SPECTRUM_BARS; i++) audioSpectrumLevels[i] = 0;
+    audioSpectrumCursor = 0;
+    audioSpectrumLastDecay = millis();
+}
+
+void feedAudioSpectrumSample(int16_t left, int16_t right) {
+    int32_t l = left;
+    int32_t r = right;
+    if (l < 0) l = -l;
+    if (r < 0) r = -r;
+    if (l > 32767) l = 32767;
+    if (r > 32767) r = 32767;
+    uint16_t level = audioSpectrumLevelFromAmp(((uint32_t)l + (uint32_t)r) / 2);
+    int bin = audioSpectrumCursor++ % AUDIO_SPECTRUM_BARS;
+    if (level > audioSpectrumLevels[bin]) audioSpectrumLevels[bin] = level;
+}
+
+void feedAudioSpectrumBuffer(const int16_t* samples, size_t sampleCount) {
+    if (!samples || sampleCount == 0) return;
+    for (int i = 0; i < AUDIO_SPECTRUM_BARS; i++) {
+        size_t start = sampleCount * i / AUDIO_SPECTRUM_BARS;
+        size_t end = sampleCount * (i + 1) / AUDIO_SPECTRUM_BARS;
+        if (end <= start) end = start + 1;
+        if (end > sampleCount) end = sampleCount;
+
+        uint32_t avg = 0;
+        uint32_t peak = 0;
+        for (size_t j = start; j < end; j++) {
+            int32_t v = samples[j];
+            if (v < 0) v = -v;
+            if (v > 32767) v = 32767;
+            avg += (uint32_t)v;
+            if ((uint32_t)v > peak) peak = (uint32_t)v;
+        }
+        size_t count = end - start;
+        if (count > 0) avg /= count;
+        uint32_t mixed = avg + (peak / 2);
+        uint16_t level = audioSpectrumLevelFromAmp(mixed);
+        if (level > audioSpectrumLevels[i]) audioSpectrumLevels[i] = level;
+    }
+}
+
+void drawAudioSpectrum(int x, int baselineY, int width, int height) {
+    unsigned long now = millis();
+    if (audioSpectrumLastDecay == 0) audioSpectrumLastDecay = now;
+    while (now - audioSpectrumLastDecay >= 35) {
+        for (int i = 0; i < AUDIO_SPECTRUM_BARS; i++) {
+            audioSpectrumLevels[i] = (audioSpectrumLevels[i] * 13) / 16;
+        }
+        audioSpectrumLastDecay += 35;
+    }
+
+    int gap = 2;
+    int barW = (width - (AUDIO_SPECTRUM_BARS - 1) * gap) / AUDIO_SPECTRUM_BARS;
+    if (barW < 2) barW = 2;
+    canvas.drawFastHLine(x, baselineY, width, CP_DIM);
+    for (int i = 0; i < AUDIO_SPECTRUM_BARS; i++) {
+        int h = 2 + (audioSpectrumLevels[i] * (height - 2)) / 255;
+        if (h < 2) h = 2;
+        if (h > height) h = height;
+        int bx = x + i * (barW + gap);
+        uint16_t color = h > (height * 2 / 3) ? CP_RED : (h > (height / 3) ? CP_YELLOW : CP_CYAN);
+        canvas.fillRect(bx, baselineY - h, barW, h, color);
+        canvas.drawRect(bx, baselineY - h, barW, h, CP_DIM);
+    }
+}
+
 uint16_t blendColor(uint16_t c1, uint16_t c2, uint8_t alpha) {
     if (alpha >= 255) return c1;
     if (alpha <= 0) return c2;
@@ -237,6 +312,9 @@ void pushCanvas() {
     if (showBrightnessPopup) {
         drawBrightnessOverlay();
     }
+    if (!suppressBatteryPercentBox && appState != STATE_PLAYING) {
+        drawBatteryPercentBox();
+    }
     canvas.pushSprite(0, 0);
     canvas.endWrite();
 }
@@ -250,6 +328,7 @@ void drawCurrentScreen() {
         case STATE_MAIN_MENU: drawMainMenu(); break;
         case STATE_LEADERBOARD: drawLeaderboard(); break;
         case STATE_ACCOUNT: drawAccountMenu(); break;
+        case STATE_SSH: drawSshScreen(); break;
         case STATE_GRID_SELECT: drawGridSelect(); break;
         case STATE_PHASE_TRANSITION: drawPhaseTransition(); break;
         case STATE_FAILED_SCREEN: drawGameOverFailed(); break;
@@ -349,6 +428,790 @@ void handleControlsInput(Keyboard_Class::KeysState status) {
         playSound(sound_select, sound_select_size);
         appState = STATE_MAIN_MENU;
         drawMainMenu();
+    }
+}
+
+void appendSshTerminal(String text) {
+    sshTerminalLog += text;
+    if (sshTerminalLog.length() > 900) {
+        sshTerminalLog.remove(0, sshTerminalLog.length() - 900);
+    }
+    sshTerminalDirty = true;
+}
+
+bool initSshMutex() {
+    if (sshMutex != NULL) return true;
+    sshMutex = xSemaphoreCreateMutex();
+    return sshMutex != NULL;
+}
+
+bool lockSshState(uint32_t waitMs = 50) {
+    return initSshMutex() && xSemaphoreTake(sshMutex, pdMS_TO_TICKS(waitMs)) == pdTRUE;
+}
+
+void unlockSshState() {
+    if (sshMutex != NULL) xSemaphoreGive(sshMutex);
+}
+
+void queueSshOutput(const String &text) {
+    if (text == "") return;
+    if (!lockSshState()) return;
+    sshQueuedOutput += text;
+    if (sshQueuedOutput.length() > SSH_MAX_QUEUE_BYTES) {
+        sshQueuedOutput.remove(0, sshQueuedOutput.length() - SSH_MAX_QUEUE_BYTES);
+    }
+    sshTerminalDirty = true;
+    unlockSshState();
+}
+
+String takeSshOutput() {
+    String output = "";
+    if (!lockSshState()) return output;
+    output = sshQueuedOutput;
+    sshQueuedOutput = "";
+    unlockSshState();
+    return output;
+}
+
+bool isSshOutputBackedUp() {
+    bool backedUp = false;
+    if (!lockSshState()) return true;
+    backedUp = sshQueuedOutput.length() >= SSH_MAX_QUEUE_BYTES;
+    unlockSshState();
+    return backedUp;
+}
+
+void queueSshCommand(String command) {
+    if (command == "") return;
+    if (!lockSshState()) return;
+    sshQueuedCommand += command;
+    if (sshQueuedCommand.length() > SSH_MAX_QUEUE_BYTES) {
+        sshQueuedCommand.remove(0, sshQueuedCommand.length() - SSH_MAX_QUEUE_BYTES);
+    }
+    unlockSshState();
+}
+
+String takeSshCommand() {
+    String command = "";
+    if (!lockSshState()) return command;
+    command = sshQueuedCommand;
+    sshQueuedCommand = "";
+    unlockSshState();
+    return command;
+}
+
+void setSshStatus(String status, bool connected, bool shellReady) {
+    if (!lockSshState()) return;
+    sshStatus = status;
+    sshConnected = connected;
+    sshShellReady = shellReady;
+    sshTerminalDirty = true;
+    unlockSshState();
+}
+
+bool isSshStopRequested() {
+    bool stopRequested = false;
+    if (!lockSshState()) return true;
+    stopRequested = sshStopRequested;
+    unlockSshState();
+    return stopRequested;
+}
+
+void closeSshSession() {
+    if (lockSshState()) {
+        sshStopRequested = true;
+        unlockSshState();
+    }
+
+    unsigned long start = millis();
+    while (sshTaskHandle != NULL && millis() - start < 1200) delay(20);
+
+    if (sshTaskHandle == NULL && lockSshState()) {
+        sshConnected = false;
+        sshShellReady = false;
+        sshSession = NULL;
+        sshChannel = NULL;
+        sshQueuedCommand = "";
+        unlockSshState();
+    } else if (sshTaskHandle != NULL) {
+        setSshStatus("CLOSING", false, false);
+    }
+}
+
+void pollSshTerminal() {
+    if (!sshTerminalMode) return;
+    String output = takeSshOutput();
+    if (output != "") appendSshTerminal(output);
+}
+
+void drawSshTerminal() {
+    pollSshTerminal();
+
+    canvas.startWrite();
+    canvas.fillScreen(CP_BG);
+    canvas.drawRect(5, 5, 230, 125, CP_CYAN);
+    canvas.drawRect(7, 7, 226, 121, CP_DIM);
+
+    canvas.setTextSize(1);
+    canvas.setTextColor(CP_YELLOW);
+    canvas.drawCenterString("--- SSH TERMINAL ---", 120, 10);
+    canvas.drawLine(10, 24, 230, 24, CP_CYAN);
+
+    String title = sshTarget == "" ? sshHost : sshTarget;
+    if (sshPort != "" && sshPort != "22") title += ":" + sshPort;
+    if (title.length() > 18) title = title.substring(0, 17) + "~";
+    canvas.setTextColor(sshConnected ? CP_GREEN : CP_RED);
+    canvas.setCursor(12, 28);
+    canvas.print(sshConnected ? "CONNECTED" : "OFFLINE");
+    canvas.setTextColor(CP_DIM);
+    canvas.setCursor(82, 28);
+    canvas.print(title);
+
+    String view = sshTerminalLog;
+    int first = 0;
+    int lineCount = 0;
+    for (int i = view.length() - 1; i >= 0; i--) {
+        if (view.charAt(i) == '\n') {
+            lineCount++;
+            if (lineCount > 6) {
+                first = i + 1;
+                break;
+            }
+        }
+    }
+
+    canvas.setTextColor(WHITE);
+    int y = 42;
+    int start = first;
+    int rows = 0;
+    while (start < view.length() && rows < 6) {
+        int end = view.indexOf('\n', start);
+        if (end < 0) end = view.length();
+        String line = view.substring(start, end);
+        if (line.length() > 34) line = line.substring(line.length() - 34);
+        canvas.setCursor(12, y);
+        canvas.print(line);
+        y += 11;
+        rows++;
+        start = end + 1;
+    }
+
+    String prompt = "> " + sshInputLine + (blinkState ? "_" : "");
+    if (prompt.length() > 34) prompt = prompt.substring(prompt.length() - 34);
+    canvas.setTextColor(CP_YELLOW);
+    canvas.setCursor(12, 112);
+    canvas.print(prompt);
+    canvas.setTextColor(CP_DIM);
+    canvas.setCursor(150, 112);
+    canvas.print("ESC:SETUP");
+
+    pushCanvas();
+}
+
+void drawSshScreen() {
+    if (sshTerminalMode) {
+        drawSshTerminal();
+        return;
+    }
+
+    canvas.startWrite();
+    canvas.fillScreen(CP_BG);
+
+    canvas.drawRect(5, 5, 230, 125, CP_CYAN);
+    canvas.drawRect(7, 7, 226, 121, CP_DIM);
+
+    canvas.setTextColor(CP_YELLOW);
+    canvas.setTextSize(1);
+    canvas.drawCenterString("--- SSH QUICK CONNECT ---", 120, 10);
+    canvas.drawLine(10, 24, 230, 24, CP_CYAN);
+
+    bool wifiOnline = WiFi.status() == WL_CONNECTED;
+    canvas.setTextColor(wifiOnline ? CP_GREEN : CP_RED);
+    canvas.setCursor(12, 27);
+    canvas.print(wifiOnline ? "LINK: ONLINE" : "LINK: OFFLINE");
+
+    String statusText = sshStatus == "" ? String("READY") : sshStatus;
+    if (statusText.length() > 13) statusText = statusText.substring(0, 12) + "~";
+    canvas.setTextColor(sshConnected ? CP_GREEN : CP_DIM);
+    canvas.setCursor(120, 27);
+    canvas.print("SSH:" + statusText);
+
+    String targetText = sshTarget == "" ? String("sl01220@raspi") : sshTarget;
+    String authText = sshPass == "" ? String("") : String("********");
+    if (targetText.length() > 24) targetText = targetText.substring(0, 23) + "~";
+    if (authText.length() > 24) authText = authText.substring(0, 23) + "~";
+
+    String values[2] = {targetText, authText};
+    String labels[2] = {"TARGET", "PASS"};
+    for (int i = 0; i < 2; i++) {
+        int y = 45 + i * 20;
+        uint16_t color = (sshFocus == i) ? CP_YELLOW : WHITE;
+        canvas.setTextColor(color);
+        drawChippedButton(10, y - 2, 220, 16, color);
+        canvas.setCursor(16, y + 1);
+        canvas.print(labels[i] + ": " + values[i] + ((sshFocus == i && blinkState) ? "_" : ""));
+    }
+
+    uint16_t saveColor = (sshFocus == 2) ? CP_YELLOW : WHITE;
+    drawChippedButton(10, 106, 100, 20, saveColor);
+    canvas.setTextColor(saveColor);
+    drawGlitchText("CONNECT", 60, 111, 1, saveColor);
+
+    canvas.setTextColor(CP_DIM);
+    canvas.setCursor(122, 111);
+    canvas.print("ENTER:NEXT  ESC:BACK");
+
+    pushCanvas();
+}
+
+bool trySshKeyFile(ssh_session session, const String &authSecret, const char* path) {
+    ssh_key key = NULL;
+    const char* passphrase = authSecret == "" ? NULL : authSecret.c_str();
+    int rc = ssh_pki_import_privkey_file(path, passphrase, NULL, NULL, &key);
+    if (rc != SSH_OK || key == NULL) return false;
+    queueSshOutput(String("[KEY] ") + path + "\n");
+    rc = ssh_userauth_publickey(session, NULL, key);
+    ssh_key_free(key);
+    return rc == SSH_AUTH_SUCCESS;
+}
+
+bool authenticateSshSession(ssh_session session, const String &authSecret) {
+    if (authSecret != "") {
+        queueSshOutput(String("[AUTH] password try len=") + authSecret.length() + "\n");
+        int rc = ssh_userauth_password(session, NULL, authSecret.c_str());
+        if (rc == SSH_AUTH_SUCCESS) {
+            queueSshOutput("[AUTH] password\n");
+            return true;
+        }
+        queueSshOutput("[AUTH] password denied\n");
+
+        rc = ssh_userauth_kbdint(session, NULL, NULL);
+        while (rc == SSH_AUTH_INFO && !isSshStopRequested()) {
+            int prompts = ssh_userauth_kbdint_getnprompts(session);
+            queueSshOutput(String("[AUTH] keyboard prompts=") + prompts + "\n");
+            for (int i = 0; i < prompts; i++) {
+                ssh_userauth_kbdint_setanswer(session, i, authSecret.c_str());
+            }
+            rc = ssh_userauth_kbdint(session, NULL, NULL);
+        }
+        if (rc == SSH_AUTH_SUCCESS) {
+            queueSshOutput("[AUTH] keyboard\n");
+            return true;
+        }
+        queueSshOutput("[AUTH] keyboard denied\n");
+    }
+
+    int rc = ssh_userauth_none(session, NULL);
+    if (rc == SSH_AUTH_SUCCESS) {
+        queueSshOutput("[AUTH] none\n");
+        return true;
+    }
+
+    int method = ssh_userauth_list(session, NULL);
+    String methods = "[AUTH] server:";
+    if (method & SSH_AUTH_METHOD_PASSWORD) methods += " password";
+    if (method & SSH_AUTH_METHOD_INTERACTIVE) methods += " keyboard";
+    if (method & SSH_AUTH_METHOD_PUBLICKEY) methods += " publickey";
+    if (method == 0) methods += " unknown";
+    queueSshOutput(methods + "\n");
+
+    if (method & SSH_AUTH_METHOD_PUBLICKEY) {
+        rc = ssh_userauth_publickey_auto(session, NULL, authSecret == "" ? NULL : authSecret.c_str());
+        if (rc == SSH_AUTH_SUCCESS) {
+            queueSshOutput("[AUTH] auto key\n");
+            return true;
+        }
+        SPI.begin(40, 39, 14, 12);
+        SD.begin(12, SPI, 20000000);
+        const char* keyPaths[] = {
+            "/sd/Breach_OS/ssh/id_ed25519",
+            "/sd/Breach_OS/ssh/id_rsa",
+            "/spiffs/ssh/id_ed25519",
+            "/spiffs/ssh/id_rsa"
+        };
+        for (int i = 0; i < 4; i++) {
+            if (trySshKeyFile(session, authSecret, keyPaths[i])) {
+                queueSshOutput("[AUTH] key accepted\n");
+                return true;
+            }
+        }
+        queueSshOutput("[AUTH] no key accepted\n");
+    }
+    return false;
+}
+
+void sshWorkerTask(void *pvParameters) {
+    char *buffer = (char *)malloc(SSH_IO_BUFFER_SIZE);
+    ssh_session session = NULL;
+    ssh_channel channel = NULL;
+    bool stdoutPollingEnabled = true;
+    bool stderrPollingEnabled = true;
+    String finalStatus = "SSH CLOSED";
+    bool finalFailed = false;
+    String host = "";
+    String user = "";
+    String authSecret = "";
+    int port = 22;
+    int strictHostKeyChecking = 0;
+    const char* knownHostsPath = "/spiffs/ssh_known_hosts";
+    const char* globalKnownHostsPath = "/spiffs/ssh_global_known_hosts";
+
+    if (lockSshState(250)) {
+        host = sshWorkerHost;
+        user = sshWorkerUser;
+        authSecret = sshWorkerPass;
+        port = sshWorkerPort;
+        unlockSshState();
+    } else {
+        finalStatus = "LOCK FAIL";
+        finalFailed = true;
+        queueSshOutput("[ERR] SSH state lock failed\n");
+        goto SSH_EXIT;
+    }
+
+    if (buffer == NULL) {
+        finalStatus = "BUFFER FAIL";
+        finalFailed = true;
+        queueSshOutput("[ERR] SSH buffer allocation failed\n");
+        goto SSH_EXIT;
+    }
+
+    setSshStatus("CONNECTING", false, false);
+    queueSshOutput("[BRUCE] SSH worker task started\n");
+    Serial.printf("[SSHDBG] task start host=%s port=%d user=%s freeHeap=%u\n", host.c_str(), port, user.c_str(), (unsigned)ESP.getFreeHeap());
+
+    session = ssh_new();
+    if (session == NULL) {
+        finalStatus = "SSH INIT FAIL";
+        finalFailed = true;
+        queueSshOutput("[ERR] ssh_new failed\n");
+        goto SSH_EXIT;
+    }
+
+    ssh_options_set(session, SSH_OPTIONS_HOST, host.c_str());
+    ssh_options_set(session, SSH_OPTIONS_PORT, &port);
+    ssh_options_set(session, SSH_OPTIONS_USER, user.c_str());
+    ssh_options_set(session, SSH_OPTIONS_KNOWNHOSTS, knownHostsPath);
+    ssh_options_set(session, SSH_OPTIONS_GLOBAL_KNOWNHOSTS, globalKnownHostsPath);
+    ssh_options_set(session, SSH_OPTIONS_STRICTHOSTKEYCHECK, &strictHostKeyChecking);
+
+    if (WiFi.status() != WL_CONNECTED) {
+        finalStatus = "WIFI OFFLINE";
+        finalFailed = true;
+        queueSshOutput("[ERR] WiFi disconnected before SSH connect\n");
+        goto SSH_EXIT;
+    }
+
+    queueSshOutput("[SSH] connect start\n");
+    Serial.printf("[SSHDBG] connect start\n");
+    if (ssh_connect(session) != SSH_OK) {
+        finalStatus = "CONNECT FAIL";
+        finalFailed = true;
+        queueSshOutput(String("[ERR] ") + ssh_get_error(session) + "\n");
+        goto SSH_EXIT;
+    }
+
+    queueSshOutput("[SSH] connect ok\n");
+    Serial.printf("[SSHDBG] connect ok\n");
+    setSshStatus("AUTH", false, false);
+    if (!authenticateSshSession(session, authSecret)) {
+        finalStatus = authSecret == "" ? String("AUTH NEEDED") : String("AUTH FAIL");
+        finalFailed = true;
+        queueSshOutput(authSecret == "" ? String("[AUTH] enter PASS or add /sd/Breach_OS/ssh key\n") : String("[AUTH] failed\n"));
+        goto SSH_EXIT;
+    }
+
+    queueSshOutput("[SSH] auth ok\n");
+    Serial.printf("[SSHDBG] auth ok\n");
+    setSshStatus("CHANNEL", false, false);
+    channel = ssh_channel_new(session);
+    if (channel == NULL || ssh_channel_open_session(channel) != SSH_OK) {
+        finalStatus = "CHANNEL FAIL";
+        finalFailed = true;
+        queueSshOutput("[ERR] channel open failed\n");
+        goto SSH_EXIT;
+    }
+
+    if (ssh_channel_request_pty_size(channel, "vt100", 40, 12) != SSH_OK) {
+        finalStatus = "PTY FAIL";
+        finalFailed = true;
+        queueSshOutput("[ERR] PTY request failed\n");
+        goto SSH_EXIT;
+    }
+
+    if (ssh_channel_request_shell(channel) != SSH_OK) {
+        finalStatus = "SHELL FAIL";
+        finalFailed = true;
+        queueSshOutput("[ERR] shell request failed\n");
+        goto SSH_EXIT;
+    }
+
+    setSshStatus("SHELL READY", true, true);
+    queueSshOutput("[SHELL READY]\n");
+    Serial.printf("[SSHDBG] shell ready freeHeap=%u\n", (unsigned)ESP.getFreeHeap());
+
+    while (!isSshStopRequested()) {
+        if (WiFi.status() != WL_CONNECTED) {
+            finalStatus = "WIFI DROPPED";
+            finalFailed = true;
+            queueSshOutput("\n[ERR] WiFi disconnected\n");
+            goto SSH_EXIT;
+        }
+
+        if (channel == NULL || !ssh_channel_is_open(channel) ||
+            ssh_channel_is_closed(channel) || ssh_channel_is_eof(channel)) {
+            finalStatus = "SSH CLOSED";
+            queueSshOutput("\n[SSH] channel closed\n");
+            goto SSH_EXIT;
+        }
+
+        String outbound = takeSshCommand();
+        if (outbound != "") {
+            int written = ssh_channel_write(channel, outbound.c_str(), outbound.length());
+            if (written == SSH_AGAIN) {
+                queueSshCommand(outbound);
+            } else if (written == SSH_ERROR) {
+                finalStatus = "WRITE FAIL";
+                finalFailed = true;
+                queueSshOutput("[ERR] SSH write failed\n");
+                goto SSH_EXIT;
+            } else if (written > 0 && written < outbound.length()) {
+                queueSshCommand(outbound.substring(written));
+            }
+        }
+
+        if (isSshOutputBackedUp()) {
+            vTaskDelay(pdMS_TO_TICKS(20));
+            continue;
+        }
+
+        auto drainSshStream = [&](int isStderr) -> bool {
+            if (isStderr == 0 && !stdoutPollingEnabled) return true;
+            if (isStderr != 0 && !stderrPollingEnabled) return true;
+
+            int available = ssh_channel_poll(channel, isStderr);
+            if (available == SSH_ERROR) {
+                const char* sshError = ssh_get_error(session);
+                bool channelEnded = ssh_channel_is_eof(channel) || ssh_channel_is_closed(channel);
+                if (!channelEnded && (sshError == NULL || sshError[0] == '\0')) {
+                    if (isStderr == 0) stdoutPollingEnabled = false;
+                    else stderrPollingEnabled = false;
+                    return true;
+                }
+                finalStatus = "POLL FAIL";
+                finalFailed = true;
+                queueSshOutput(String("[ERR] poll failed: ") + (sshError ? sshError : "") + "\n");
+                return false;
+            }
+            if (available <= 0) return true;
+
+            int readSize = available < (int)(SSH_IO_BUFFER_SIZE - 1) ? available : (int)(SSH_IO_BUFFER_SIZE - 1);
+            int n = ssh_channel_read(channel, buffer, readSize, isStderr);
+            if (n > 0) {
+                String chunk = "";
+                chunk.reserve(n);
+                for (int i = 0; i < n; i++) {
+                    char c = buffer[i];
+                    if (c == '\r') continue;
+                    if (c == '\n' || (c >= 32 && c <= 126)) chunk += c;
+                }
+                if (chunk != "") queueSshOutput(chunk);
+                return true;
+            }
+            if (n == SSH_AGAIN) return true;
+            if (n == 0) {
+                if (ssh_channel_is_eof(channel) || ssh_channel_is_closed(channel)) {
+                    finalStatus = "SSH CLOSED";
+                    return false;
+                }
+                return true;
+            }
+            finalStatus = "READ FAIL";
+            finalFailed = true;
+            queueSshOutput("[ERR] SSH read failed\n");
+            return false;
+        };
+
+        if (!drainSshStream(0)) goto SSH_EXIT;
+        if (isSshOutputBackedUp()) {
+            vTaskDelay(pdMS_TO_TICKS(20));
+            continue;
+        }
+        if (!drainSshStream(1)) goto SSH_EXIT;
+        vTaskDelay(pdMS_TO_TICKS(10));
+    }
+
+    finalStatus = "SSH CLOSED";
+
+SSH_EXIT:
+    if (channel != NULL) {
+        ssh_channel_close(channel);
+        ssh_channel_free(channel);
+        channel = NULL;
+    }
+    if (session != NULL) {
+        if (ssh_is_connected(session)) ssh_disconnect(session);
+        ssh_free(session);
+        session = NULL;
+    }
+    if (buffer != NULL) {
+        free(buffer);
+        buffer = NULL;
+    }
+    authSecret = "";
+
+    if (lockSshState()) {
+        sshTaskHandle = NULL;
+        sshStopRequested = false;
+        sshWorkerPass = "";
+        sshConnected = false;
+        sshShellReady = false;
+        sshStatus = finalStatus;
+        sshTerminalDirty = true;
+        unlockSshState();
+    }
+    if (finalStatus != "SSH CLOSED" || finalFailed) queueSshOutput("[STATUS] " + finalStatus + "\n");
+    Serial.printf("[SSHDBG] task exit status=%s failed=%d freeHeap=%u\n", finalStatus.c_str(), finalFailed, (unsigned)ESP.getFreeHeap());
+    vTaskDelete(NULL);
+}
+
+bool connectSshProfile() {
+    sshTarget.trim();
+    sshHost.trim();
+    sshPort.trim();
+    sshUser.trim();
+    if (sshPort == "") sshPort = "22";
+
+    if (sshTarget.startsWith("ssh ")) {
+        sshTarget = sshTarget.substring(4);
+        sshTarget.trim();
+    }
+    if (sshTarget != "") {
+        int at = sshTarget.indexOf('@');
+        if (at > 0 && at < sshTarget.length() - 1) {
+            sshUser = sshTarget.substring(0, at);
+            sshHost = sshTarget.substring(at + 1);
+        } else {
+            sshHost = sshTarget;
+        }
+        int colon = sshHost.lastIndexOf(':');
+        if (colon > 0 && colon < sshHost.length() - 1) {
+            String maybePort = sshHost.substring(colon + 1);
+            bool numericPort = true;
+            for (int i = 0; i < maybePort.length(); i++) {
+                if (maybePort.charAt(i) < '0' || maybePort.charAt(i) > '9') numericPort = false;
+            }
+            if (numericPort) {
+                sshPort = maybePort;
+                sshHost = sshHost.substring(0, colon);
+            }
+        }
+        sshHost.trim();
+        sshUser.trim();
+        sshTarget = (sshUser == "") ? sshHost : sshUser + "@" + sshHost;
+    }
+
+    prefs.putString("ssh_target", sshTarget);
+    prefs.putString("ssh_host", sshHost);
+    prefs.putString("ssh_user", sshUser);
+    prefs.putString("ssh_port", sshPort);
+    prefs.putString("ssh_pass", sshPass);
+
+    closeSshSession();
+    if (sshTaskHandle != NULL) {
+        sshStatus = "SSH BUSY";
+        drawMessage("SSH BUSY", "CLOSING OLD SESSION");
+        delay(1200);
+        return false;
+    }
+
+    sshBanner = "";
+    sshTerminalMode = false;
+    sshTerminalLog = "";
+    sshInputLine = "";
+    sshTerminalDirty = false;
+    sshQueuedCommand = "";
+    sshQueuedOutput = "";
+
+    if (WiFi.status() != WL_CONNECTED) {
+        sshStatus = "WIFI OFFLINE";
+        playSound(sound_fail, sound_fail_size);
+        drawProgressBar(100, "SSH WIFI OFFLINE", CP_RED);
+        delay(1200);
+        return false;
+    }
+    if (sshHost == "") {
+        sshStatus = "HOST REQUIRED";
+        playSound(sound_fail, sound_fail_size);
+        drawMessage("SSH HOST", "REQUIRED");
+        delay(1200);
+        return false;
+    }
+    if (sshUser == "") {
+        sshStatus = "USER REQUIRED";
+        playSound(sound_fail, sound_fail_size);
+        drawMessage("USE user@host", "FOR SSH TARGET");
+        delay(1400);
+        return false;
+    }
+
+    long portValue = sshPort.toInt();
+    if (portValue < 1 || portValue > 65535) {
+        sshStatus = "BAD PORT";
+        playSound(sound_fail, sound_fail_size);
+        drawMessage("SSH PORT", "INVALID");
+        delay(1200);
+        return false;
+    }
+
+    IPAddress resolvedIp;
+    drawProgressBar(20, "RESOLVING SSH HOST...", CP_CYAN);
+    if (WiFi.hostByName(sshHost.c_str(), resolvedIp)) {
+        sshHost = resolvedIp.toString();
+    } else {
+        sshStatus = "DNS FAIL";
+        playSound(sound_fail, sound_fail_size);
+        drawMessage("SSH DNS FAIL", sshHost);
+        delay(1400);
+        return false;
+    }
+
+    if (!sshLibReady) {
+        libssh_begin();
+        sshLibReady = true;
+    }
+
+    sshTerminalMode = true;
+    appendSshTerminal(String("$ ssh ") + sshTarget + (sshPort != "22" ? String(":") + sshPort : String("")) + "\n");
+    appendSshTerminal("[BRUCE] starting 32KB SSH task\n");
+
+    if (!initSshMutex()) {
+        sshStatus = "MUTEX FAIL";
+        playSound(sound_fail, sound_fail_size);
+        drawMessage("SSH MUTEX", "FAILED");
+        delay(1200);
+        return false;
+    }
+
+    if (lockSshState()) {
+        sshWorkerHost = sshHost;
+        sshWorkerUser = sshUser;
+        sshWorkerPass = sshPass;
+        sshWorkerPort = (int)portValue;
+        sshStopRequested = false;
+        sshConnected = false;
+        sshShellReady = false;
+        sshStatus = "CONNECTING";
+        unlockSshState();
+    }
+
+    TaskHandle_t workerHandle = NULL;
+    BaseType_t created = xTaskCreate(
+        sshWorkerTask,
+        "SSH Task",
+        BREACH_SSH_TASK_STACK_SIZE,
+        NULL,
+        1,
+        &workerHandle
+    );
+    if (created != pdPASS || workerHandle == NULL) {
+        sshStatus = "TASK FAIL";
+        playSound(sound_fail, sound_fail_size);
+        drawProgressBar(100, "SSH TASK FAIL", CP_RED);
+        delay(1400);
+        return false;
+    }
+    if (lockSshState()) {
+        sshTaskHandle = workerHandle;
+        unlockSshState();
+    }
+    drawProgressBar(100, "SSH TASK STARTED", CP_CYAN);
+    delay(500);
+    return true;
+}
+
+void handleSshInput(Keyboard_Class::KeysState status) {
+    if (sshTerminalMode) {
+        bool exitTerminal = false;
+        bool backspaceRequested = status.del;
+        for (char c : status.word) {
+            if (c == '\b' || c == 0x7f) backspaceRequested = true;
+            if (c == '`' || (c == ',' && sshInputLine == "")) exitTerminal = true;
+        }
+        if (exitTerminal) {
+            playSound(sound_select, sound_select_size);
+            closeSshSession();
+            sshStatus = "CLOSED";
+            sshTerminalMode = false;
+            return;
+        }
+
+        if (backspaceRequested) {
+            if (sshInputLine.length() > 0) sshInputLine.remove(sshInputLine.length() - 1);
+            return;
+        }
+
+        for (char c : status.word) {
+            if (c == '\b' || c == 0x7f) continue;
+            if (c < 32 || c > 126 || c == '`') continue;
+            if (c == ',' && sshInputLine == "") continue;
+            if (sshInputLine.length() < 80) sshInputLine += c;
+        }
+
+        if (status.enter) {
+            String line = sshInputLine;
+            appendSshTerminal(String("> ") + line + "\n");
+            if (sshConnected && sshTaskHandle != NULL) {
+                queueSshCommand(line + "\r");
+            } else {
+                appendSshTerminal("[NOT CONNECTED]\n");
+                sshConnected = false;
+                sshStatus = "DISCONNECTED";
+            }
+            sshInputLine = "";
+        }
+        return;
+    }
+
+    bool hasBack = false;
+    bool backspaceRequested = status.del;
+    for (char c : status.word) {
+        if (c == '\b' || c == 0x7f) backspaceRequested = true;
+        if (c == ',' || c == '`') hasBack = true;
+    }
+    if (hasBack) {
+        playSound(sound_select, sound_select_size);
+        appState = STATE_MAIN_MENU;
+        drawMainMenu();
+        return;
+    }
+
+    if (backspaceRequested) {
+        if (sshFocus == 0 && sshTarget.length() > 0) sshTarget.remove(sshTarget.length() - 1);
+        if (sshFocus == 1 && sshPass.length() > 0) sshPass.remove(sshPass.length() - 1);
+        return;
+    }
+
+    for (char c : status.word) {
+        if (c == '\b' || c == 0x7f) continue;
+        if (c < 32 || c > 126 || c == ',' || c == '`') continue;
+        if (sshFocus == 0 && sshTarget.length() < 64) sshTarget += c;
+        else if (sshFocus == 1 && sshPass.length() < 64) sshPass += c;
+    }
+
+    if (status.enter) {
+        playSound(sound_select, sound_select_size);
+        if (sshFocus == 2) {
+            if (sshPort == "") sshPort = "22";
+            prefs.putString("ssh_target", sshTarget);
+            prefs.putString("ssh_port", sshPort);
+            prefs.putString("ssh_pass", sshPass);
+            connectSshProfile();
+            drawSshScreen();
+            return;
+        }
+        sshFocus++;
+        if (sshFocus > 2) sshFocus = 0;
     }
 }
 

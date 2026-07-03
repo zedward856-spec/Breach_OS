@@ -1,6 +1,9 @@
 // Device initialization.
 
 void setup() {
+    Serial.begin(115200);
+    Serial.setDebugOutput(true);
+
     auto cfg = M5.config();
     M5Cardputer.begin(cfg);
     initSPIFFS();
@@ -31,6 +34,15 @@ void setup() {
     }
     authUser = prefs.getString("user", "");
     authPass = prefs.getString("pass", "");
+    sshHost = prefs.getString("ssh_host", "");
+    sshPort = prefs.getString("ssh_port", "22");
+    if (sshPort == "") sshPort = "22";
+    sshUser = prefs.getString("ssh_user", "");
+    sshPass = prefs.getString("ssh_pass", "");
+    sshTarget = prefs.getString("ssh_target", "");
+    if (sshTarget == "") {
+        sshTarget = (sshUser == "") ? sshHost : sshUser + "@" + sshHost;
+    }
     globalVolume = prefs.getInt("volume", 80);
     if (globalVolume > 100) globalVolume = (globalVolume * 100) / 255;
     globalVolume = ((globalVolume + 2) / 5) * 5;

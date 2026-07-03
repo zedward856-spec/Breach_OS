@@ -19,11 +19,21 @@
 #include <WiFiClientSecure.h>
 #include <ArduinoOTA.h>
 #include <Update.h>
+#include <driver/gpio.h>
+#include "libssh_esp32.h"
+#include <libssh/libssh.h>
+#include <freertos/FreeRTOS.h>
+#include <freertos/semphr.h>
+#include <freertos/task.h>
 #include <AudioOutput.h>
 #include <AudioFileSourceSD.h>
 #include <AudioFileSourceSPIFFS.h>
 #include <AudioGeneratorMP3.h>
+#include <AudioGeneratorWAV.h>
 #include <AudioFileSourceBuffer.h>
+
+static constexpr int AUDIO_SPECTRUM_BARS = 18;
+void feedAudioSpectrumSample(int16_t left, int16_t right);
 
 struct RealFile {
     String name;
@@ -40,6 +50,7 @@ class AudioOutputM5Speaker : public AudioOutput {
     virtual ~AudioOutputM5Speaker(void) {};
     virtual bool begin(void) override { return true; }
     virtual bool ConsumeSample(int16_t sample[2]) override {
+      feedAudioSpectrumSample(sample[0], sample[1]);
       if (_tri_buffer_index < tri_buf_size) {
         _tri_buffer[_tri_index][_tri_buffer_index] = sample[0]; 
         _tri_buffer[_tri_index][_tri_buffer_index+1] = sample[1]; 
@@ -84,8 +95,18 @@ SortField currentSortField = SORT_FIELD_NAME;
 SortOrder currentSortOrder = SORT_ORDER_ASC;
 
 WiFiClientSecure secureClient;
+WiFiClient sshClient;
+ssh_session sshSession = NULL;
+ssh_channel sshChannel = NULL;
+SemaphoreHandle_t sshMutex = NULL;
+TaskHandle_t sshTaskHandle = NULL;
 bool secureClientInit = false;
 bool otaInit = false;
+bool sshLibReady = false;
+
+static constexpr uint32_t BREACH_SSH_TASK_STACK_SIZE = 1024 * 32;
+static constexpr size_t SSH_IO_BUFFER_SIZE = 256;
+static constexpr size_t SSH_MAX_QUEUE_BYTES = 1024;
 
 #define API_URL "https://m5cardputer-cyberpunk-breach-protoc.vercel.app/api"
 
@@ -157,6 +178,7 @@ enum AppState {
     STATE_MAIN_MENU,
     STATE_LEADERBOARD,
     STATE_ACCOUNT,
+    STATE_SSH,
     STATE_GRID_SELECT,
     STATE_PHASE_TRANSITION,
     STATE_FAILED_SCREEN,
@@ -174,6 +196,7 @@ enum AppState {
     STATE_MUSIC_PLAYER
 };
 AppState appState = STATE_SPLASH;
+bool suppressBatteryPercentBox = false;
 
 bool isGuest = false;
 int insaneMode = 0;
@@ -202,7 +225,7 @@ std::vector<LeaderboardEntry> globalLeaderboard;
 int totalLeaderboardSize = 0;
 int leaderboardCursor = 0;
 int leaderboardScrollOffset = 0;
-int mainMenuFocus = 0; // 0: PLAY, 1: LEADERBOARD, 2: ACCOUNT
+int mainMenuFocus = 0; // NETWORK NODE wheel focus
 
 int accountFocus = 0;
 String newAccountName = "";
@@ -212,6 +235,28 @@ int accountRank = 0;
 int accountHighGrid = 0;
 int accountHighPhase = 0;
 bool accountStatsFetched = false;
+
+int sshFocus = 0;
+String sshTarget = "";
+String sshHost = "";
+String sshPort = "22";
+String sshUser = "";
+String sshPass = "";
+String sshStatus = "READY";
+String sshBanner = "";
+bool sshConnected = false;
+bool sshTerminalMode = false;
+bool sshTerminalDirty = false;
+String sshTerminalLog = "";
+String sshInputLine = "";
+bool sshShellReady = false;
+String sshQueuedCommand = "";
+String sshQueuedOutput = "";
+String sshWorkerHost = "";
+String sshWorkerUser = "";
+String sshWorkerPass = "";
+int sshWorkerPort = 22;
+bool sshStopRequested = false;
 
 int currentPhase = 1;
 int accumulatedScore = 0;
@@ -238,6 +283,7 @@ float lastTimeRatio = 0.0;
 void initGame(bool keepDiff = false);
 void drawScreen();
 void drawSplash();
+void resetSplashBootScroll();
 void drawAuthMenu();
 void drawWifiScan();
 void drawWifiPass();
@@ -245,6 +291,13 @@ void drawMainMenu();
 void enterMainMenu();
 void drawLeaderboard();
 void drawAccountMenu();
+void drawSshScreen();
+bool connectSshProfile();
+void pollSshTerminal();
+void closeSshSession();
+bool trySshKeyFile(ssh_session session, const String &authSecret, const char* path);
+bool authenticateSshSession(ssh_session session, const String &authSecret);
+void sshWorkerTask(void *pvParameters);
 void drawGridSelect();
 void drawPhaseTransition();
 void drawGameOverFailed();
@@ -274,6 +327,7 @@ void drawOtaCatalog();
 void enterOtaCatalog();
 void handleOtaCatalogInput(Keyboard_Class::KeysState status);
 void performOtaUpdate(String binUrl);
+void performOtaUpdate(String binUrl, size_t expectedBytes);
 bool fetchOtaCatalog();
 String resolveOtaFirmwareUrl(String fid);
 bool fetchOtaFirmwareDetails(String fid);
@@ -283,10 +337,12 @@ void drawDirConfirmPopup();
 void handleDirConfirmPopupInput(Keyboard_Class::KeysState status);
 void drawMusicPlayer();
 void handleMusicPlayerInput(Keyboard_Class::KeysState status);
+void updateMusicInputGate(bool enterDown);
 void populatePlaylist();
 void playNextTrack();
 void playPrevTrack();
 void startMp3InPlayer(String fileName);
+void toggleMusicPlaybackPause();
 void stopMp3Playback();
 void stopMp3();
 void drawMessage(String msg);
@@ -300,6 +356,11 @@ bool compareFiles(const RealFile& a, const RealFile& b);
 void populateFileList();
 void readSelectedFileContent(String fileName);
 void drawChippedButton(int x, int y, int w, int h, uint16_t color);
+void drawBatteryPercentBox();
+void drawWheelPositionIndicator(int focus, int totalItems);
+void resetAudioSpectrum();
+void feedAudioSpectrumBuffer(const int16_t* samples, size_t sampleCount);
+void drawAudioSpectrum(int x, int baselineY, int width, int height);
 void handleSplashInput(Keyboard_Class::KeysState status);
 void startWifiScan();
 void submitScore(int scoreToSubmit);
@@ -307,6 +368,7 @@ void handleAuthInput(Keyboard_Class::KeysState status);
 void handleWifiScanInput(Keyboard_Class::KeysState status);
 void handleWifiPassInput(Keyboard_Class::KeysState status);
 void handleMainMenuInput(Keyboard_Class::KeysState status);
+void handleSshInput(Keyboard_Class::KeysState status);
 void drawRotatedText(String text, int cx, int cy, uint16_t color);
 void handleGridSelectInput(Keyboard_Class::KeysState status);
 void handlePhaseTransitionInput(Keyboard_Class::KeysState status);
@@ -341,10 +403,14 @@ unsigned long lastFileSelectionTime = 0;
 int marqueeScrollOffset = 0;
 unsigned long lastMarqueeUpdate = 0;
 AudioGeneratorMP3 *mp3 = nullptr;
+AudioGeneratorWAV *wav = nullptr;
 AudioFileSourceSD *fileSD = nullptr;
 AudioFileSourceSPIFFS *fileSPIFFS = nullptr;
 AudioFileSourceBuffer *audioBuffer = nullptr;
 AudioOutputM5Speaker *audioOut = nullptr;
+uint16_t audioSpectrumLevels[AUDIO_SPECTRUM_BARS] = {0};
+uint32_t audioSpectrumCursor = 0;
+unsigned long audioSpectrumLastDecay = 0;
 bool isMp3Playing = false;
 String mp3PlayLoopMode = "name";
 std::vector<String> playlist;
@@ -358,12 +424,16 @@ unsigned long mp3StartTime = 0;
 unsigned long mp3PausedTime = 0;
 bool mp3IsPaused = false;
 int mp3DurationSeconds = 180;
+uint32_t musicPlaybackDurationMs = 0;
+uint32_t musicPlaybackElapsedMs = 0;
 bool showImage = false;
 String openedImageName = "";
 float imageScale = 1.0f;
 bool showBootMenu = false;
 bool showSplashBootMenu = false;
 int splashBootFocus = 0;
+float currentSplashBootScroll = 0;
+float targetSplashBootScroll = 0;
 
 struct FirmwareCatalogItem {
     String fid;
@@ -388,6 +458,7 @@ struct FirmwareVersionItem {
     String version;
     String file;
     String publishedAt;
+    size_t sizeBytes;
 };
 std::vector<FirmwareVersionItem> otaVersions;
 int otaVersionFocus = 0;

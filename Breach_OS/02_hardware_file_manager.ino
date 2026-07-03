@@ -116,14 +116,7 @@ void populateFileList() {
         
         if (!mountSuccess || !root || !root.isDirectory()) {
             isSDFallback = true;
-            fsStatusMessage = "SD MOUNT FAIL (DEMO ACTIVE)";
-            
-            RealFile f1 = {"credentials.txt", "0.1 KB", false};
-            RealFile f2 = {"subnet_node.sh", "0.1 KB", false};
-            RealFile f3 = {"payload.bin", "1.2 KB", false};
-            loadedFiles.push_back(f1);
-            loadedFiles.push_back(f2);
-            loadedFiles.push_back(f3);
+            fsStatusMessage = "SD MOUNT FAIL";
             if (root) root.close();
         } else {
             File file = root.openNextFile();
@@ -153,14 +146,7 @@ void populateFileList() {
             // If the folder is empty (excluding ".." if present)
             int minSize = (fileManagerCurrentPath != "/") ? 1 : 0;
             if ((int)loadedFiles.size() <= minSize) {
-                isSDFallback = true;
-                fsStatusMessage = "SD CARD EMPTY (DEMO ACTIVE)";
-                RealFile f1 = {"credentials.txt", "0.1 KB", false};
-                RealFile f2 = {"subnet_node.sh", "0.1 KB", false};
-                RealFile f3 = {"payload.bin", "1.2 KB", false};
-                loadedFiles.push_back(f1);
-                loadedFiles.push_back(f2);
-                loadedFiles.push_back(f3);
+                fsStatusMessage = "folder empty press esc";
             }
         }
     } else {
@@ -172,13 +158,7 @@ void populateFileList() {
         
         if (!mountSuccess || !root) {
             isFlashFallback = true;
-            fsStatusMessage = "FLASH MOUNT FAIL (DEMO ACTIVE)";
-            RealFile f1 = {"deck_config.json", "0.1 KB", false};
-            RealFile f2 = {"breach_log.txt", "0.1 KB", false};
-            RealFile f3 = {"system.ini", "0.1 KB", false};
-            loadedFiles.push_back(f1);
-            loadedFiles.push_back(f2);
-            loadedFiles.push_back(f3);
+            fsStatusMessage = "FLASH MOUNT FAIL";
             if (root) root.close();
         } else {
             File file = root.openNextFile();
@@ -204,14 +184,7 @@ void populateFileList() {
             root.close();
             int minSize = (fileManagerCurrentPath != "/") ? 1 : 0;
             if ((int)loadedFiles.size() <= minSize) {
-                isFlashFallback = true;
-                fsStatusMessage = "FLASH EMPTY (DEMO ACTIVE)";
-                RealFile f1 = {"deck_config.json", "0.1 KB", false};
-                RealFile f2 = {"breach_log.txt", "0.1 KB", false};
-                RealFile f3 = {"system.ini", "0.1 KB", false};
-                loadedFiles.push_back(f1);
-                loadedFiles.push_back(f2);
-                loadedFiles.push_back(f3);
+                fsStatusMessage = "folder empty press esc";
             }
         }
     }
@@ -235,19 +208,7 @@ void readSelectedFileContent(String fileName) {
     
     if (isSDCardManager) {
         if (isSDFallback) {
-            if (fileName == "credentials.txt") {
-                openedFileContent.push_back("[system_credentials]");
-                openedFileContent.push_back("admin:cYbErPuNk2077");
-                openedFileContent.push_back("net_gate:ice_breaker");
-            } else if (fileName == "subnet_node.sh") {
-                openedFileContent.push_back("#!/bin/bash");
-                openedFileContent.push_back("nmap -sS -O 10.0.2.15");
-                openedFileContent.push_back("bypass_firewall --level 3");
-            } else {
-                openedFileContent.push_back("0xDEADBEEF 0xCAFEBABE");
-                openedFileContent.push_back("0x00FF00FF 0x12345678");
-                openedFileContent.push_back("VULNERABILITY DETECTED");
-            }
+            openedFileContent.push_back("SD storage unavailable.");
             return;
         }
         
@@ -278,20 +239,7 @@ void readSelectedFileContent(String fileName) {
         f.close();
     } else {
         if (isFlashFallback) {
-            if (fileName == "deck_config.json") {
-                openedFileContent.push_back("{");
-                openedFileContent.push_back("  \"deck_id\": \"CYBER_D_01\",");
-                openedFileContent.push_back("  \"os\": \"Breach_OS\"");
-                openedFileContent.push_back("}");
-            } else if (fileName == "breach_log.txt") {
-                openedFileContent.push_back("BREACH ACCESS LOG:");
-                openedFileContent.push_back("OP: sl01220");
-                openedFileContent.push_back("STATUS: COMPLETED");
-            } else {
-                openedFileContent.push_back("[system]");
-                openedFileContent.push_back("node=BP_X1");
-                openedFileContent.push_back("security=HIGH");
-            }
+            openedFileContent.push_back("Flash storage unavailable.");
             return;
         }
         
@@ -322,22 +270,691 @@ void readSelectedFileContent(String fileName) {
     }
 }
 
+static constexpr uint32_t SOUND_REC_SAMPLE_RATE = 16000;
+static constexpr uint32_t SOUND_REC_BYTES_PER_SAMPLE = sizeof(int16_t);
+static constexpr size_t SOUND_REC_RECORD_LENGTH = 240;
+static constexpr uint32_t SOUND_REC_TARGET_SECONDS = 30;
+static constexpr size_t SOUND_REC_RECORD_NUMBER = (SOUND_REC_SAMPLE_RATE * SOUND_REC_TARGET_SECONDS) / SOUND_REC_RECORD_LENGTH;
+static constexpr size_t SOUND_REC_RECORD_SIZE = SOUND_REC_RECORD_NUMBER * SOUND_REC_RECORD_LENGTH;
+static constexpr size_t SOUND_REC_STREAM_RECORD_LENGTH = 1024;
+static constexpr size_t SOUND_REC_STREAM_RECORD_NUMBER = (SOUND_REC_SAMPLE_RATE * SOUND_REC_TARGET_SECONDS + SOUND_REC_STREAM_RECORD_LENGTH - 1) / SOUND_REC_STREAM_RECORD_LENGTH;
+static constexpr size_t SOUND_REC_STREAM_SLOTS = 4;
+static constexpr size_t SOUND_REC_VIZ_MAX_SAMPLES = SOUND_REC_STREAM_RECORD_LENGTH;
+
+static constexpr uint32_t SOUND_REC_DRAW_INTERVAL_MS = 80;
+static constexpr uint64_t SOUND_REC_WAV_HEADER_BYTES = 44ULL;
+static constexpr const char* SOUND_REC_OS_DIR = "/Breach_OS";
+static constexpr const char* SOUND_REC_DIR = "/Breach_OS/recordings";
+static uint32_t soundRecFileCounter = 0;
+uint16_t soundRecLivePeak = 0;
+uint16_t soundRecMaxPeak = 0;
+
+void resetSoundRecMicPins() {
+    gpio_reset_pin(GPIO_NUM_43); // Cardputer PDM mic clock
+    gpio_reset_pin(GPIO_NUM_46); // Cardputer PDM mic data
+}
+
+void soundRecPutText(uint8_t* header, int offset, const char* text) {
+    for (int i = 0; i < 4; i++) header[offset + i] = (uint8_t)text[i];
+}
+
+void soundRecPutU16(uint8_t* header, int offset, uint16_t value) {
+    header[offset] = (uint8_t)(value & 0xFF);
+    header[offset + 1] = (uint8_t)((value >> 8) & 0xFF);
+}
+
+void soundRecPutU32(uint8_t* header, int offset, uint32_t value) {
+    header[offset] = (uint8_t)(value & 0xFF);
+    header[offset + 1] = (uint8_t)((value >> 8) & 0xFF);
+    header[offset + 2] = (uint8_t)((value >> 16) & 0xFF);
+    header[offset + 3] = (uint8_t)((value >> 24) & 0xFF);
+}
+
+void buildSoundRecWavHeader(uint8_t* header, uint32_t dataBytes) {
+    const uint16_t bitsPerSample = 16;
+    const uint16_t channels = 1;
+    const uint32_t byteRate = SOUND_REC_SAMPLE_RATE * channels * bitsPerSample / 8;
+    const uint16_t blockAlign = channels * bitsPerSample / 8;
+
+    soundRecPutText(header, 0, "RIFF");
+    soundRecPutU32(header, 4, 36 + dataBytes);
+    soundRecPutText(header, 8, "WAVE");
+    soundRecPutText(header, 12, "fmt ");
+    soundRecPutU32(header, 16, 16);
+    soundRecPutU16(header, 20, 1);
+    soundRecPutU16(header, 22, channels);
+    soundRecPutU32(header, 24, SOUND_REC_SAMPLE_RATE);
+    soundRecPutU32(header, 28, byteRate);
+    soundRecPutU16(header, 32, blockAlign);
+    soundRecPutU16(header, 34, bitsPerSample);
+    soundRecPutText(header, 36, "data");
+    soundRecPutU32(header, 40, dataBytes);
+}
+
+bool ensureSoundRecDir(const char* path) {
+    File dir = SD.open(path);
+    if (dir) {
+        bool ok = dir.isDirectory();
+        dir.close();
+        return ok;
+    }
+    return SD.mkdir(path);
+}
+
+bool ensureSoundRecRecordingsDir() {
+    return ensureSoundRecDir(SOUND_REC_OS_DIR) && ensureSoundRecDir(SOUND_REC_DIR);
+}
+
+String makeSoundRecPath() {
+    char filename[64];
+    for (uint16_t tries = 0; tries < 1000; tries++) {
+        snprintf(filename, sizeof(filename), "%s/recorded%lu.wav", SOUND_REC_DIR, (unsigned long)soundRecFileCounter++);
+        if (!SD.exists(filename)) return String(filename);
+    }
+    snprintf(filename, sizeof(filename), "%s/recorded%lu.wav", SOUND_REC_DIR, (unsigned long)soundRecFileCounter++);
+    return String(filename);
+}
+
+String soundRecTwoDigits(uint32_t value) {
+    if (value < 10) return "0" + String(value);
+    return String(value);
+}
+
+String formatSoundRecTime(uint64_t samples) {
+    uint32_t seconds = (uint32_t)(samples / SOUND_REC_SAMPLE_RATE);
+    uint32_t hours = seconds / 3600;
+    uint32_t minutes = (seconds % 3600) / 60;
+    uint32_t secs = seconds % 60;
+    if (hours > 0) {
+        return String(hours) + ":" + soundRecTwoDigits(minutes) + ":" + soundRecTwoDigits(secs);
+    }
+    return String(minutes) + ":" + soundRecTwoDigits(secs);
+}
+
+String formatSoundRecSize(uint64_t bytes) {
+    if (bytes >= 1024ULL * 1024ULL * 1024ULL) {
+        uint32_t whole = (uint32_t)(bytes / (1024ULL * 1024ULL * 1024ULL));
+        uint32_t frac = (uint32_t)((bytes % (1024ULL * 1024ULL * 1024ULL)) * 10ULL / (1024ULL * 1024ULL * 1024ULL));
+        return String(whole) + "." + String(frac) + "G";
+    }
+    if (bytes >= 1024ULL * 1024ULL) return String((uint32_t)(bytes / (1024ULL * 1024ULL))) + "M";
+    if (bytes >= 1024ULL) return String((uint32_t)(bytes / 1024ULL)) + "K";
+    return String((uint32_t)bytes) + "B";
+}
+
+uint16_t getSoundRecPeak(const int16_t* samples, size_t sampleCount) {
+    uint16_t peak = 0;
+    if (!samples) return peak;
+    for (size_t i = 0; i < sampleCount; i++) {
+        int32_t v = samples[i];
+        if (v < 0) v = -v;
+        if (v > 32767) v = 32767;
+        if ((uint16_t)v > peak) peak = (uint16_t)v;
+    }
+    return peak;
+}
+
+int16_t* allocSoundRecBufferFromChoices(const size_t* chunkChoices, size_t choiceCount, size_t& recordChunks) {
+    for (size_t i = 0; i < choiceCount; i++) {
+        size_t chunks = chunkChoices[i];
+        size_t bytes = chunks * SOUND_REC_RECORD_LENGTH * SOUND_REC_BYTES_PER_SAMPLE;
+        int16_t* data = (int16_t*)malloc(bytes);
+        if (data) {
+            memset(data, 0, bytes);
+            recordChunks = chunks;
+            return data;
+        }
+    }
+    recordChunks = 0;
+    return nullptr;
+}
+
+int16_t* allocSoundRecBuffer(size_t& recordChunks) {
+    static const size_t chunkChoices[] = {SOUND_REC_RECORD_NUMBER, 512, 384, 256, 192, 128, 96, 64};
+    return allocSoundRecBufferFromChoices(chunkChoices, sizeof(chunkChoices) / sizeof(chunkChoices[0]), recordChunks);
+}
+
+int16_t* allocSoundRecFallbackBuffer(size_t& recordChunks) {
+    static const size_t chunkChoices[] = {512, 384, 256, 192, 128, 96, 64};
+    return allocSoundRecBufferFromChoices(chunkChoices, sizeof(chunkChoices) / sizeof(chunkChoices[0]), recordChunks);
+}
+
+void configureSoundRecMic() {
+    auto cfg = M5Cardputer.Mic.config();
+    cfg.pin_data_in = GPIO_NUM_46;
+    cfg.pin_ws = GPIO_NUM_43;
+    cfg.pin_bck = I2S_PIN_NO_CHANGE;
+    cfg.pin_mck = I2S_PIN_NO_CHANGE;
+    cfg.i2s_port = I2S_NUM_0;
+    cfg.sample_rate = SOUND_REC_SAMPLE_RATE;
+    cfg.input_channel = m5::input_channel_t::input_only_right;
+    cfg.stereo = false;
+    cfg.noise_filter_level = 0;
+    cfg.over_sampling = 2;
+    cfg.magnification = 16;
+    cfg.dma_buf_len = 128;
+    cfg.dma_buf_count = 8;
+    cfg.task_priority = 2;
+    M5Cardputer.Mic.config(cfg);
+}
+
+bool startSoundRecMic() {
+    M5Cardputer.Speaker.setVolume(255);
+    M5Cardputer.Speaker.stop();
+    M5Cardputer.Speaker.end();
+    M5Cardputer.Mic.end();
+    delay(50);
+    resetSoundRecMicPins();
+    delay(20);
+
+    configureSoundRecMic();
+    if (M5Cardputer.Mic.begin() && M5Cardputer.Mic.isEnabled()) return true;
+
+    M5Cardputer.Mic.end();
+    resetSoundRecMicPins();
+    M5Cardputer.Speaker.begin();
+    M5Cardputer.Speaker.setVolume((globalVolume * 255) / 100);
+    return false;
+}
+
+void restoreSoundRecAudio() {
+    M5Cardputer.Mic.end();
+    resetSoundRecMicPins();
+    M5Cardputer.Speaker.begin();
+    M5Cardputer.Speaker.setVolume((globalVolume * 255) / 100);
+}
+
+void conditionSoundRecChunk(int16_t* samples, size_t sampleCount) {
+    if (!samples || sampleCount == 0) return;
+
+    int64_t sum = 0;
+    for (size_t i = 0; i < sampleCount; i++) sum += samples[i];
+    int32_t mean = (int32_t)(sum / (int64_t)sampleCount);
+
+    for (size_t i = 0; i < sampleCount; i++) {
+        int32_t v = (int32_t)samples[i] - mean;
+        v *= 2;
+        if (v > 32767) v = 32767;
+        if (v < -32768) v = -32768;
+        samples[i] = (int16_t)v;
+    }
+}
+
+bool pollSoundRecStop(unsigned long startMs, bool& stopKeysArmed, bool& lastStopDown) {
+    Keyboard_Class::KeysState stopStatus = M5Cardputer.Keyboard.keysState();
+    bool stopDown = stopStatus.enter || stopStatus.del;
+    for (char c : stopStatus.word) {
+        if (c == '`') stopDown = true;
+    }
+
+    if (!stopKeysArmed) {
+        if (millis() - startMs > 800 && !stopDown) {
+            stopKeysArmed = true;
+        }
+        lastStopDown = stopDown;
+        return false;
+    }
+
+    bool pressed = stopDown && !lastStopDown;
+    lastStopDown = stopDown;
+    return pressed;
+}
+
+void drawSoundRecScreen(const int16_t* samples, size_t sampleCount, uint64_t recordedSamples, uint64_t maxSamples, uint64_t maxDataBytes) {
+    uint64_t dataBytes = recordedSamples * SOUND_REC_BYTES_PER_SAMPLE;
+    int progress = maxSamples ? (int)((recordedSamples * 100ULL) / maxSamples) : 0;
+    if (progress > 100) progress = 100;
+
+    canvas.startWrite();
+    canvas.fillScreen(CP_BG);
+    drawChippedButton(6, 5, 228, 124, CP_CYAN);
+    drawChippedButton(8, 7, 224, 120, CP_DIM);
+
+    canvas.setTextColor(CP_YELLOW);
+    canvas.setTextSize(1);
+    canvas.drawCenterString("--- SOUND REC ---", 120, 11);
+    canvas.setTextColor(CP_CYAN);
+    canvas.drawCenterString("TIME " + formatSoundRecTime(recordedSamples) + " / " + formatSoundRecTime(maxSamples), 120, 27);
+    canvas.setTextColor(CP_DIM);
+    canvas.drawCenterString("DATA " + formatSoundRecSize(dataBytes) + " / " + formatSoundRecSize(maxDataBytes), 120, 40);
+    canvas.setTextColor(CP_YELLOW);
+    canvas.drawCenterString("MIC PDM PK " + String(soundRecLivePeak) + " / MAX " + String(soundRecMaxPeak), 120, 50);
+
+    int barX = 20;
+    int barY = 62;
+    int barW = 200;
+    int barH = 8;
+    canvas.drawRect(barX, barY, barW, barH, CP_DIM);
+    int fillW = (int)((uint64_t)(barW - 2) * progress / 100ULL);
+    if (fillW > 0) canvas.fillRect(barX + 1, barY + 1, fillW, barH - 2, CP_RED);
+
+    canvas.setTextColor(CP_YELLOW);
+    canvas.drawCenterString("LIVE SPECTRUM", 120, 75);
+    if (samples && sampleCount > 0) feedAudioSpectrumBuffer(samples, sampleCount);
+    drawAudioSpectrum(14, 114, 212, 38);
+
+    canvas.setTextColor(CP_DIM);
+    canvas.drawCenterString("ENTER/DEL/ESC STOP", 120, 119);
+    pushCanvas();
+}
+
+void consumeSoundRecChunkForUi(const int16_t* data, size_t sampleCount) {
+    if (!data) return;
+    if (sampleCount > SOUND_REC_VIZ_MAX_SAMPLES) sampleCount = SOUND_REC_VIZ_MAX_SAMPLES;
+    static int16_t vizData[SOUND_REC_VIZ_MAX_SAMPLES];
+    memcpy(vizData, data, sampleCount * sizeof(int16_t));
+    conditionSoundRecChunk(vizData, sampleCount);
+    soundRecLivePeak = getSoundRecPeak(data, sampleCount);
+    if (soundRecLivePeak > soundRecMaxPeak) soundRecMaxPeak = soundRecLivePeak;
+    feedAudioSpectrumBuffer(vizData, sampleCount);
+}
+
+bool soundRecStreamToSd(const String& path) {
+    size_t slotSamples = SOUND_REC_STREAM_RECORD_LENGTH;
+    size_t slotBytes = slotSamples * SOUND_REC_BYTES_PER_SAMPLE;
+    int16_t* streamData = (int16_t*)malloc(SOUND_REC_STREAM_SLOTS * slotBytes);
+    if (!streamData) return false;
+    memset(streamData, 0, SOUND_REC_STREAM_SLOTS * slotBytes);
+
+    SD.remove(path.c_str());
+    File recFile = SD.open(path.c_str(), FILE_WRITE);
+    if (!recFile) {
+        free(streamData);
+        return false;
+    }
+
+    uint8_t wavHeader[44];
+    buildSoundRecWavHeader(wavHeader, 0);
+    if (recFile.write(wavHeader, sizeof(wavHeader)) != sizeof(wavHeader)) {
+        recFile.close();
+        SD.remove(path.c_str());
+        free(streamData);
+        return false;
+    }
+
+    drawProgressBar(60, "STREAMING PDM MIC", CP_CYAN);
+    if (!startSoundRecMic()) {
+        recFile.close();
+        SD.remove(path.c_str());
+        free(streamData);
+        return false;
+    }
+
+    bool recordFailed = false;
+    bool stopRequested = false;
+    bool writeFailed = false;
+    bool stopKeysArmed = false;
+    bool lastStopDown = true;
+    uint64_t queuedChunks = 0;
+    uint64_t writtenChunks = 0;
+    uint64_t maxSamples = SOUND_REC_STREAM_RECORD_NUMBER * SOUND_REC_STREAM_RECORD_LENGTH;
+    uint64_t maxDataBytes = maxSamples * SOUND_REC_BYTES_PER_SAMPLE;
+    soundRecLivePeak = 0;
+    soundRecMaxPeak = 0;
+    resetAudioSpectrum();
+    unsigned long startMs = millis();
+    unsigned long lastDrawMs = 0;
+    drawSoundRecScreen(nullptr, 0, 0, maxSamples, maxDataBytes);
+
+    for (size_t i = 0; i < SOUND_REC_STREAM_RECORD_NUMBER; i++) {
+        M5Cardputer.update();
+        if (pollSoundRecStop(startMs, stopKeysArmed, lastStopDown)) {
+            stopRequested = true;
+            break;
+        }
+
+        int16_t* data = &streamData[(queuedChunks % SOUND_REC_STREAM_SLOTS) * slotSamples];
+        memset(data, 0, slotBytes);
+        if (!M5Cardputer.Mic.record(data, slotSamples, SOUND_REC_SAMPLE_RATE, false)) {
+            recordFailed = true;
+            break;
+        }
+        queuedChunks++;
+
+        if (queuedChunks > 2) {
+            int16_t* ready = &streamData[(writtenChunks % SOUND_REC_STREAM_SLOTS) * slotSamples];
+            consumeSoundRecChunkForUi(ready, slotSamples);
+            if (recFile.write((const uint8_t*)ready, slotBytes) != slotBytes) {
+                writeFailed = true;
+                break;
+            }
+            writtenChunks++;
+        }
+
+        unsigned long now = millis();
+        if (now - lastDrawMs >= SOUND_REC_DRAW_INTERVAL_MS) {
+            lastDrawMs = now;
+            drawSoundRecScreen(nullptr, 0, writtenChunks * slotSamples, maxSamples, maxDataBytes);
+        }
+    }
+
+    while (M5Cardputer.Mic.isRecording()) {
+        M5Cardputer.update();
+        delay(1);
+    }
+    restoreSoundRecAudio();
+
+    while (!writeFailed && writtenChunks < queuedChunks) {
+        int16_t* ready = &streamData[(writtenChunks % SOUND_REC_STREAM_SLOTS) * slotSamples];
+        consumeSoundRecChunkForUi(ready, slotSamples);
+        if (recFile.write((const uint8_t*)ready, slotBytes) != slotBytes) {
+            writeFailed = true;
+            break;
+        }
+        writtenChunks++;
+        drawSoundRecScreen(nullptr, 0, writtenChunks * slotSamples, maxSamples, maxDataBytes);
+    }
+
+    uint64_t capturedSamples = writtenChunks * slotSamples;
+    uint32_t dataBytes = (uint32_t)(capturedSamples * SOUND_REC_BYTES_PER_SAMPLE);
+    buildSoundRecWavHeader(wavHeader, dataBytes);
+    bool headerSaved = dataBytes > 0 && recFile.seek(0) && recFile.write(wavHeader, sizeof(wavHeader)) == sizeof(wavHeader);
+    recFile.flush();
+    recFile.close();
+    free(streamData);
+
+    if (!headerSaved || writeFailed || dataBytes == 0) {
+        SD.remove(path.c_str());
+        Serial.printf("[SOUNDREC] stream failed bytes=%lu max=%u writeFail=%d\n", (unsigned long)dataBytes, soundRecMaxPeak, writeFailed ? 1 : 0);
+        return false;
+    }
+
+    String fileName = path.substring(path.lastIndexOf('/') + 1);
+    Serial.printf("[SOUNDREC] streamed %s bytes=%lu max=%u mic=PDM gpio_data=46 gpio_clk=43\n", path.c_str(), (unsigned long)dataBytes, soundRecMaxPeak);
+    if (soundRecMaxPeak < 24) {
+        drawMessage("MIC FLATLINE", fileName);
+    } else if (stopRequested || recordFailed || writtenChunks < SOUND_REC_STREAM_RECORD_NUMBER) {
+        drawMessage("PARTIAL WAV SAVED", fileName);
+    } else {
+        drawMessage("REC SAVED PK " + String(soundRecMaxPeak), fileName);
+    }
+    return true;
+}
+
+void soundRec() {
+    stopMp3Playback();
+    drawProgressBar(0, "MOUNTING SD REC VAULT", CP_CYAN);
+
+    SPI.begin(40, 39, 14, 12);
+    if (!SD.begin(12, SPI, 25000000) || SD.cardType() == CARD_NONE) {
+        drawMessage("SD MOUNT FAIL", "SOUND REC ABORTED");
+        delay(1500);
+        drawHardwareMenu();
+        return;
+    }
+    if (!ensureSoundRecRecordingsDir()) {
+        drawMessage("REC DIR FAIL", "Breach_OS/recordings");
+        delay(1500);
+        drawHardwareMenu();
+        return;
+    }
+
+    String path = makeSoundRecPath();
+    size_t recordChunks = 0;
+    int16_t* recData = allocSoundRecBuffer(recordChunks);
+    if (!recData || recordChunks < SOUND_REC_RECORD_NUMBER) {
+        if (recData) {
+            free(recData);
+            recData = nullptr;
+        }
+        if (soundRecStreamToSd(path)) {
+            delay(1600);
+            drawHardwareMenu();
+            return;
+        }
+        recData = allocSoundRecFallbackBuffer(recordChunks);
+    }
+    if (!recData) {
+        drawMessage("REC RAM FAIL", "NO AUDIO BUFFER");
+        delay(1500);
+        drawHardwareMenu();
+        return;
+    }
+
+    uint64_t maxSamples = recordChunks * SOUND_REC_RECORD_LENGTH;
+    uint64_t maxDataBytes = maxSamples * SOUND_REC_BYTES_PER_SAMPLE;
+
+    drawProgressBar(60, "CONFIGURING PDM MIC", CP_CYAN);
+
+    if (!startSoundRecMic()) {
+        free(recData);
+        drawMessage("MIC INIT FAIL", "SOUND REC ABORTED");
+        delay(1500);
+        drawHardwareMenu();
+        return;
+    }
+
+    bool recordFailed = false;
+    bool stopRequested = false;
+    bool stopKeysArmed = false;
+    bool lastStopDown = true;
+    uint64_t queuedChunks = 0;
+    uint64_t completedChunks = 0;
+    soundRecLivePeak = 0;
+    soundRecMaxPeak = 0;
+    resetAudioSpectrum();
+    unsigned long startMs = millis();
+    unsigned long lastDrawMs = 0;
+    drawSoundRecScreen(nullptr, 0, 0, maxSamples, maxDataBytes);
+
+    for (size_t i = 0; i < recordChunks; i++) {
+        M5Cardputer.update();
+        if (pollSoundRecStop(startMs, stopKeysArmed, lastStopDown)) {
+            stopRequested = true;
+            break;
+        }
+
+        int16_t* data = &recData[i * SOUND_REC_RECORD_LENGTH];
+        memset(data, 0, SOUND_REC_RECORD_LENGTH * sizeof(int16_t));
+        if (!M5Cardputer.Mic.record(data, SOUND_REC_RECORD_LENGTH, SOUND_REC_SAMPLE_RATE, false)) {
+            recordFailed = true;
+            break;
+        }
+        queuedChunks++;
+        if (queuedChunks > 2) {
+            consumeSoundRecChunkForUi(&recData[completedChunks * SOUND_REC_RECORD_LENGTH], SOUND_REC_RECORD_LENGTH);
+            completedChunks++;
+        }
+
+        unsigned long now = millis();
+        if (now - lastDrawMs >= SOUND_REC_DRAW_INTERVAL_MS) {
+            lastDrawMs = now;
+            drawSoundRecScreen(nullptr, 0, completedChunks * SOUND_REC_RECORD_LENGTH, maxSamples, maxDataBytes);
+        }
+    }
+
+    while (M5Cardputer.Mic.isRecording()) {
+        M5Cardputer.update();
+        delay(1);
+    }
+    restoreSoundRecAudio();
+
+    while (completedChunks < queuedChunks) {
+        consumeSoundRecChunkForUi(&recData[completedChunks * SOUND_REC_RECORD_LENGTH], SOUND_REC_RECORD_LENGTH);
+        completedChunks++;
+        drawSoundRecScreen(nullptr, 0, completedChunks * SOUND_REC_RECORD_LENGTH, maxSamples, maxDataBytes);
+    }
+
+    uint64_t capturedSamples = completedChunks * SOUND_REC_RECORD_LENGTH;
+    drawSoundRecScreen(nullptr, 0, capturedSamples, maxSamples, maxDataBytes);
+
+    uint32_t dataBytes = (uint32_t)(capturedSamples * SOUND_REC_BYTES_PER_SAMPLE);
+    uint8_t wavHeader[44];
+    buildSoundRecWavHeader(wavHeader, dataBytes);
+    bool fileSaved = false;
+    if (dataBytes > 0) {
+        SD.remove(path.c_str());
+        File recFile = SD.open(path.c_str(), FILE_WRITE);
+        if (recFile) {
+            size_t headerBytes = recFile.write(wavHeader, sizeof(wavHeader));
+            size_t dataWritten = recFile.write((const uint8_t*)recData, dataBytes);
+            recFile.flush();
+            recFile.close();
+            fileSaved = headerBytes == sizeof(wavHeader) && dataWritten == dataBytes;
+        }
+    }
+    free(recData);
+
+    if (!fileSaved || dataBytes == 0) {
+        SD.remove(path.c_str());
+        Serial.printf("[SOUNDREC] save failed bytes=%lu max=%u\n", (unsigned long)dataBytes, soundRecMaxPeak);
+        drawMessage("SOUND REC FAIL", "NO WAV SAVED");
+    } else {
+        String fileName = path.substring(path.lastIndexOf('/') + 1);
+        Serial.printf("[SOUNDREC] saved %s bytes=%lu max=%u mic=PDM gpio_data=46 gpio_clk=43\n", path.c_str(), (unsigned long)dataBytes, soundRecMaxPeak);
+        if (soundRecMaxPeak < 24) {
+            drawMessage("MIC FLATLINE", fileName);
+        } else if (stopRequested || recordFailed || queuedChunks < recordChunks) {
+            drawMessage("PARTIAL WAV SAVED", fileName);
+        } else {
+            drawMessage("REC SAVED PK " + String(soundRecMaxPeak), fileName);
+        }
+    }
+    delay(1600);
+    drawHardwareMenu();
+}
+
+int32_t cachedBatteryLevel = -1;
+int16_t cachedBatteryVoltageMv = 0;
+unsigned long lastBatteryReadMs = 0;
+
+int32_t estimateBatteryLevelFromVoltage(int16_t voltageMv) {
+    if (voltageMv <= 0) return -1;
+
+    static const int16_t volts[] = {3300, 3500, 3600, 3700, 3740, 3790, 3850, 3920, 4000, 4100, 4200};
+    static const int8_t pct[] =    {0,    10,   20,   30,   40,   50,   60,   70,   80,   90,   100};
+    if (voltageMv <= volts[0]) return 0;
+    for (size_t i = 1; i < sizeof(volts) / sizeof(volts[0]); i++) {
+        if (voltageMv <= volts[i]) {
+            int32_t dv = voltageMv - volts[i - 1];
+            int32_t span = volts[i] - volts[i - 1];
+            return pct[i - 1] + (dv * (pct[i] - pct[i - 1])) / span;
+        }
+    }
+    return 100;
+}
+
+void updateBatteryStatus() {
+    unsigned long now = millis();
+    if (lastBatteryReadMs != 0 && now - lastBatteryReadMs < 1000) return;
+
+    cachedBatteryVoltageMv = M5Cardputer.Power.getBatteryVoltage();
+    cachedBatteryLevel = estimateBatteryLevelFromVoltage(cachedBatteryVoltageMv);
+    if (cachedBatteryLevel < 0) {
+        cachedBatteryLevel = M5Cardputer.Power.getBatteryLevel();
+    }
+    if (cachedBatteryLevel < 0 || cachedBatteryLevel > 100) {
+        cachedBatteryLevel = estimateBatteryLevelFromVoltage(cachedBatteryVoltageMv);
+    }
+    lastBatteryReadMs = now;
+}
+
+String formatBatteryPercent(int32_t level) {
+    if (level < 0) return "--%";
+    if (level > 100) level = 100;
+    return String(level) + "%";
+}
+
+String formatBatteryVoltage(int16_t voltageMv) {
+    if (voltageMv <= 0) return "--.-- V";
+    int whole = voltageMv / 1000;
+    int centi = (voltageMv % 1000) / 10;
+    String frac = centi < 10 ? "0" + String(centi) : String(centi);
+    return String(whole) + "." + frac + " V";
+}
+
+void drawBatteryPercentBox() {
+    updateBatteryStatus();
+    uint16_t color = cachedBatteryLevel >= 0 && cachedBatteryLevel <= 20 ? CP_RED : CP_CYAN;
+    drawChippedButton(200, 2, 38, 15, color);
+    canvas.setTextColor(color);
+    canvas.setTextSize(1);
+    canvas.drawCenterString(formatBatteryPercent(cachedBatteryLevel), 219, 6);
+}
+
+void enterChargingMode();
+
+void drawBatteryStatusScreen() {
+    updateBatteryStatus();
+
+    canvas.startWrite();
+    canvas.fillScreen(CP_BG);
+    drawChippedButton(6, 5, 228, 124, CP_CYAN);
+    drawChippedButton(8, 7, 224, 120, CP_DIM);
+
+    canvas.setTextColor(CP_YELLOW);
+    canvas.setTextSize(1);
+    canvas.drawCenterString("--- BATTERY STATUS ---", 120, 12);
+
+    canvas.setTextColor(CP_CYAN);
+    canvas.setCursor(22, 44);
+    canvas.print("VOLTAGE  ");
+    canvas.print(formatBatteryVoltage(cachedBatteryVoltageMv));
+
+    canvas.setCursor(22, 64);
+    canvas.print("CAPACITY ");
+    canvas.print(formatBatteryPercent(cachedBatteryLevel));
+
+    drawChippedButton(42, 86, 156, 18, CP_YELLOW);
+    canvas.setTextColor(CP_YELLOW);
+    canvas.drawCenterString("CHARGING MODE", 120, 91);
+
+    canvas.setTextColor(CP_DIM);
+    canvas.drawCenterString("ENTER CHARGE | DEL/ESC BACK", 120, 112);
+    suppressBatteryPercentBox = true;
+    pushCanvas();
+    suppressBatteryPercentBox = false;
+}
+
+void showBatteryStatus() {
+    unsigned long lastDraw = millis() - 500;
+    bool exitKeysArmed = false;
+    while (true) {
+        M5Cardputer.update();
+        Keyboard_Class::KeysState status = M5Cardputer.Keyboard.keysState();
+        bool chargeDown = status.enter;
+        bool exitDown = status.del;
+        for (char c : status.word) {
+            if (c == '`' || c == ',') exitDown = true;
+        }
+        if (!exitKeysArmed) {
+            exitKeysArmed = !chargeDown && !exitDown;
+        } else if (chargeDown) {
+            playSound(sound_select, sound_select_size);
+            enterChargingMode();
+            exitKeysArmed = false;
+            lastDraw = millis() - 500;
+            continue;
+        } else if (exitDown) {
+            break;
+        }
+
+        unsigned long now = millis();
+        if (now - lastDraw >= 500) {
+            lastDraw = now;
+            drawBatteryStatusScreen();
+        }
+        delay(25);
+    }
+    drawHardwareMenu();
+}
+
 void drawHardwareMenu() {
     canvas.startWrite();
     canvas.fillScreen(CP_BG);
     
     // Compact header matches NETWORK NODE; username sits on the right.
     String headerUser = isGuest ? String("GUEST") : authUser;
-    if (headerUser.length() > 10) headerUser = headerUser.substring(0, 9) + "~";
+    if (headerUser.length() > 6) headerUser = headerUser.substring(0, 5) + "~";
     drawGlitchText("HARDWARE NODE", 72, 4, 1, CP_CYAN, true, true);
-    drawGlitchText(headerUser, 188, 4, 1, CP_DIM, true, true);
+    drawGlitchText(headerUser, 165, 4, 1, CP_DIM, true, true);
     
     // Draw rotating wheel arc
     canvas.drawCircle(-80, 67, 110, CP_DIM);
     canvas.drawCircle(-80, 67, 109, CP_DIM);
     
-    int totalItems = 4;
-    std::vector<String> labels = {"FLASH MEMORY", "SD CARD", "MUSIC PLAYER", "BACK"};
+    int totalItems = 6;
+    std::vector<String> labels = {"FLASH MEMORY", "SD CARD", "MUSIC PLAYER", "SOUND REC", "BATTERY STATUS", "BACK"};
     
     for (int i = 0; i < totalItems; i++) {
         float rawOffset = i - currentHardwareScroll;
@@ -384,7 +1001,9 @@ void drawHardwareMenu() {
         canvas.setCursor(textX, textY);
         canvas.print(labels[i]);
     }
-    
+
+    drawWheelPositionIndicator(hardwareMenuFocus, totalItems);
+
     if (hardwareDescAnimWidth >= 10.0) {
         int x = 40;
         int y = 52;
@@ -406,6 +1025,12 @@ void drawHardwareMenu() {
             } else if (label == "MUSIC PLAYER") {
                 line1 = "Offline";
                 line2 = "player";
+            } else if (label == "SOUND REC") {
+                line1 = "Mic WAV";
+                line2 = "recorder";
+            } else if (label == "BATTERY STATUS") {
+                line1 = "Battery";
+                line2 = "status";
             } else if (label == "BACK") {
                 line1 = "Return to";
                 line2 = "terminal";
@@ -463,9 +1088,14 @@ void handleHardwareMenuInput(Keyboard_Class::KeysState status) {
             populatePlaylist();
             drawMusicPlayer();
         } else if (hardwareMenuFocus == 3) {
+            soundRec();
+        } else if (hardwareMenuFocus == 4) {
+            showBatteryStatus();
+        } else if (hardwareMenuFocus == 5) {
             appState = STATE_SPLASH;
             showSplashBootMenu = true;
             splashBootFocus = 0;
+            resetSplashBootScroll();
             logOffset = 0;
             drawSplash();
         }
@@ -473,7 +1103,7 @@ void handleHardwareMenuInput(Keyboard_Class::KeysState status) {
     }
     
     if (!showHardwareDesc) {
-        int maxFocus = 3;
+        int maxFocus = 5;
         if (hasUp) {
             playSound(sound_hover, sound_hover_size);
             hardwareMenuFocus--;
@@ -487,6 +1117,45 @@ void handleHardwareMenuInput(Keyboard_Class::KeysState status) {
             targetHardwareScroll += 1.0;
         }
     }
+}
+
+bool chargingModeAnyKeyDown() {
+    auto status = M5Cardputer.Keyboard.keysState();
+    if (status.enter || status.del) return true;
+    for (char c : status.word) {
+        (void)c;
+        return true;
+    }
+    return false;
+}
+
+void enterChargingMode() {
+    drawMessage("CHARGING MODE", "ANY KEY WAKES");
+    delay(700);
+
+    M5Cardputer.update();
+    bool wakeKeysArmed = !chargingModeAnyKeyDown();
+
+    suppressBatteryPercentBox = true;
+    canvas.startWrite();
+    canvas.fillScreen(CP_BG);
+    pushCanvas();
+    M5Cardputer.Display.sleep();
+
+    while (true) {
+        M5Cardputer.update();
+        bool keyDown = chargingModeAnyKeyDown();
+        if (!wakeKeysArmed) {
+            wakeKeysArmed = !keyDown;
+        } else if (keyDown) {
+            break;
+        }
+        delay(25);
+    }
+
+    M5Cardputer.Display.wakeup();
+    M5Cardputer.Display.setBrightness((globalBrightness * 255) / 100);
+    suppressBatteryPercentBox = false;
 }
 
 void drawHardwareSettings() {
@@ -546,7 +1215,7 @@ void drawHardwareSettings() {
     if (settingsTab == 1) rowCount = 2; // NETWORK: SSID, PASSWORD (scan nets removed)
     else if (settingsTab == 2) rowCount = 2; // OFFLINE: PLAY LOOP, MUSIC DIR
     else if (settingsTab == 3) rowCount = 1; // OTA: SORT BY ONLY (open list removed)
-    else if (settingsTab == 4) rowCount = 3; // APPEARANCE: GLITCH TEXT, BRIGHTNESS, VOLUME
+    else if (settingsTab == 4) rowCount = 4; // APPEARANCE: GLITCH TEXT, BRIGHTNESS, VOLUME, CHARGING MODE
     
     int startY = 41;
     
@@ -637,6 +1306,11 @@ void drawHardwareSettings() {
                 canvas.setCursor(120, rowY + 3);
                 canvas.setTextColor(isFocus ? WHITE : CP_DIM);
                 canvas.print("< " + String(globalVolume) + "% >");
+            } else if (i == 3) {
+                canvas.print("CHARGING MODE:");
+                canvas.setCursor(120, rowY + 3);
+                canvas.setTextColor(isFocus ? WHITE : CP_DIM);
+                canvas.print("< ENTER >");
             }
         }
     }
@@ -655,6 +1329,7 @@ void handleHardwareSettingsInput(Keyboard_Class::KeysState status) {
         appState = STATE_SPLASH;
         showSplashBootMenu = true;
         splashBootFocus = 4;
+        resetSplashBootScroll();
         logOffset = 0;
         drawSplash();
         return;
@@ -673,7 +1348,7 @@ void handleHardwareSettingsInput(Keyboard_Class::KeysState status) {
     if (settingsTab == 1) maxFocus = 1; // NETWORK: SSID, PASSWORD
     else if (settingsTab == 2) maxFocus = 1; // OFFLINE: PLAY LOOP, MUSIC DIR
     else if (settingsTab == 3) maxFocus = 0; // OTA: SORT BY
-    else if (settingsTab == 4) maxFocus = 2; // APPEARANCE: GLITCH TEXT, BRIGHTNESS, VOLUME
+    else if (settingsTab == 4) maxFocus = 3; // APPEARANCE: GLITCH TEXT, BRIGHTNESS, VOLUME, CHARGING MODE
     
     if (settingsFocus == -1) {
         if (hasLeft) {
@@ -772,7 +1447,10 @@ void handleHardwareSettingsInput(Keyboard_Class::KeysState status) {
     
     if (status.enter) {
         playSound(sound_select, sound_select_size);
-        if (settingsTab == 2 && settingsFocus == 1) { // OFFLINE: MUSIC DIR -> choose folder location automatically
+        if (settingsTab == 4 && settingsFocus == 3) {
+            enterChargingMode();
+            drawHardwareSettings();
+        } else if (settingsTab == 2 && settingsFocus == 1) { // OFFLINE: MUSIC DIR -> choose folder location automatically
             isDirSelectionMode = true;
             isSDCardManager = true; // Hardcode to SD card browsing as requested
             appState = STATE_FILE_LOADING;
@@ -789,6 +1467,7 @@ void handleHardwareSettingsInput(Keyboard_Class::KeysState status) {
             appState = STATE_SPLASH; // go directly to splash menu!
             showSplashBootMenu = true;
             splashBootFocus = 4;
+            resetSplashBootScroll();
             drawSplash();
         }
     }
@@ -860,13 +1539,9 @@ void drawFileManager(bool push) {
         canvas.setTextColor(CP_DIM);
         canvas.drawCenterString(timeStr, 120, 64);
         
-        // Graphic Equalizer
-        int startX = 60;
-        for (int i = 0; i < 10; i++) {
-            int h = random(3, 24);
-            canvas.fillRect(startX + i * 11, 102 - h, 7, h, CP_CYAN);
-            canvas.drawRect(startX + i * 11, 102 - h, 7, h, CP_YELLOW);
-        }
+        canvas.setTextColor(CP_YELLOW);
+        canvas.drawCenterString("LIVE SPECTRUM", 120, 78);
+        drawAudioSpectrum(18, 106, 204, 28);
         
         canvas.setTextColor(CP_YELLOW);
         canvas.drawCenterString("PRESS ANY KEY TO STOP", 120, 114);
@@ -895,9 +1570,13 @@ void drawFileManager(bool push) {
     canvas.drawLine(10, 24, 230, 24, CP_CYAN);
     
     if (!showFileContent) {
-        if (fsStatusMessage != "" && loadedFiles.empty()) {
-            canvas.setTextColor(CP_RED);
-            canvas.drawCenterString(fsStatusMessage, 120, 65);
+        bool folderEmpty = fsStatusMessage == "folder empty press esc";
+        bool onlyParent = loadedFiles.size() == 1 && loadedFiles[0].name == "..";
+        if ((fsStatusMessage != "" && loadedFiles.empty()) || folderEmpty || onlyParent) {
+            canvas.setTextColor(folderEmpty || onlyParent ? CP_YELLOW : CP_RED);
+            canvas.drawCenterString(folderEmpty || onlyParent ? "folder empty press esc" : fsStatusMessage, 120, 62);
+            canvas.setTextColor(CP_DIM);
+            canvas.drawCenterString("NO DEMO FILES", 120, 78);
         } else {
             if (fsStatusMessage != "") {
                 canvas.setTextColor(CP_YELLOW);
@@ -1145,10 +1824,17 @@ void handleFileManagerInput(Keyboard_Class::KeysState status) {
 void stopMp3Playback() {
     isMp3Playing = false;
     mp3IsPaused = false;
+    musicPlaybackDurationMs = 0;
+    musicPlaybackElapsedMs = 0;
     if (mp3) {
         mp3->stop();
         delete mp3;
         mp3 = nullptr;
+    }
+    if (wav) {
+        wav->stop();
+        delete wav;
+        wav = nullptr;
     }
     if (audioBuffer) {
         audioBuffer->close();
@@ -1170,6 +1856,7 @@ void stopMp3Playback() {
         delete audioOut;
         audioOut = nullptr;
     }
+    resetAudioSpectrum();
 }
 
 void stopMp3() {
@@ -1180,6 +1867,9 @@ void stopMp3() {
 
 void startMp3(String fileName) {
     String fullPath = fileManagerCurrentPath + (fileManagerCurrentPath == "/" ? "" : "/") + fileName;
+    String lowerName = fileName;
+    lowerName.toLowerCase();
+    resetAudioSpectrum();
     
     audioOut = new AudioOutputM5Speaker(&M5Cardputer.Speaker, 0);
     
@@ -1187,13 +1877,23 @@ void startMp3(String fileName) {
     if (isSDCardManager) {
         fileSD = new AudioFileSourceSD(fullPath.c_str());
         audioBuffer = new AudioFileSourceBuffer(fileSD, 8192);
-        mp3 = new AudioGeneratorMP3();
-        started = mp3->begin(audioBuffer, audioOut);
+        if (lowerName.endsWith(".wav")) {
+            wav = new AudioGeneratorWAV();
+            started = wav->begin(audioBuffer, audioOut);
+        } else {
+            mp3 = new AudioGeneratorMP3();
+            started = mp3->begin(audioBuffer, audioOut);
+        }
     } else {
         fileSPIFFS = new AudioFileSourceSPIFFS(fullPath.c_str());
         audioBuffer = new AudioFileSourceBuffer(fileSPIFFS, 8192);
-        mp3 = new AudioGeneratorMP3();
-        started = mp3->begin(audioBuffer, audioOut);
+        if (lowerName.endsWith(".wav")) {
+            wav = new AudioGeneratorWAV();
+            started = wav->begin(audioBuffer, audioOut);
+        } else {
+            mp3 = new AudioGeneratorMP3();
+            started = mp3->begin(audioBuffer, audioOut);
+        }
     }
     
     if (started) {
@@ -1203,10 +1903,13 @@ void startMp3(String fileName) {
         mp3StartTime = millis();
         mp3PausedTime = 0;
         mp3DurationSeconds = 180;
+        musicPlaybackDurationMs = 0;
+        musicPlaybackElapsedMs = 0;
         appState = STATE_FILE_MANAGER;
         showFileContent = false;
     } else {
         if (mp3) { delete mp3; mp3 = nullptr; }
+        if (wav) { delete wav; wav = nullptr; }
         if (audioBuffer) { delete audioBuffer; audioBuffer = nullptr; }
         if (fileSD) { delete fileSD; fileSD = nullptr; }
         if (fileSPIFFS) { delete fileSPIFFS; fileSPIFFS = nullptr; }
@@ -1347,7 +2050,7 @@ void handleFileActionsMenuInput(Keyboard_Class::KeysState status) {
             } else {
                 String lowerName = targetFile.name;
                 lowerName.toLowerCase();
-                if (lowerName.endsWith(".mp3")) {
+                if (lowerName.endsWith(".mp3") || lowerName.endsWith(".wav")) {
                     startMp3(targetFile.name);
                 } else if (lowerName.endsWith(".jpg") || lowerName.endsWith(".jpeg")) {
                     playSound(sound_select, sound_select_size);
