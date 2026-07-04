@@ -83,6 +83,13 @@ void drawGlitchText(String text, int x, int y, int size, uint16_t color, bool ce
     }
 }
 
+void drawDefaultGlitchText(String text, int x, int y, int size, uint16_t color, bool center) {
+    int savedInsaneMode = insaneMode;
+    if (insaneMode == 0) insaneMode = 1;
+    drawGlitchText(text, x, y, size, color, center, true);
+    insaneMode = savedInsaneMode;
+}
+
 void drawMessage(String msg) {
     drawMessage(msg, "");
 }
@@ -191,8 +198,8 @@ uint16_t blendColor(uint16_t c1, uint16_t c2, uint8_t alpha) {
 }
 
 void drawVolumeOverlay() {
-    int x = 5;
-    int y = 52;
+    int x = 160;
+    int y = 88;
     int w = 75;
     int h = 32;
     
@@ -213,14 +220,14 @@ void drawVolumeOverlay() {
     tSpr.fillSprite(transColor);
     
     tSpr.fillRect(0, 0, w, h - 8, CP_PANEL);
-    tSpr.fillRect(0, h - 8, w - 8, 8, CP_PANEL);
+    tSpr.fillRect(8, h - 8, w - 8, 8, CP_PANEL);
     
     int chip = 8;
     tSpr.drawLine(0, 0, w - 1, 0, CP_YELLOW);
-    tSpr.drawLine(0, 0, 0, h - 1, CP_YELLOW);
-    tSpr.drawLine(0, h - 1, w - 1 - chip, h - 1, CP_YELLOW);
-    tSpr.drawLine(w - 1, 0, w - 1, h - 1 - chip, CP_YELLOW);
-    tSpr.drawLine(w - 1, h - 1 - chip, w - 1 - chip, h - 1, CP_YELLOW);
+    tSpr.drawLine(w - 1, 0, w - 1, h - 1, CP_YELLOW);
+    tSpr.drawLine(chip, h - 1, w - 1, h - 1, CP_YELLOW);
+    tSpr.drawLine(0, 0, 0, h - 1 - chip, CP_YELLOW);
+    tSpr.drawLine(0, h - 1 - chip, chip, h - 1, CP_YELLOW);
     
     int volPct = globalVolume;
     tSpr.setTextColor(WHITE);
@@ -249,7 +256,7 @@ void drawVolumeOverlay() {
 }
 
 void drawBrightnessOverlay() {
-    int x = 5;
+    int x = 160;
     int y = 88;
     int w = 75;
     int h = 32;
@@ -271,14 +278,14 @@ void drawBrightnessOverlay() {
     tSpr.fillSprite(transColor);
     
     tSpr.fillRect(0, 0, w, h - 8, CP_PANEL);
-    tSpr.fillRect(0, h - 8, w - 8, 8, CP_PANEL);
+    tSpr.fillRect(8, h - 8, w - 8, 8, CP_PANEL);
     
     int chip = 8;
     tSpr.drawLine(0, 0, w - 1, 0, CP_YELLOW);
-    tSpr.drawLine(0, 0, 0, h - 1, CP_YELLOW);
-    tSpr.drawLine(0, h - 1, w - 1 - chip, h - 1, CP_YELLOW);
-    tSpr.drawLine(w - 1, 0, w - 1, h - 1 - chip, CP_YELLOW);
-    tSpr.drawLine(w - 1, h - 1 - chip, w - 1 - chip, h - 1, CP_YELLOW);
+    tSpr.drawLine(w - 1, 0, w - 1, h - 1, CP_YELLOW);
+    tSpr.drawLine(chip, h - 1, w - 1, h - 1, CP_YELLOW);
+    tSpr.drawLine(0, 0, 0, h - 1 - chip, CP_YELLOW);
+    tSpr.drawLine(0, h - 1 - chip, chip, h - 1, CP_YELLOW);
     
     tSpr.setTextColor(WHITE);
     tSpr.setTextSize(1);
@@ -322,6 +329,7 @@ void pushCanvas() {
 void drawCurrentScreen() {
     switch (appState) {
         case STATE_SPLASH: drawSplash(); break;
+        case STATE_BREACH_MODE: drawBreachModePrompt(); break;
         case STATE_AUTH_MENU: drawAuthMenu(); break;
         case STATE_WIFI_SCAN: drawWifiScan(); break;
         case STATE_WIFI_PASS: drawWifiPass(); break;
@@ -329,21 +337,27 @@ void drawCurrentScreen() {
         case STATE_LEADERBOARD: drawLeaderboard(); break;
         case STATE_ACCOUNT: drawAccountMenu(); break;
         case STATE_SSH: drawSshScreen(); break;
+        case STATE_TELNET_BBS: drawTelnetBbsScreen(); break;
         case STATE_GRID_SELECT: drawGridSelect(); break;
         case STATE_PHASE_TRANSITION: drawPhaseTransition(); break;
         case STATE_FAILED_SCREEN: drawGameOverFailed(); break;
         case STATE_PLAYING: drawScreen(); break;
         case STATE_CONTROLS: drawControlsScreen(); break;
         case STATE_CREDITS: drawCreditsScreen(); break;
+        case STATE_GITHUB_QR: drawGithubQrScreen(); break;
         case STATE_HARDWARE_MENU: drawHardwareMenu(); break;
         case STATE_FILE_MANAGER: drawFileManager(); break;
         case STATE_FILE_LOADING: drawFileLoading(); break;
         case STATE_HARDWARE_SETTINGS: drawHardwareSettings(); break;
         case STATE_FILE_ACTIONS_MENU: drawFileActionsMenu(); break;
+        case STATE_FILE_NEW_TYPE_MENU: drawFileNewTypeMenu(); break;
         case STATE_FILE_RENAME_INPUT: drawFileRenameInput(); break;
+        case STATE_FILE_TEXT_EDITOR: drawFileTextEditor(); break;
         case STATE_OTA_CATALOG: drawOtaCatalog(); break;
         case STATE_DIR_CONFIRM_POPUP: drawDirConfirmPopup(); break;
         case STATE_MUSIC_PLAYER: drawMusicPlayer(); break;
+        case STATE_USB_DRIVE: drawUsbDriveScreen(); break;
+        case STATE_BADUSB: drawBadUsbScreen(); break;
     }
 }
 
@@ -431,12 +445,172 @@ void handleControlsInput(Keyboard_Class::KeysState status) {
     }
 }
 
-void appendSshTerminal(String text) {
-    sshTerminalLog += text;
-    if (sshTerminalLog.length() > 900) {
-        sshTerminalLog.remove(0, sshTerminalLog.length() - 900);
-    }
+void clearSshTerminalLog() {
+    sshTerminalLog = "";
+    sshScrollOffset = 0;
+    sshAnsiEsc = false;
+    sshAnsiCsi = false;
     sshTerminalDirty = true;
+}
+
+void appendSshTerminalByte(char c) {
+    sshTerminalLog += c;
+    if (sshTerminalLog.length() > BREACH_SSH_LOG_MAX) {
+        sshTerminalLog.remove(0, sshTerminalLog.length() - BREACH_SSH_LOG_MAX);
+    }
+}
+
+bool skipSshBracketedPasteTail(const String &text, int &i) {
+    if (sshTerminalLog.length() > 0 && !sshTerminalLog.endsWith("\n")) return false;
+
+    const char* tails[] = {"?2004h", "?2004l", "2004h", "2004l", "004h", "004l"};
+    for (int t = 0; t < 6; t++) {
+        int len = strlen(tails[t]);
+        if (i + len > text.length()) continue;
+
+        bool match = true;
+        for (int j = 0; j < len; j++) {
+            if (text.charAt(i + j) != tails[t][j]) {
+                match = false;
+                break;
+            }
+        }
+        if (match) {
+            i += len - 1;
+            return true;
+        }
+    }
+    return false;
+}
+
+String sshGlyphFallback(uint32_t cp) {
+    switch (cp) {
+        case 0x00B7: case 0x2022: case 0x25CF: case 0x2605: case 0x2606: return "*";
+        case 0x2190: case 0x25C0: case 0x25C2: case 0x25C4: case 0xE0B2: case 0xE0B3: return "<";
+        case 0x2191: case 0x25B2: case 0x25B4: case 0x25B6: return "^";
+        case 0x2193: case 0x25BC: case 0x25BE: return "v";
+        case 0x2192: case 0x21B3: case 0x25B8: case 0x257C: case 0x276F: case 0x279C: case 0x27A4: case 0xE0B0: case 0xE0B1: return ">";
+        case 0x2500: case 0x2501: case 0x2550: return "-";
+        case 0x2502: case 0x2503: case 0x2551: return "|";
+        case 0x250C: case 0x2510: case 0x2514: case 0x2518: case 0x251C: case 0x2524: case 0x252C: case 0x2534: case 0x253C:
+        case 0x2554: case 0x2557: case 0x255A: case 0x255D: case 0x2560: case 0x2563: case 0x2566: case 0x2569: case 0x256C:
+            return "+";
+        case 0x25A0: case 0x25A1: case 0x25AA: case 0x25AB: case 0x2588: return "#";
+        case 0x2713: case 0x2714: return "ok";
+        case 0x2717: case 0x2718: case 0x2620: return "x";
+        case 0x26A1: return "!";
+        case 0x03BB: return "L";
+        case 0x03C0: return "pi";
+        case 0x0394: case 0x03B4: return "D";
+        case 0x03A9: case 0x03C9: return "O";
+        default: return "?";
+    }
+}
+
+bool readSshUtf8Codepoint(const String &text, int &i, uint32_t &cp) {
+    uint8_t b0 = (uint8_t)text.charAt(i);
+    if (b0 < 0x80) {
+        cp = b0;
+        return true;
+    }
+
+    int extra = 0;
+    if ((b0 & 0xE0) == 0xC0) {
+        cp = b0 & 0x1F;
+        extra = 1;
+    } else if ((b0 & 0xF0) == 0xE0) {
+        cp = b0 & 0x0F;
+        extra = 2;
+    } else if ((b0 & 0xF8) == 0xF0) {
+        cp = b0 & 0x07;
+        extra = 3;
+    } else {
+        cp = '?';
+        return false;
+    }
+
+    if (i + extra >= text.length()) {
+        cp = '?';
+        return false;
+    }
+
+    for (int n = 1; n <= extra; n++) {
+        uint8_t bx = (uint8_t)text.charAt(i + n);
+        if ((bx & 0xC0) != 0x80) {
+            cp = '?';
+            return false;
+        }
+        cp = (cp << 6) | (bx & 0x3F);
+    }
+    i += extra;
+    return true;
+}
+
+void appendSshTerminal(String text) {
+    for (int i = 0; i < text.length(); i++) {
+        char c = text.charAt(i);
+        if (sshAnsiEsc) {
+            if (!sshAnsiCsi) {
+                if (c == '[') {
+                    sshAnsiCsi = true;
+                } else {
+                    sshAnsiEsc = false;
+                }
+                continue;
+            }
+
+            if (c >= '@' && c <= '~') {
+                if (c == 'J') clearSshTerminalLog();
+                sshAnsiEsc = false;
+                sshAnsiCsi = false;
+            }
+            continue;
+        }
+        if (c == 27) {
+            sshAnsiEsc = true;
+            sshAnsiCsi = false;
+            continue;
+        }
+        if (c == '\r') continue;
+        if (c != '\n' && (uint8_t)c < 32) continue;
+        if (skipSshBracketedPasteTail(text, i)) continue;
+        if ((uint8_t)c >= 0x80) {
+            uint32_t cp = 0;
+            readSshUtf8Codepoint(text, i, cp);
+            sshTerminalLog += sshGlyphFallback(cp);
+        } else {
+            appendSshTerminalByte(c);
+        }
+        if (sshTerminalLog.length() > BREACH_SSH_LOG_MAX) sshTerminalLog.remove(0, sshTerminalLog.length() - BREACH_SSH_LOG_MAX);
+    }
+    if (sshScrollOffset < 0) sshScrollOffset = 0;
+    sshTerminalDirty = true;
+}
+
+int countSshTerminalLines(const String &view) {
+    if (view.length() == 0) return 0;
+    int lines = 1;
+    for (int i = 0; i < view.length() - 1; i++) {
+        if (view.charAt(i) == '\n') lines++;
+    }
+    return lines;
+}
+
+int findSshLineStart(const String &view, int targetLine) {
+    if (targetLine <= 0) return 0;
+    int line = 0;
+    for (int i = 0; i < view.length(); i++) {
+        if (view.charAt(i) == '\n') {
+            line++;
+            if (line >= targetLine) return i + 1;
+        }
+    }
+    return view.length();
+}
+
+int maxSshScrollOffset() {
+    int maxOffset = countSshTerminalLines(sshTerminalLog) - BREACH_SSH_VISIBLE_ROWS;
+    return maxOffset > 0 ? maxOffset : 0;
 }
 
 bool initSshMutex() {
@@ -471,6 +645,26 @@ String takeSshOutput() {
     sshQueuedOutput = "";
     unlockSshState();
     return output;
+}
+
+void clearSshQueuedOutput() {
+    if (!lockSshState()) return;
+    sshQueuedOutput = "";
+    unlockSshState();
+}
+
+bool isSshCustomPromptTarget(const String &user, const String &host) {
+    String u = user;
+    String h = host;
+    u.trim();
+    h.trim();
+    u.toLowerCase();
+    h.toLowerCase();
+    return u == "sl01220" && (h == "raspi" || h == "raspi.local" || h == "192.168.0.25");
+}
+
+String currentSshLocalPrompt() {
+    return sshUseCustomPrompt ? String(BREACH_SSH_LOCAL_PROMPT) : String("");
 }
 
 bool isSshOutputBackedUp() {
@@ -589,42 +783,34 @@ void drawSshTerminal() {
     canvas.print(title);
 
     String view = sshTerminalLog;
-    int first = 0;
-    int lineCount = 0;
-    for (int i = view.length() - 1; i >= 0; i--) {
-        if (view.charAt(i) == '\n') {
-            lineCount++;
-            if (lineCount > 6) {
-                first = i + 1;
-                break;
-            }
-        }
-    }
+    int totalLines = countSshTerminalLines(view);
+    int maxScroll = maxSshScrollOffset();
+    if (sshScrollOffset > maxScroll) sshScrollOffset = maxScroll;
+    int firstLine = totalLines - BREACH_SSH_VISIBLE_ROWS - sshScrollOffset;
+    if (firstLine < 0) firstLine = 0;
+    int first = findSshLineStart(view, firstLine);
 
     canvas.setTextColor(WHITE);
     int y = 42;
     int start = first;
     int rows = 0;
-    while (start < view.length() && rows < 6) {
+    while (start < view.length() && rows < BREACH_SSH_VISIBLE_ROWS) {
         int end = view.indexOf('\n', start);
         if (end < 0) end = view.length();
         String line = view.substring(start, end);
-        if (line.length() > 34) line = line.substring(line.length() - 34);
-        canvas.setCursor(12, y);
+        if (line.length() > BREACH_SSH_VISIBLE_COLS) line = line.substring(line.length() - BREACH_SSH_VISIBLE_COLS);
+        canvas.setCursor(7, y);
         canvas.print(line);
         y += 11;
         rows++;
         start = end + 1;
     }
 
-    String prompt = "> " + sshInputLine + (blinkState ? "_" : "");
-    if (prompt.length() > 34) prompt = prompt.substring(prompt.length() - 34);
+    String prompt = currentSshLocalPrompt() + sshInputLine + (blinkState ? "_" : "");
+    if (prompt.length() > BREACH_SSH_VISIBLE_COLS) prompt = prompt.substring(prompt.length() - BREACH_SSH_VISIBLE_COLS);
     canvas.setTextColor(CP_YELLOW);
-    canvas.setCursor(12, 112);
+    canvas.setCursor(7, 112);
     canvas.print(prompt);
-    canvas.setTextColor(CP_DIM);
-    canvas.setCursor(150, 112);
-    canvas.print("ESC:SETUP");
 
     pushCanvas();
 }
@@ -662,32 +848,47 @@ void drawSshScreen() {
     canvas.setCursor(120, 27);
     canvas.print("SSH:" + statusText);
 
-    String targetText = sshTarget == "" ? String("sl01220@raspi") : sshTarget;
-    String authText = sshPass == "" ? String("") : String("********");
-    if (targetText.length() > 24) targetText = targetText.substring(0, 23) + "~";
-    if (authText.length() > 24) authText = authText.substring(0, 23) + "~";
+    String targetText = sshTarget;
+    String portText = sshPort == "" ? String("22") : sshPort;
+    String authText = sshPass;
+    String rememberText = sshRememberMe ? String("ON") : String("OFF");
+    if (targetText.length() > 22) targetText = targetText.substring(0, 21) + "~";
+    if (authText.length() > 22) authText = authText.substring(0, 21) + "~";
 
-    String values[2] = {targetText, authText};
-    String labels[2] = {"TARGET", "PASS"};
-    for (int i = 0; i < 2; i++) {
-        int y = 45 + i * 20;
+    String values[4] = {targetText, portText, authText, rememberText};
+    String labels[4] = {"TARGET", "PORT", "PASS", "REMEMBER"};
+    for (int i = 0; i < 4; i++) {
+        int y = 42 + i * 17;
         uint16_t color = (sshFocus == i) ? CP_YELLOW : WHITE;
         canvas.setTextColor(color);
-        drawChippedButton(10, y - 2, 220, 16, color);
+        drawChippedButton(10, y - 2, 220, 15, color);
         canvas.setCursor(16, y + 1);
         canvas.print(labels[i] + ": " + values[i] + ((sshFocus == i && blinkState) ? "_" : ""));
     }
 
-    uint16_t saveColor = (sshFocus == 2) ? CP_YELLOW : WHITE;
-    drawChippedButton(10, 106, 100, 20, saveColor);
+    uint16_t saveColor = (sshFocus == 4) ? CP_YELLOW : WHITE;
+    drawChippedButton(10, 110, 100, 17, saveColor);
     canvas.setTextColor(saveColor);
-    drawGlitchText("CONNECT", 60, 111, 1, saveColor);
+    drawGlitchText("CONNECT", 60, 113, 1, saveColor);
 
     canvas.setTextColor(CP_DIM);
-    canvas.setCursor(122, 111);
-    canvas.print("ENTER:NEXT  ESC:BACK");
+    canvas.setCursor(122, 114);
+    canvas.print("FN+ARROWS MOVE");
 
     pushCanvas();
+}
+
+void prepareSshSetupPrompt() {
+    sshFocus = 0;
+    sshTerminalMode = false;
+    sshTerminalDirty = false;
+    sshScrollOffset = 0;
+    sshPass = "";
+    sshTarget.trim();
+    if (sshTarget == "") sshTarget = BREACH_DEFAULT_SSH_TARGET;
+    sshPort.trim();
+    if (sshPort == "") sshPort = "22";
+    setSshStatus("READY", false, false);
 }
 
 bool trySshKeyFile(ssh_session session, const String &authSecret, const char* path) {
@@ -811,7 +1012,7 @@ bool drainSshStream(ssh_session session, ssh_channel channel, char *buffer, bool
         for (int i = 0; i < n; i++) {
             char c = buffer[i];
             if (c == '\r') continue;
-            if (c == '\n' || (c >= 32 && c <= 126)) chunk += c;
+            chunk += c;
         }
         if (chunk != "") queueSshOutput(chunk);
         return true;
@@ -830,12 +1031,32 @@ bool drainSshStream(ssh_session session, ssh_channel channel, char *buffer, bool
     return false;
 }
 
+void discardSshStartupNoise(ssh_channel channel, char *buffer) {
+    unsigned long start = millis();
+    while (!isSshStopRequested() && millis() - start < 650) {
+        bool drained = false;
+        for (int stream = 0; stream < 2; stream++) {
+            int available = ssh_channel_poll(channel, stream);
+            if (available <= 0) continue;
+
+            int readSize = available < (int)(SSH_IO_BUFFER_SIZE - 1) ? available : (int)(SSH_IO_BUFFER_SIZE - 1);
+            int n = ssh_channel_read(channel, buffer, readSize, stream);
+            if (n > 0) {
+                drained = true;
+                start = millis();
+            }
+        }
+        if (!drained) vTaskDelay(pdMS_TO_TICKS(25));
+    }
+}
+
 void sshWorkerTask(void *pvParameters) {
     char *buffer = (char *)malloc(SSH_IO_BUFFER_SIZE);
     ssh_session session = NULL;
     ssh_channel channel = NULL;
     bool stdoutPollingEnabled = true;
     bool stderrPollingEnabled = true;
+    bool useCustomPrompt = false;
     String finalStatus = "SSH CLOSED";
     bool finalFailed = false;
     String host = "";
@@ -852,6 +1073,7 @@ void sshWorkerTask(void *pvParameters) {
         authSecret = sshWorkerPass;
         sshWorkerPass = "";
         port = sshWorkerPort;
+        useCustomPrompt = sshWorkerUseCustomPrompt;
         unlockSshState();
     } else {
         finalStatus = "LOCK FAIL";
@@ -868,7 +1090,6 @@ void sshWorkerTask(void *pvParameters) {
     }
 
     setSshStatus("CONNECTING", false, false);
-    queueSshOutput("[BRUCE] SSH worker task started\n");
     Serial.printf("[SSHDBG] task start freeHeap=%u\n", (unsigned)ESP.getFreeHeap());
 
     session = ssh_new();
@@ -893,7 +1114,6 @@ void sshWorkerTask(void *pvParameters) {
         goto SSH_EXIT;
     }
 
-    queueSshOutput("[SSH] connect start\n");
     Serial.printf("[SSHDBG] connect start\n");
     if (ssh_connect(session) != SSH_OK) {
         finalStatus = "CONNECT FAIL";
@@ -902,7 +1122,6 @@ void sshWorkerTask(void *pvParameters) {
         goto SSH_EXIT;
     }
 
-    queueSshOutput("[SSH] connect ok\n");
     Serial.printf("[SSHDBG] connect ok\n");
     if (!verifySshKnownHost(session)) {
         finalStatus = "HOSTKEY FAIL";
@@ -918,7 +1137,6 @@ void sshWorkerTask(void *pvParameters) {
         goto SSH_EXIT;
     }
 
-    queueSshOutput("[SSH] auth ok\n");
     authSecret = "";
     Serial.printf("[SSHDBG] auth ok\n");
     setSshStatus("CHANNEL", false, false);
@@ -930,7 +1148,7 @@ void sshWorkerTask(void *pvParameters) {
         goto SSH_EXIT;
     }
 
-    if (ssh_channel_request_pty_size(channel, "vt100", 40, 12) != SSH_OK) {
+    if (ssh_channel_request_pty_size(channel, "vt100", BREACH_SSH_PTY_COLS, BREACH_SSH_PTY_ROWS) != SSH_OK) {
         finalStatus = "PTY FAIL";
         finalFailed = true;
         queueSshOutput("[ERR] PTY request failed\n");
@@ -945,8 +1163,19 @@ void sshWorkerTask(void *pvParameters) {
     }
 
     setSshStatus("SHELL READY", true, true);
-    queueSshOutput("[SHELL READY]\n");
     Serial.printf("[SSHDBG] shell ready freeHeap=%u\n", (unsigned)ESP.getFreeHeap());
+
+    clearSshQueuedOutput();
+    if (useCustomPrompt) {
+        if (ssh_channel_write(channel, BREACH_SSH_REMOTE_PROMPT_CMD, strlen(BREACH_SSH_REMOTE_PROMPT_CMD)) == SSH_ERROR) {
+            queueSshOutput("[PROMPT] custom prompt failed\n");
+        }
+        discardSshStartupNoise(channel, buffer);
+        clearSshQueuedOutput();
+        queueSshOutput(String(BREACH_SSH_CLEAR_SCREEN) + BREACH_SSH_PROMPT_HEADER + "\n");
+    } else {
+        queueSshOutput(String(BREACH_SSH_CLEAR_SCREEN));
+    }
 
     while (!isSshStopRequested()) {
         if (WiFi.status() != WL_CONNECTED) {
@@ -1033,6 +1262,7 @@ bool connectSshProfile() {
     sshPort.trim();
     sshUser.trim();
     if (sshPort == "") sshPort = "22";
+    if (sshTarget == "" && sshHost == "") sshTarget = BREACH_DEFAULT_SSH_TARGET;
 
     if (sshTarget.startsWith("ssh ")) {
         sshTarget = sshTarget.substring(4);
@@ -1063,10 +1293,18 @@ bool connectSshProfile() {
         sshTarget = (sshUser == "") ? sshHost : sshUser + "@" + sshHost;
     }
 
-    prefs.putString("ssh_target", sshTarget);
-    prefs.putString("ssh_host", sshHost);
-    prefs.putString("ssh_user", sshUser);
-    prefs.putString("ssh_port", sshPort);
+    prefs.putBool("ssh_remember", sshRememberMe);
+    if (sshRememberMe) {
+        prefs.putString("ssh_target", sshTarget);
+        prefs.putString("ssh_host", sshHost);
+        prefs.putString("ssh_user", sshUser);
+        prefs.putString("ssh_port", sshPort);
+    } else {
+        prefs.remove("ssh_target");
+        prefs.remove("ssh_host");
+        prefs.remove("ssh_user");
+        prefs.remove("ssh_port");
+    }
     prefs.remove("ssh_pass");
 
     closeSshSession();
@@ -1081,6 +1319,7 @@ bool connectSshProfile() {
     sshTerminalMode = false;
     sshTerminalLog = "";
     sshInputLine = "";
+    sshScrollOffset = 0;
     sshTerminalDirty = false;
     sshQueuedCommand = "";
     sshQueuedOutput = "";
@@ -1106,6 +1345,8 @@ bool connectSshProfile() {
         delay(1400);
         return false;
     }
+
+    bool useCustomPrompt = isSshCustomPromptTarget(sshUser, sshHost);
 
     long portValue = sshPort.toInt();
     if (portValue < 1 || portValue > 65535) {
@@ -1133,9 +1374,9 @@ bool connectSshProfile() {
         sshLibReady = true;
     }
 
+    sshUseCustomPrompt = useCustomPrompt;
     sshTerminalMode = true;
-    appendSshTerminal(String("$ ssh ") + sshTarget + (sshPort != "22" ? String(":") + sshPort : String("")) + "\n");
-    appendSshTerminal("[BRUCE] starting 32KB SSH task\n");
+    clearSshTerminalLog();
 
     if (!initSshMutex()) {
         setSshStatus("MUTEX FAIL", false, false);
@@ -1150,6 +1391,8 @@ bool connectSshProfile() {
         sshWorkerUser = sshUser;
         sshWorkerPass = sshPass;
         sshWorkerPort = (int)portValue;
+        sshWorkerUseCustomPrompt = useCustomPrompt;
+        sshUseCustomPrompt = useCustomPrompt;
         sshStopRequested = false;
         sshTaskExited = false;
         sshConnected = false;
@@ -1171,6 +1414,8 @@ bool connectSshProfile() {
         sshPass = "";
         if (lockSshState()) {
             sshWorkerPass = "";
+            sshWorkerUseCustomPrompt = false;
+            sshUseCustomPrompt = false;
             sshTaskExited = true;
             unlockSshState();
         }
@@ -1193,11 +1438,25 @@ bool connectSshProfile() {
 void handleSshInput(Keyboard_Class::KeysState status) {
     if (sshTerminalMode) {
         bool exitTerminal = false;
+        bool scrollUp = false;
+        bool scrollDown = false;
+        bool ignoreFnArrow = false;
         bool backspaceRequested = status.del;
         for (char c : status.word) {
             if (c == '\b' || c == 0x7f) backspaceRequested = true;
-            if (c == '`' || (c == ',' && sshInputLine == "")) exitTerminal = true;
+            if (status.fn && c == ';') scrollUp = true;
+            if (status.fn && c == '.') scrollDown = true;
+            if (status.fn && (c == ',' || c == '/')) ignoreFnArrow = true;
+            if (c == '`' || (!status.fn && c == ',' && sshInputLine == "")) exitTerminal = true;
         }
+        if (scrollUp || scrollDown) {
+            int maxScroll = maxSshScrollOffset();
+            if (scrollUp && sshScrollOffset < maxScroll) sshScrollOffset++;
+            if (scrollDown && sshScrollOffset > 0) sshScrollOffset--;
+            sshTerminalDirty = true;
+            return;
+        }
+        if (ignoreFnArrow) return;
         if (exitTerminal) {
             playSound(sound_select, sound_select_size);
             closeSshSession();
@@ -1212,6 +1471,7 @@ void handleSshInput(Keyboard_Class::KeysState status) {
         }
 
         for (char c : status.word) {
+            if (status.fn && (c == ';' || c == '.' || c == ',' || c == '/')) continue;
             if (c == '\b' || c == 0x7f) continue;
             if (c < 32 || c > 126 || c == '`') continue;
             if (c == ',' && sshInputLine == "") continue;
@@ -1225,7 +1485,8 @@ void handleSshInput(Keyboard_Class::KeysState status) {
             bool shellReadySnapshot = false;
             TaskHandle_t taskSnapshot = NULL;
             snapshotSshState(statusSnapshot, connectedSnapshot, shellReadySnapshot, taskSnapshot);
-            appendSshTerminal(String("> ") + line + "\n");
+            sshScrollOffset = 0;
+            if (sshUseCustomPrompt) appendSshTerminal(String(BREACH_SSH_LOCAL_PROMPT) + line + "\n");
             if (connectedSnapshot && taskSnapshot != NULL) {
                 queueSshCommand(line + "\r");
             } else {
@@ -1238,10 +1499,21 @@ void handleSshInput(Keyboard_Class::KeysState status) {
     }
 
     bool hasBack = false;
+    bool movePrev = false;
+    bool moveNext = false;
     bool backspaceRequested = status.del;
     for (char c : status.word) {
         if (c == '\b' || c == 0x7f) backspaceRequested = true;
-        if (c == ',' || c == '`') hasBack = true;
+        if (status.fn && (c == ';' || c == ',')) movePrev = true;
+        if (status.fn && (c == '.' || c == '/')) moveNext = true;
+        if (!status.fn && (c == ',' || c == '`')) hasBack = true;
+    }
+    if (movePrev || moveNext) {
+        playSound(sound_hover, sound_hover_size);
+        if (movePrev) sshFocus = (sshFocus + 4) % 5;
+        if (moveNext) sshFocus = (sshFocus + 1) % 5;
+        drawSshScreen();
+        return;
     }
     if (hasBack) {
         playSound(sound_select, sound_select_size);
@@ -1252,30 +1524,36 @@ void handleSshInput(Keyboard_Class::KeysState status) {
 
     if (backspaceRequested) {
         if (sshFocus == 0 && sshTarget.length() > 0) sshTarget.remove(sshTarget.length() - 1);
-        if (sshFocus == 1 && sshPass.length() > 0) sshPass.remove(sshPass.length() - 1);
+        if (sshFocus == 1 && sshPort.length() > 0) sshPort.remove(sshPort.length() - 1);
+        if (sshFocus == 2 && sshPass.length() > 0) sshPass.remove(sshPass.length() - 1);
         return;
     }
 
     for (char c : status.word) {
+        if (status.fn && (c == ';' || c == '.' || c == ',' || c == '/')) continue;
         if (c == '\b' || c == 0x7f) continue;
         if (c < 32 || c > 126 || c == ',' || c == '`') continue;
         if (sshFocus == 0 && sshTarget.length() < 64) sshTarget += c;
-        else if (sshFocus == 1 && sshPass.length() < 64) sshPass += c;
+        else if (sshFocus == 1 && c >= '0' && c <= '9' && sshPort.length() < 5) sshPort += c;
+        else if (sshFocus == 2 && sshPass.length() < 64) sshPass += c;
     }
 
     if (status.enter) {
         playSound(sound_select, sound_select_size);
-        if (sshFocus == 2) {
+        if (sshFocus == 3) {
+            sshRememberMe = !sshRememberMe;
+            prefs.putBool("ssh_remember", sshRememberMe);
+            drawSshScreen();
+            return;
+        }
+        if (sshFocus == 4) {
             if (sshPort == "") sshPort = "22";
-            prefs.putString("ssh_target", sshTarget);
-            prefs.putString("ssh_port", sshPort);
-            prefs.remove("ssh_pass");
             connectSshProfile();
             drawSshScreen();
             return;
         }
         sshFocus++;
-        if (sshFocus > 2) sshFocus = 0;
+        if (sshFocus > 4) sshFocus = 0;
     }
 }
 
@@ -1321,8 +1599,90 @@ void handleCreditsInput(Keyboard_Class::KeysState status) {
     }
     if (status.enter || hasBack) {
         playSound(sound_select, sound_select_size);
-        appState = STATE_MAIN_MENU;
-        drawMainMenu();
+        appState = STATE_HARDWARE_SETTINGS;
+        settingsTab = 5;
+        settingsFocus = -1;
+        drawHardwareSettings();
+    }
+}
+
+static const char* const GITHUB_QR_URL = "https://github.com/zedward856-spec/Breach_OS";
+static const char* const GITHUB_QR_ROWS[29] = {
+    "11111110111011011000001111111",
+    "10000010111000100101101000001",
+    "10111010101100001110101011101",
+    "10111010110101111010001011101",
+    "10111010000001101010001011101",
+    "10000010100111001011001000001",
+    "11111110101010101010101111111",
+    "00000000010010100110100000000",
+    "11001110000100010101100101111",
+    "10100000011011110000011111111",
+    "01111111000110010000001100001",
+    "10101001001100101101001111011",
+    "01010010101010000100010000010",
+    "01110001100001111010001111111",
+    "10110110110001010110111101101",
+    "01011000110010110101110000011",
+    "01100111001100000110100100010",
+    "11010001010010111100101111011",
+    "00101110111110011100100000101",
+    "00010101100100011100110110011",
+    "11111010001011001110111111001",
+    "00000000101000011001100010001",
+    "11111110011001110111101011101",
+    "10000010101010101111100010011",
+    "10111010101111001111111111011",
+    "10111010000010111000010000001",
+    "10111010000111110011110001111",
+    "10000010100000110100111011011",
+    "11111110101001010110111111010"
+};
+
+void drawGithubQrScreen() {
+    canvas.startWrite();
+    canvas.fillScreen(CP_BG);
+
+    canvas.drawRect(5, 5, 230, 125, CP_CYAN);
+    canvas.drawRect(7, 7, 226, 121, CP_DIM);
+
+    canvas.setTextColor(CP_YELLOW);
+    canvas.setTextSize(1);
+    canvas.drawCenterString("--- GITHUB QR LINK ---", 120, 10);
+
+    constexpr int moduleSize = 3;
+    constexpr int qrSize = 29;
+    constexpr int quietModules = 2;
+    constexpr int qrPixels = (qrSize + quietModules * 2) * moduleSize;
+    constexpr int qrX = (240 - qrPixels) / 2;
+    constexpr int qrY = 24;
+
+    canvas.fillRect(qrX, qrY, qrPixels, qrPixels, WHITE);
+    for (int y = 0; y < qrSize; y++) {
+        for (int x = 0; x < qrSize; x++) {
+            if (GITHUB_QR_ROWS[y][x] == '1') {
+                canvas.fillRect(qrX + (x + quietModules) * moduleSize,
+                                qrY + (y + quietModules) * moduleSize,
+                                moduleSize, moduleSize, BLACK);
+            }
+        }
+    }
+    canvas.drawRect(qrX - 1, qrY - 1, qrPixels + 2, qrPixels + 2, CP_CYAN);
+
+    pushCanvas();
+}
+
+void handleGithubQrInput(Keyboard_Class::KeysState status) {
+    bool hasBack = false;
+    for (char c : status.word) {
+        if (c == ',' || c == '`') hasBack = true;
+    }
+    if (status.enter || hasBack) {
+        playSound(sound_select, sound_select_size);
+        appState = STATE_HARDWARE_SETTINGS;
+        settingsTab = 5;
+        settingsFocus = 1;
+        drawHardwareSettings();
     }
 }
 

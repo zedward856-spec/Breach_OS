@@ -1,5 +1,10 @@
 // Hardware menu, settings, file manager, file actions, and direct file playback.
 
+static constexpr int FILE_NAME_MODE_RENAME = 0;
+static constexpr int FILE_NAME_MODE_NEW_FOLDER = 1;
+static constexpr int FILE_NAME_MODE_NEW_TXT = 2;
+static constexpr int TEXT_EDITOR_MAX_BYTES = 4096;
+
 bool isSystemFile(String name) {
     String lower = name;
     lower.toLowerCase();
@@ -92,6 +97,248 @@ bool compareFiles(const RealFile& a, const RealFile& b) {
         }
         return aName < bName;
     }
+}
+
+String cleanNewFileManagerName(String name, bool txtFile) {
+    name.trim();
+    name.replace("/", "");
+    name.replace("\\", "");
+    while (name.startsWith(".")) name.remove(0, 1);
+    if (txtFile && name.length() > 0) {
+        String lower = name;
+        lower.toLowerCase();
+        if (!lower.endsWith(".txt")) name += ".txt";
+    }
+    return name;
+}
+
+void selectFileManagerEntry(String name) {
+    int foundIdx = -1;
+    for (size_t i = 0; i < loadedFiles.size(); i++) {
+        if (loadedFiles[i].name == name) {
+            foundIdx = i;
+            break;
+        }
+    }
+    if (foundIdx >= 0) {
+        fileManagerSelected = foundIdx;
+        if ((int)loadedFiles.size() > 5) {
+            fileManagerScrollOffset = fileManagerSelected > 4 ? fileManagerSelected - 4 : 0;
+        } else {
+            fileManagerScrollOffset = 0;
+        }
+    }
+}
+
+bool createFileManagerEntry(String name, bool folder) {
+    String newPath = fileManagerCurrentPath + (fileManagerCurrentPath == "/" ? "" : "/") + name;
+    if (isSDCardManager) {
+        if (isSDFallback) {
+            RealFile nf = {name, folder ? "DIR" : "0.0 KB", folder};
+            loadedFiles.push_back(nf);
+            return true;
+        }
+        if (SD.exists(newPath)) return false;
+        if (folder) return SD.mkdir(newPath);
+        File f = SD.open(newPath, FILE_WRITE);
+        if (!f) return false;
+        f.close();
+        return true;
+    }
+    if (isFlashFallback || folder || SPIFFS.exists(newPath)) return false;
+    File f = SPIFFS.open(newPath, FILE_WRITE);
+    if (!f) return false;
+    f.close();
+    return true;
+}
+
+String buildFileManagerPath(String name) {
+    return fileManagerCurrentPath + (fileManagerCurrentPath == "/" ? "" : "/") + name;
+}
+
+bool isEditableTextFileName(String name, bool isDir) {
+    if (name == ".." || isDir) return false;
+    String lower = name;
+    lower.toLowerCase();
+    return lower.endsWith(".txt");
+}
+
+void setTextEditorStatus(String status, uint16_t ms) {
+    textEditorStatus = status;
+    textEditorStatusUntil = millis() + ms;
+}
+
+void insertTextEditorChar(char c) {
+    if ((int)textEditorBuffer.length() >= TEXT_EDITOR_MAX_BYTES) {
+        setTextEditorStatus("MAX 4KB", 1100);
+        return;
+    }
+    if (textEditorCursor < 0) textEditorCursor = 0;
+    if (textEditorCursor > (int)textEditorBuffer.length()) textEditorCursor = textEditorBuffer.length();
+    String insert = "";
+    insert += c;
+    textEditorBuffer = textEditorBuffer.substring(0, textEditorCursor) + insert + textEditorBuffer.substring(textEditorCursor);
+    textEditorCursor++;
+    textEditorDirty = true;
+}
+
+bool saveTextEditorFile() {
+    if (!textEditorDirty) return true;
+    File file = isSDCardManager ? SD.open(textEditorPath, FILE_WRITE) : SPIFFS.open(textEditorPath, FILE_WRITE);
+    if (!file) {
+        setTextEditorStatus("SAVE FAIL", 1600);
+        return false;
+    }
+    size_t written = file.write((const uint8_t*)textEditorBuffer.c_str(), textEditorBuffer.length());
+    file.close();
+    if (written != textEditorBuffer.length()) {
+        setTextEditorStatus("WRITE FAIL", 1600);
+        return false;
+    }
+    textEditorDirty = false;
+    setTextEditorStatus("SAVED", 700);
+    return true;
+}
+
+void openTextEditor(String fileName) {
+    textEditorFileName = fileName;
+    textEditorPath = buildFileManagerPath(fileName);
+    textEditorBuffer = "";
+    textEditorBuffer.reserve(TEXT_EDITOR_MAX_BYTES + 8);
+    textEditorCursor = 0;
+    textEditorDirty = false;
+    textEditorStatus = "";
+    textEditorStatusUntil = 0;
+
+    if (isSDCardManager) {
+        SPI.begin(40, 39, 14, 12);
+        SD.begin(12, SPI, 20000000);
+    }
+
+    File file = isSDCardManager ? SD.open(textEditorPath, FILE_READ) : SPIFFS.open(textEditorPath, FILE_READ);
+    if (!file) {
+        drawMessage("OPEN FAILED");
+        delay(900);
+        appState = STATE_FILE_ACTIONS_MENU;
+        drawFileActionsMenu();
+        return;
+    }
+    if (file.size() > TEXT_EDITOR_MAX_BYTES) {
+        file.close();
+        drawMessage("TXT TOO LARGE", "MAX 4KB");
+        delay(1100);
+        appState = STATE_FILE_ACTIONS_MENU;
+        drawFileActionsMenu();
+        return;
+    }
+
+    while (file.available() && textEditorBuffer.length() < TEXT_EDITOR_MAX_BYTES) {
+        int value = file.read();
+        if (value < 0) break;
+        char c = (char)value;
+        if (c != '\r') textEditorBuffer += c;
+    }
+    file.close();
+    textEditorCursor = textEditorBuffer.length();
+    appState = STATE_FILE_TEXT_EDITOR;
+    blinkState = true;
+    drawFileTextEditor();
+}
+
+void drawFileTextEditor() {
+    canvas.startWrite();
+    canvas.fillScreen(CP_BG);
+    drawChippedButton(4, 4, 232, 124, CP_CYAN);
+
+    canvas.setTextColor(CP_YELLOW);
+    canvas.setTextSize(1);
+    canvas.drawCenterString("--- TXT EDITOR ---", 120, 10);
+
+    String name = textEditorFileName;
+    if (name.length() > 26) name = name.substring(0, 23) + "...";
+    canvas.setTextColor(CP_CYAN);
+    canvas.setCursor(12, 24);
+    canvas.print(name);
+
+    canvas.setTextColor(textEditorDirty ? CP_YELLOW : CP_DIM);
+    canvas.setCursor(170, 24);
+    canvas.print(String(textEditorBuffer.length()) + "/" + String(TEXT_EDITOR_MAX_BYTES));
+    if (textEditorDirty) canvas.print("*");
+
+    canvas.drawRect(10, 36, 220, 70, CP_DIM);
+    String view = textEditorBuffer;
+    int cursor = textEditorCursor;
+    if (cursor < 0) cursor = 0;
+    if (cursor > (int)view.length()) cursor = view.length();
+    if (blinkState) view = view.substring(0, cursor) + "_" + view.substring(cursor);
+
+    std::vector<String> lines;
+    String line = "";
+    for (size_t i = 0; i < view.length(); i++) {
+        char c = view[i];
+        if (c == '\n') {
+            lines.push_back(line);
+            line = "";
+        } else {
+            line += c;
+        }
+    }
+    lines.push_back(line);
+
+    int visible = 7;
+    int start = (int)lines.size() > visible ? (int)lines.size() - visible : 0;
+    canvas.setTextColor(WHITE);
+    for (int i = 0; i < visible && start + i < (int)lines.size(); i++) {
+        String row = lines[start + i];
+        if (row.length() > 35) row = row.substring(row.length() - 35);
+        canvas.setCursor(14, 40 + i * 9);
+        canvas.print(row);
+    }
+
+    canvas.setTextColor(CP_DIM);
+    canvas.drawCenterString("TYPE | ENTER NL | DEL BKSP", 120, 110);
+    String footer = millis() < textEditorStatusUntil ? textEditorStatus : "ESC SAVE/BACK";
+    canvas.drawCenterString(footer, 120, 120);
+    pushCanvas();
+}
+
+void handleFileTextEditorInput(Keyboard_Class::KeysState status) {
+    bool hasExit = false;
+    for (char c : status.word) {
+        if (c == '`') hasExit = true;
+    }
+    if (hasExit) {
+        playSound(sound_select, sound_select_size);
+        if (!saveTextEditorFile()) {
+            drawFileTextEditor();
+            return;
+        }
+        populateFileList();
+        selectFileManagerEntry(textEditorFileName);
+        appState = STATE_FILE_MANAGER;
+        drawFileManager();
+        return;
+    }
+
+    bool changed = false;
+    if (status.del && textEditorCursor > 0 && textEditorBuffer.length() > 0) {
+        textEditorBuffer.remove(textEditorCursor - 1, 1);
+        textEditorCursor--;
+        textEditorDirty = true;
+        changed = true;
+    }
+    if (status.enter) {
+        insertTextEditorChar('\n');
+        changed = true;
+    }
+    for (char c : status.word) {
+        if (c == '`') continue;
+        if (c >= 32 && c <= 126) {
+            insertTextEditorChar(c);
+            changed = true;
+        }
+    }
+    if (changed) drawFileTextEditor();
 }
 
 void populateFileList() {
@@ -866,7 +1113,16 @@ String formatBatteryVoltage(int16_t voltageMv) {
 void drawBatteryPercentBox() {
     updateBatteryStatus();
     uint16_t color = cachedBatteryLevel >= 0 && cachedBatteryLevel <= 20 ? CP_RED : CP_CYAN;
-    drawChippedButton(200, 2, 38, 15, color);
+    int x = 200;
+    int y = 2;
+    int w = 38;
+    int h = 15;
+    int chip = 5;
+    canvas.drawLine(x, y, x + w, y, color);
+    canvas.drawLine(x + w, y, x + w, y + h, color);
+    canvas.drawLine(x + chip, y + h, x + w, y + h, color);
+    canvas.drawLine(x, y, x, y + h - chip, color);
+    canvas.drawLine(x, y + h - chip, x + chip, y + h, color);
     canvas.setTextColor(color);
     canvas.setTextSize(1);
     canvas.drawCenterString(formatBatteryPercent(cachedBatteryLevel), 219, 6);
@@ -943,18 +1199,15 @@ void drawHardwareMenu() {
     canvas.startWrite();
     canvas.fillScreen(CP_BG);
     
-    // Compact header matches NETWORK NODE; username sits on the right.
-    String headerUser = isGuest ? String("GUEST") : authUser;
-    if (headerUser.length() > 6) headerUser = headerUser.substring(0, 5) + "~";
+    // Compact header matches the other node menus.
     drawGlitchText("HARDWARE NODE", 72, 4, 1, CP_CYAN, true, true);
-    drawGlitchText(headerUser, 165, 4, 1, CP_DIM, true, true);
     
     // Draw rotating wheel arc
     canvas.drawCircle(-80, 67, 110, CP_DIM);
     canvas.drawCircle(-80, 67, 109, CP_DIM);
     
-    int totalItems = 6;
-    std::vector<String> labels = {"FLASH MEMORY", "SD CARD", "MUSIC PLAYER", "SOUND REC", "BATTERY STATUS", "BACK"};
+    int totalItems = 8;
+    std::vector<String> labels = {"FLASH MEMORY", "SD CARD", "USB DRIVE", "BADUSB", "MUSIC PLAYER", "SOUND REC", "BATTERY STATUS", "BACK"};
     
     for (int i = 0; i < totalItems; i++) {
         float rawOffset = i - currentHardwareScroll;
@@ -1002,7 +1255,7 @@ void drawHardwareMenu() {
         canvas.print(labels[i]);
     }
 
-    drawWheelPositionIndicator(hardwareMenuFocus, totalItems);
+    drawWheelPositionIndicator(currentHardwareScroll, totalItems);
 
     if (hardwareDescAnimWidth >= 10.0) {
         int x = 40;
@@ -1022,6 +1275,12 @@ void drawHardwareMenu() {
             } else if (label == "SD CARD") {
                 line1 = "SD card";
                 line2 = "storage";
+            } else if (label == "USB DRIVE") {
+                line1 = "SD over";
+                line2 = "USB";
+            } else if (label == "BADUSB") {
+                line1 = "Ducky";
+                line2 = "executor";
             } else if (label == "MUSIC PLAYER") {
                 line1 = "Offline";
                 line2 = "player";
@@ -1082,19 +1341,23 @@ void handleHardwareMenuInput(Keyboard_Class::KeysState status) {
             loadingProgress = 0;
             showFileContent = false;
         } else if (hardwareMenuFocus == 2) {
+            enterUsbDriveMode();
+        } else if (hardwareMenuFocus == 3) {
+            enterBadUsbMode();
+        } else if (hardwareMenuFocus == 4) {
             appState = STATE_MUSIC_PLAYER;
             playlistFocus = 0;
             playlistScrollOffset = 0;
             populatePlaylist();
             drawMusicPlayer();
-        } else if (hardwareMenuFocus == 3) {
-            soundRec();
-        } else if (hardwareMenuFocus == 4) {
-            showBatteryStatus();
         } else if (hardwareMenuFocus == 5) {
+            soundRec();
+        } else if (hardwareMenuFocus == 6) {
+            showBatteryStatus();
+        } else if (hardwareMenuFocus == 7) {
             appState = STATE_SPLASH;
             showSplashBootMenu = true;
-            splashBootFocus = 0;
+            splashBootFocus = 1;
             resetSplashBootScroll();
             logOffset = 0;
             drawSplash();
@@ -1103,7 +1366,7 @@ void handleHardwareMenuInput(Keyboard_Class::KeysState status) {
     }
     
     if (!showHardwareDesc) {
-        int maxFocus = 5;
+        int maxFocus = 7;
         if (hasUp) {
             playSound(sound_hover, sound_hover_size);
             hardwareMenuFocus--;
@@ -1179,10 +1442,10 @@ void drawHardwareSettings() {
     // Draw scrollable tabs
     int tabX[3] = {18, 86, 154};
     int tabW[3] = {64, 64, 64};
-    String tabNames[5] = {"HARDWARE", "NETWORK", "OFFLINE", "  OTA  ", "APPEAR"};
+    String tabNames[6] = {"HARDWARE", "NETWORK", "OFFLINE", "  OTA  ", "APPEAR", "CREDITS"};
     for (int t = 0; t < 3; t++) {
         int idx = settingsTabScrollOffset + t;
-        if (idx >= 5) break;
+        if (idx >= 6) break;
         
         bool isActive = (settingsTab == idx);
         bool hasFocus = (settingsFocus == -1 && isActive);
@@ -1205,7 +1468,7 @@ void drawHardwareSettings() {
         canvas.setTextColor(CP_CYAN);
         canvas.drawChar('<', 11, 25);
     }
-    if (settingsTabScrollOffset < 2) {
+    if (settingsTabScrollOffset < 3) {
         canvas.setTextColor(CP_CYAN);
         canvas.drawChar('>', 221, 25);
     }
@@ -1216,6 +1479,7 @@ void drawHardwareSettings() {
     else if (settingsTab == 2) rowCount = 2; // OFFLINE: PLAY LOOP, MUSIC DIR
     else if (settingsTab == 3) rowCount = 1; // OTA: SORT BY ONLY (open list removed)
     else if (settingsTab == 4) rowCount = 4; // APPEARANCE: GLITCH TEXT, BRIGHTNESS, VOLUME, CHARGING MODE
+    else if (settingsTab == 5) rowCount = 2; // CREDITS: OPEN CREDITS, GITHUB QR
     
     int startY = 41;
     
@@ -1312,6 +1576,18 @@ void drawHardwareSettings() {
                 canvas.setTextColor(isFocus ? WHITE : CP_DIM);
                 canvas.print("< ENTER >");
             }
+        } else if (settingsTab == 5) { // CREDITS
+            if (i == 0) {
+                canvas.print("CREDITS:");
+                canvas.setCursor(120, rowY + 3);
+                canvas.setTextColor(isFocus ? WHITE : CP_DIM);
+                canvas.print("< OPEN >");
+            } else if (i == 1) {
+                canvas.print("GITHUB QR:");
+                canvas.setCursor(120, rowY + 3);
+                canvas.setTextColor(isFocus ? WHITE : CP_DIM);
+                canvas.print("< OPEN >");
+            }
         }
     }
     
@@ -1328,7 +1604,7 @@ void handleHardwareSettingsInput(Keyboard_Class::KeysState status) {
         playSound(sound_select, sound_select_size);
         appState = STATE_SPLASH;
         showSplashBootMenu = true;
-        splashBootFocus = 4;
+        splashBootFocus = 3;
         resetSplashBootScroll();
         logOffset = 0;
         drawSplash();
@@ -1349,16 +1625,21 @@ void handleHardwareSettingsInput(Keyboard_Class::KeysState status) {
     else if (settingsTab == 2) maxFocus = 1; // OFFLINE: PLAY LOOP, MUSIC DIR
     else if (settingsTab == 3) maxFocus = 0; // OTA: SORT BY
     else if (settingsTab == 4) maxFocus = 3; // APPEARANCE: GLITCH TEXT, BRIGHTNESS, VOLUME, CHARGING MODE
+    else if (settingsTab == 5) maxFocus = 1; // CREDITS: OPEN CREDITS, GITHUB QR
     
     if (settingsFocus == -1) {
         if (hasLeft) {
             playSound(sound_hover, sound_hover_size);
-            settingsTab = (settingsTab - 1 + 5) % 5;
+            settingsTab = (settingsTab - 1 + 6) % 6;
             drawHardwareSettings();
         } else if (hasRight) {
             playSound(sound_hover, sound_hover_size);
-            settingsTab = (settingsTab + 1) % 5;
+            settingsTab = (settingsTab + 1) % 6;
             drawHardwareSettings();
+        } else if (status.enter && settingsTab == 5) {
+            playSound(sound_select, sound_select_size);
+            appState = STATE_CREDITS;
+            drawCreditsScreen();
         } else if (hasDown) {
             playSound(sound_hover, sound_hover_size);
             settingsFocus = 0;
@@ -1447,7 +1728,13 @@ void handleHardwareSettingsInput(Keyboard_Class::KeysState status) {
     
     if (status.enter) {
         playSound(sound_select, sound_select_size);
-        if (settingsTab == 4 && settingsFocus == 3) {
+        if (settingsTab == 5 && settingsFocus == 0) {
+            appState = STATE_CREDITS;
+            drawCreditsScreen();
+        } else if (settingsTab == 5 && settingsFocus == 1) {
+            appState = STATE_GITHUB_QR;
+            drawGithubQrScreen();
+        } else if (settingsTab == 4 && settingsFocus == 3) {
             enterChargingMode();
             drawHardwareSettings();
         } else if (settingsTab == 2 && settingsFocus == 1) { // OFFLINE: MUSIC DIR -> choose folder location automatically
@@ -1466,7 +1753,7 @@ void handleHardwareSettingsInput(Keyboard_Class::KeysState status) {
             fileManagerScrollOffset = 0;
             appState = STATE_SPLASH; // go directly to splash menu!
             showSplashBootMenu = true;
-            splashBootFocus = 4;
+            splashBootFocus = 3;
             resetSplashBootScroll();
             drawSplash();
         }
@@ -1748,9 +2035,25 @@ void handleFileManagerInput(Keyboard_Class::KeysState status) {
         return;
     }
     
-    if (status.enter && !loadedFiles.empty()) {
+    if (status.enter) {
         playSound(sound_select, sound_select_size);
+        if (loadedFiles.empty()) {
+            if (!isDirSelectionMode && isSDCardManager) {
+                appState = STATE_FILE_ACTIONS_MENU;
+                fileActionsMenuSelected = 6;
+                drawFileActionsMenu();
+            } else {
+                drawFileManager();
+            }
+            return;
+        }
         if (loadedFiles[fileManagerSelected].name == "..") {
+            if (!isDirSelectionMode && isSDCardManager && loadedFiles.size() == 1) {
+                appState = STATE_FILE_ACTIONS_MENU;
+                fileActionsMenuSelected = 6;
+                drawFileActionsMenu();
+                return;
+            }
             int lastSlash = fileManagerCurrentPath.lastIndexOf('/');
             if (lastSlash == 0) {
                 fileManagerCurrentPath = "/";
@@ -1936,24 +2239,32 @@ void drawFileActionsMenu() {
     canvas.startWrite();
     
     // Pop-up border and box
-    canvas.fillRect(35, 20, 170, 95, CP_BG);
-    canvas.drawRect(35, 20, 170, 95, CP_CYAN);
-    canvas.drawRect(37, 22, 166, 91, CP_DIM);
+    canvas.fillRect(35, 14, 170, 112, CP_BG);
+    canvas.drawRect(35, 14, 170, 112, CP_CYAN);
+    canvas.drawRect(37, 16, 166, 108, CP_DIM);
     
     canvas.setTextColor(CP_YELLOW);
     canvas.setTextSize(1);
-    canvas.drawCenterString("--- ACTION MENU ---", 120, 26);
-    canvas.drawLine(40, 36, 200, 36, CP_CYAN);
+    canvas.drawCenterString("--- ACTION MENU ---", 120, 20);
+    canvas.drawLine(40, 31, 200, 31, CP_CYAN);
     
-    int startY = 41;
+    int startY = 36;
     bool hasPaste = (clipboardSourcePath != "");
-    std::vector<String> options = {"1. OPEN", "2. RENAME", "3. DELETE", "4. COPY", "5. PASTE"};
+    bool canNew = isSDCardManager;
+    bool canEdit = !loadedFiles.empty() && fileManagerSelected >= 0 && fileManagerSelected < (int)loadedFiles.size() && isEditableTextFileName(loadedFiles[fileManagerSelected].name, loadedFiles[fileManagerSelected].isDir);
+    std::vector<String> options = {"1. OPEN", "2. EDIT", "3. RENAME", "4. DELETE", "5. COPY", "6. PASTE", "7. NEW"};
     
-    for (int i = 0; i < 5; i++) {
+    for (int i = 0; i < 7; i++) {
         bool isSel = (i == fileActionsMenuSelected);
         uint16_t color = isSel ? CP_YELLOW : WHITE;
         
-        if (i == 4 && !hasPaste) { // PASTE is disabled
+        if (i == 1 && !canEdit) { // EDIT is only for .txt files
+            color = CP_DIM;
+        }
+        if (i == 5 && !hasPaste) { // PASTE is disabled
+            color = CP_DIM;
+        }
+        if (i == 6 && !canNew) { // NEW is SD-only
             color = CP_DIM;
         }
         
@@ -1966,15 +2277,87 @@ void drawFileActionsMenu() {
         canvas.setCursor(48, startY);
         canvas.print(options[i]);
         
-        if (i == 4 && !hasPaste) {
+        if (i == 1 && !canEdit) {
+            canvas.setCursor(120, startY);
+            canvas.print("[TXT]");
+        }
+        if (i == 5 && !hasPaste) {
             canvas.setCursor(120, startY);
             canvas.print("[EMPTY]");
+        }
+        if (i == 6 && !canNew) {
+            canvas.setCursor(120, startY);
+            canvas.print("[SD]");
         }
         
         startY += 12;
     }
     
     pushCanvas();
+}
+
+void drawFileNewTypeMenu() {
+    drawFileManager(false);
+
+    canvas.startWrite();
+    canvas.fillRect(35, 36, 170, 74, CP_BG);
+    canvas.drawRect(35, 36, 170, 74, CP_CYAN);
+    canvas.drawRect(37, 38, 166, 70, CP_DIM);
+
+    canvas.setTextColor(CP_YELLOW);
+    canvas.setTextSize(1);
+    canvas.drawCenterString("--- NEW ITEM ---", 120, 43);
+    canvas.drawLine(40, 53, 200, 53, CP_CYAN);
+
+    std::vector<String> options = {"1. FOLDER", "2. TXT FILE"};
+    int startY = 61;
+    for (int i = 0; i < 2; i++) {
+        bool isSel = (i == fileNewTypeMenuSelected);
+        uint16_t color = isSel ? CP_YELLOW : WHITE;
+        if (isSel) {
+            canvas.fillRect(42, startY - 2, 156, 12, canvas.color565(30, 30, 30));
+            canvas.drawRect(42, startY - 2, 156, 12, CP_CYAN);
+        }
+        canvas.setTextColor(color);
+        canvas.setCursor(48, startY);
+        canvas.print(options[i]);
+        startY += 14;
+    }
+
+    canvas.setTextColor(CP_DIM);
+    canvas.drawCenterString("ENTER SELECT | ESC BACK", 120, 94);
+    pushCanvas();
+}
+
+void handleFileNewTypeMenuInput(Keyboard_Class::KeysState status) {
+    bool hasBack = false, hasUp = false, hasDown = false;
+    for (char c : status.word) {
+        if (c == ',' || c == '`') hasBack = true;
+        if (c == ';') hasUp = true;
+        if (c == '.') hasDown = true;
+    }
+
+    if (hasBack) {
+        playSound(sound_select, sound_select_size);
+        appState = STATE_FILE_ACTIONS_MENU;
+        drawFileActionsMenu();
+        return;
+    }
+
+    if (hasUp || hasDown) {
+        playSound(sound_hover, sound_hover_size);
+        fileNewTypeMenuSelected = fileNewTypeMenuSelected == 0 ? 1 : 0;
+        drawFileNewTypeMenu();
+        return;
+    }
+
+    if (status.enter) {
+        playSound(sound_select, sound_select_size);
+        fileNameInputMode = fileNewTypeMenuSelected == 0 ? FILE_NAME_MODE_NEW_FOLDER : FILE_NAME_MODE_NEW_TXT;
+        renameInputText = fileNameInputMode == FILE_NAME_MODE_NEW_FOLDER ? "new_folder" : "new.txt";
+        appState = STATE_FILE_RENAME_INPUT;
+        drawFileRenameInput();
+    }
 }
 
 void handleFileActionsMenuInput(Keyboard_Class::KeysState status) {
@@ -1999,22 +2382,43 @@ void handleFileActionsMenuInput(Keyboard_Class::KeysState status) {
     if (hasUp) {
         playSound(sound_hover, sound_hover_size);
         fileActionsMenuSelected--;
-        if (fileActionsMenuSelected < 0) fileActionsMenuSelected = 4;
+        if (fileActionsMenuSelected < 0) fileActionsMenuSelected = 6;
         drawFileActionsMenu();
     }
     if (hasDown) {
         playSound(sound_hover, sound_hover_size);
         fileActionsMenuSelected++;
-        if (fileActionsMenuSelected > 4) fileActionsMenuSelected = 0;
+        if (fileActionsMenuSelected > 6) fileActionsMenuSelected = 0;
         drawFileActionsMenu();
     }
     
     if (status.enter) {
         playSound(sound_select, sound_select_size);
         bool hasPaste = (clipboardSourcePath != "");
+        bool canNew = isSDCardManager;
+        bool canEdit = !loadedFiles.empty() && fileManagerSelected >= 0 && fileManagerSelected < (int)loadedFiles.size() && isEditableTextFileName(loadedFiles[fileManagerSelected].name, loadedFiles[fileManagerSelected].isDir);
         
-        if (fileActionsMenuSelected == 4 && !hasPaste) {
+        if (fileActionsMenuSelected == 1 && !canEdit) {
+            // Edit is only enabled for .txt files.
+            return;
+        }
+        if (fileActionsMenuSelected == 5 && !hasPaste) {
             // Paste is disabled
+            return;
+        }
+        if (fileActionsMenuSelected == 6 && !canNew) {
+            // New item creation is only supported in SD CARD.
+            return;
+        }
+        if (fileActionsMenuSelected == 6) { // NEW
+            fileNewTypeMenuSelected = 0;
+            appState = STATE_FILE_NEW_TYPE_MENU;
+            drawFileNewTypeMenu();
+            return;
+        }
+        if (loadedFiles.empty()) {
+            appState = STATE_FILE_MANAGER;
+            drawFileManager();
             return;
         }
         
@@ -2068,8 +2472,17 @@ void handleFileActionsMenuInput(Keyboard_Class::KeysState status) {
                 }
             }
         }
-        else if (fileActionsMenuSelected == 1) { // RENAME
+        else if (fileActionsMenuSelected == 1) { // EDIT
+            if (isEditableTextFileName(targetFile.name, targetFile.isDir)) {
+                openTextEditor(targetFile.name);
+            } else {
+                appState = STATE_FILE_ACTIONS_MENU;
+                drawFileActionsMenu();
+            }
+        }
+        else if (fileActionsMenuSelected == 2) { // RENAME
             if (targetFile.name != "..") {
+                fileNameInputMode = FILE_NAME_MODE_RENAME;
                 renameInputText = targetFile.name;
                 appState = STATE_FILE_RENAME_INPUT;
                 drawFileRenameInput();
@@ -2078,7 +2491,7 @@ void handleFileActionsMenuInput(Keyboard_Class::KeysState status) {
                 drawFileManager();
             }
         }
-        else if (fileActionsMenuSelected == 2) { // DELETE
+        else if (fileActionsMenuSelected == 3) { // DELETE
             if (targetFile.name != "..") {
                 if (isSDCardManager) {
                     if (isSDFallback) {
@@ -2123,7 +2536,7 @@ void handleFileActionsMenuInput(Keyboard_Class::KeysState status) {
                 drawFileManager();
             }
         }
-        else if (fileActionsMenuSelected == 3) { // COPY
+        else if (fileActionsMenuSelected == 4) { // COPY
             if (targetFile.name != "..") {
                 clipboardSourcePath = fullPath;
                 appState = STATE_FILE_MANAGER;
@@ -2133,7 +2546,7 @@ void handleFileActionsMenuInput(Keyboard_Class::KeysState status) {
                 drawFileManager();
             }
         }
-        else if (fileActionsMenuSelected == 4) { // PASTE
+        else if (fileActionsMenuSelected == 5) { // PASTE
             String sourceFilename = clipboardSourcePath;
             int lastSlash = sourceFilename.lastIndexOf('/');
             if (lastSlash >= 0) sourceFilename = sourceFilename.substring(lastSlash + 1);
@@ -2216,7 +2629,10 @@ void drawFileRenameInput() {
     
     canvas.setTextColor(CP_YELLOW);
     canvas.setTextSize(1);
-    canvas.drawCenterString("--- RENAME FILE ---", 120, 42);
+    String title = "--- RENAME FILE ---";
+    if (fileNameInputMode == FILE_NAME_MODE_NEW_FOLDER) title = "--- NEW FOLDER ---";
+    else if (fileNameInputMode == FILE_NAME_MODE_NEW_TXT) title = "--- NEW TXT FILE ---";
+    canvas.drawCenterString(title, 120, 42);
     
     // Input box
     canvas.drawRect(35, 56, 170, 16, CP_CYAN);
@@ -2231,7 +2647,7 @@ void drawFileRenameInput() {
     canvas.print(disp);
     
     canvas.setTextColor(CP_DIM);
-    canvas.drawCenterString("ENTER: RENAME  |  ESC/COMMA: BACK", 120, 80);
+    canvas.drawCenterString(fileNameInputMode == FILE_NAME_MODE_RENAME ? "ENTER: RENAME  |  ESC/COMMA: BACK" : "ENTER: CREATE  |  ESC/COMMA: BACK", 120, 80);
     
     pushCanvas();
 }
@@ -2239,60 +2655,63 @@ void drawFileRenameInput() {
 void handleFileRenameInput(Keyboard_Class::KeysState status) {
     bool hasBack = false;
     for (char c : status.word) {
-        if (c == '`') hasBack = true;
+        if (c == ',' || c == '`') hasBack = true;
     }
     
     if (hasBack) {
         playSound(sound_select, sound_select_size);
-        appState = STATE_FILE_ACTIONS_MENU;
-        drawFileActionsMenu();
+        if (fileNameInputMode == FILE_NAME_MODE_RENAME) {
+            appState = STATE_FILE_ACTIONS_MENU;
+            drawFileActionsMenu();
+        } else {
+            appState = STATE_FILE_NEW_TYPE_MENU;
+            drawFileNewTypeMenu();
+        }
         return;
     }
     
     if (status.enter) {
         playSound(sound_select, sound_select_size);
         if (renameInputText.length() > 0) {
-            RealFile targetFile = loadedFiles[fileManagerSelected];
-            String oldPath = fileManagerCurrentPath + (fileManagerCurrentPath == "/" ? "" : "/") + targetFile.name;
-            String newPath = fileManagerCurrentPath + (fileManagerCurrentPath == "/" ? "" : "/") + renameInputText;
-            
-            if (isSDCardManager) {
-                if (isSDFallback) {
-                    loadedFiles[fileManagerSelected].name = renameInputText;
-                } else {
-                    SD.rename(oldPath, newPath);
-                    populateFileList();
+            if (fileNameInputMode == FILE_NAME_MODE_RENAME) {
+                if (!loadedFiles.empty()) {
+                    RealFile targetFile = loadedFiles[fileManagerSelected];
+                    String oldPath = fileManagerCurrentPath + (fileManagerCurrentPath == "/" ? "" : "/") + targetFile.name;
+                    String newPath = fileManagerCurrentPath + (fileManagerCurrentPath == "/" ? "" : "/") + renameInputText;
+
+                    if (isSDCardManager) {
+                        if (isSDFallback) {
+                            loadedFiles[fileManagerSelected].name = renameInputText;
+                        } else {
+                            SD.rename(oldPath, newPath);
+                            populateFileList();
+                        }
+                    } else {
+                        if (isFlashFallback) {
+                            loadedFiles[fileManagerSelected].name = renameInputText;
+                        } else {
+                            SPIFFS.rename(oldPath, newPath);
+                            populateFileList();
+                        }
+                    }
+                    selectFileManagerEntry(renameInputText);
                 }
             } else {
-                if (isFlashFallback) {
-                    loadedFiles[fileManagerSelected].name = renameInputText;
-                } else {
-                    SPIFFS.rename(oldPath, newPath);
-                    populateFileList();
-                }
-            }
-            
-            // Relocate renamed file in the sorted list
-            int foundIdx = -1;
-            for (size_t i = 0; i < loadedFiles.size(); i++) {
-                if (loadedFiles[i].name == renameInputText) {
-                    foundIdx = i;
-                    break;
-                }
-            }
-            if (foundIdx >= 0) {
-                fileManagerSelected = foundIdx;
-                if ((int)loadedFiles.size() > 5) {
-                    if (fileManagerSelected > 4) {
-                        fileManagerScrollOffset = fileManagerSelected - 4;
+                bool folder = fileNameInputMode == FILE_NAME_MODE_NEW_FOLDER;
+                String newName = cleanNewFileManagerName(renameInputText, !folder);
+                if (newName.length() > 0) {
+                    bool created = createFileManagerEntry(newName, folder);
+                    if (created) {
+                        if (!isSDFallback) populateFileList();
+                        selectFileManagerEntry(newName);
                     } else {
-                        fileManagerScrollOffset = 0;
+                        drawMessage("CREATE FAILED");
+                        delay(900);
                     }
-                } else {
-                    fileManagerScrollOffset = 0;
                 }
             }
         }
+        fileNameInputMode = FILE_NAME_MODE_RENAME;
         appState = STATE_FILE_MANAGER;
         drawFileManager();
         return;
@@ -2306,8 +2725,8 @@ void handleFileRenameInput(Keyboard_Class::KeysState status) {
     bool typed = false;
     for (char c : status.word) {
         if (c >= 32 && c <= 126 && renameInputText.length() < 24) {
-            // Filter out backquote from being typed
-            if (c != '`') {
+            // Filter out command/path separators from being typed
+            if (c != '`' && c != ',' && (fileNameInputMode == FILE_NAME_MODE_RENAME || (c != '/' && c != '\\'))) {
                 renameInputText += c;
                 typed = true;
             }

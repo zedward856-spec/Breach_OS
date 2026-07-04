@@ -12,6 +12,7 @@
 #include <HTTPClient.h>
 #include <vector>
 #include <algorithm>
+#include <cstring>
 #include <ArduinoJson.h>
 #include "esp_partition.h"
 #include "esp_ota_ops.h"
@@ -31,6 +32,16 @@
 #include <AudioGeneratorMP3.h>
 #include <AudioGeneratorWAV.h>
 #include <AudioFileSourceBuffer.h>
+#if defined(ARDUINO_USB_MODE) && (ARDUINO_USB_MODE == 0)
+#include <USB.h>
+#include <USBMSC.h>
+#include <USBHIDKeyboard.h>
+#define BREACH_USB_MSC_AVAILABLE 1
+#define BREACH_USB_HID_AVAILABLE 1
+#else
+#define BREACH_USB_MSC_AVAILABLE 0
+#define BREACH_USB_HID_AVAILABLE 0
+#endif
 
 static constexpr int AUDIO_SPECTRUM_BARS = 18;
 void feedAudioSpectrumSample(int16_t left, int16_t right);
@@ -96,6 +107,7 @@ SortOrder currentSortOrder = SORT_ORDER_ASC;
 WiFiClient otaDataClient;
 WiFiClientSecure secureClient;
 WiFiClient sshClient;
+WiFiClient telnetClient;
 SemaphoreHandle_t sshMutex = NULL;
 TaskHandle_t sshTaskHandle = NULL;
 static constexpr uint32_t BREACH_SSH_TASK_STACK_SIZE = 1024 * 32;
@@ -169,6 +181,7 @@ int currentScore = 0;
 
 enum AppState {
     STATE_SPLASH,
+    STATE_BREACH_MODE,
     STATE_AUTH_MENU,
     STATE_WIFI_SCAN,
     STATE_WIFI_PASS,
@@ -176,26 +189,39 @@ enum AppState {
     STATE_LEADERBOARD,
     STATE_ACCOUNT,
     STATE_SSH,
+    STATE_TELNET_BBS,
     STATE_GRID_SELECT,
     STATE_PHASE_TRANSITION,
     STATE_FAILED_SCREEN,
     STATE_PLAYING,
     STATE_CONTROLS,
     STATE_CREDITS,
+    STATE_GITHUB_QR,
     STATE_HARDWARE_MENU,
     STATE_FILE_MANAGER,
     STATE_FILE_LOADING,
     STATE_HARDWARE_SETTINGS,
     STATE_FILE_ACTIONS_MENU,
+    STATE_FILE_NEW_TYPE_MENU,
     STATE_FILE_RENAME_INPUT,
+    STATE_FILE_TEXT_EDITOR,
     STATE_OTA_CATALOG,
     STATE_DIR_CONFIRM_POPUP,
-    STATE_MUSIC_PLAYER
+    STATE_MUSIC_PLAYER,
+    STATE_USB_DRIVE,
+    STATE_BADUSB
 };
 AppState appState = STATE_SPLASH;
 bool suppressBatteryPercentBox = false;
 
 bool isGuest = false;
+bool launchBreachAfterAuth = false;
+bool launchAccountAfterAuth = false;
+bool accountReturnToBreach = false;
+bool leaderboardReturnToBreach = false;
+int breachModeFocus = 0;
+float currentBreachScroll = 0;
+float targetBreachScroll = 0;
 int insaneMode = 0;
 bool lastBreachFailed = false;
 String authUser = "";
@@ -234,11 +260,23 @@ int accountHighPhase = 0;
 bool accountStatsFetched = false;
 
 int sshFocus = 0;
+const char* BREACH_DEFAULT_SSH_TARGET = "sl01220@raspi";
+const char* BREACH_SSH_PROMPT_HEADER = "-[sl01220@raspi]-[~]";
+const char* BREACH_SSH_LOCAL_PROMPT = "-> ";
+const char* BREACH_SSH_REMOTE_PROMPT_CMD =
+    "stty -echo 2>/dev/null; bind 'set enable-bracketed-paste off' 2>/dev/null; unset PROMPT_COMMAND; export PS1=''; printf '\\033[?2004l\\033[2J\\033[H'\r";
+const char* BREACH_SSH_CLEAR_SCREEN = "\033[2J\033[H";
+static constexpr int BREACH_SSH_PTY_COLS = 40;
+static constexpr int BREACH_SSH_PTY_ROWS = 12;
+static constexpr int BREACH_SSH_VISIBLE_COLS = 38;
+static constexpr int BREACH_SSH_VISIBLE_ROWS = 6;
+static constexpr int BREACH_SSH_LOG_MAX = 1800;
 String sshTarget = "";
 String sshHost = "";
 String sshPort = "22";
 String sshUser = "";
 String sshPass = "";
+bool sshRememberMe = false;
 String sshStatus = "READY";
 String sshBanner = "";
 bool sshConnected = false;
@@ -246,15 +284,52 @@ bool sshTerminalMode = false;
 bool sshTerminalDirty = false;
 String sshTerminalLog = "";
 String sshInputLine = "";
+int sshScrollOffset = 0;
+bool sshAnsiEsc = false;
+bool sshAnsiCsi = false;
 bool sshShellReady = false;
+bool sshUseCustomPrompt = false;
 String sshQueuedCommand = "";
 String sshQueuedOutput = "";
 String sshWorkerHost = "";
 String sshWorkerUser = "";
 String sshWorkerPass = "";
 int sshWorkerPort = 22;
+bool sshWorkerUseCustomPrompt = false;
 bool sshStopRequested = false;
 bool sshTaskExited = false;
+
+int telnetFocus = 0;
+static constexpr int BREACH_TELNET_VISIBLE_COLS = 38;
+static constexpr int BREACH_TELNET_VISIBLE_ROWS = 6;
+static constexpr int BREACH_TELNET_BBS_COLS = 80;
+static constexpr int BREACH_TELNET_BBS_ROWS = 24;
+static constexpr int BREACH_TELNET_PAN_COL_STEP = 10;
+static constexpr int BREACH_TELNET_PAN_ROW_STEP = 3;
+static constexpr int BREACH_TELNET_LOG_MAX = 1800;
+String telnetTarget = "";
+String telnetHost = "";
+String telnetPort = "23";
+String telnetStatus = "READY";
+String telnetTerminalLog = "";
+String telnetInputLine = "";
+int telnetScrollOffset = 0;
+char telnetScreen[BREACH_TELNET_BBS_ROWS][BREACH_TELNET_BBS_COLS + 1];
+int telnetCursorCol = 0;
+int telnetCursorRow = 0;
+int telnetPanCol = 0;
+int telnetPanRow = 0;
+String telnetAnsiParams = "";
+bool telnetRememberMe = false;
+bool telnetConnected = false;
+bool telnetTerminalMode = false;
+bool telnetTerminalDirty = false;
+bool telnetAnsiEsc = false;
+bool telnetAnsiCsi = false;
+int telnetIacState = 0;
+int telnetIacCommand = 0;
+int telnetSbOption = -1;
+String telnetSbData = "";
 
 int currentPhase = 1;
 int accumulatedScore = 0;
@@ -282,6 +357,15 @@ void initGame(bool keepDiff = false);
 void drawScreen();
 void drawSplash();
 void resetSplashBootScroll();
+void drawBreachModePrompt();
+void handleBreachModeInput(Keyboard_Class::KeysState status);
+void resetBreachModeScroll();
+void returnToBreachMode();
+void startBreachGridSelect();
+void startOfflineBreach();
+void startOnlineBreach();
+void openBreachAccount();
+void openBreachLeaderboard();
 void drawAuthMenu();
 void drawWifiScan();
 void drawWifiPass();
@@ -290,9 +374,16 @@ void enterMainMenu();
 void drawLeaderboard();
 void drawAccountMenu();
 void drawSshScreen();
+void prepareSshSetupPrompt();
 bool connectSshProfile();
 void pollSshTerminal();
 void closeSshSession();
+void drawTelnetBbsScreen();
+void prepareTelnetBbsSetup();
+bool connectTelnetBbs();
+void pollTelnetBbs();
+void closeTelnetBbs();
+void handleTelnetBbsInput(Keyboard_Class::KeysState status);
 bool trySshKeyFile(ssh_session session, const String &authSecret, const char* path);
 bool authenticateSshSession(ssh_session session, const String &authSecret);
 TaskHandle_t getSshTaskHandle();
@@ -300,6 +391,7 @@ void snapshotSshState(String &status, bool &connected, bool &shellReady, TaskHan
 bool verifySshKnownHost(ssh_session session);
 bool drainSshStream(ssh_session session, ssh_channel channel, char *buffer, bool &pollingEnabled,
                     int isStderr, String &finalStatus, bool &finalFailed);
+void discardSshStartupNoise(ssh_channel channel, char *buffer);
 void sshWorkerTask(void *pvParameters);
 void drawGridSelect();
 void drawPhaseTransition();
@@ -315,6 +407,8 @@ void drawControlsScreen();
 void handleControlsInput(Keyboard_Class::KeysState status);
 void drawCreditsScreen();
 void handleCreditsInput(Keyboard_Class::KeysState status);
+void drawGithubQrScreen();
+void handleGithubQrInput(Keyboard_Class::KeysState status);
 void drawHardwareMenu();
 void handleHardwareMenuInput(Keyboard_Class::KeysState status);
 void drawFileManager(bool push = true);
@@ -324,13 +418,19 @@ void drawHardwareSettings();
 void handleHardwareSettingsInput(Keyboard_Class::KeysState status);
 void drawFileActionsMenu();
 void handleFileActionsMenuInput(Keyboard_Class::KeysState status);
+void drawFileNewTypeMenu();
+void handleFileNewTypeMenuInput(Keyboard_Class::KeysState status);
 void drawFileRenameInput();
 void handleFileRenameInput(Keyboard_Class::KeysState status);
+void openTextEditor(String fileName);
+void drawFileTextEditor();
+void handleFileTextEditorInput(Keyboard_Class::KeysState status);
 void drawOtaCatalog();
 void enterOtaCatalog();
 void handleOtaCatalogInput(Keyboard_Class::KeysState status);
 void performOtaUpdate(String binUrl);
 void performOtaUpdate(String binUrl, size_t expectedBytes);
+void performOtaUpdate(String binUrl, size_t expectedBytes, String firmwareName, String firmwareVersion);
 bool fetchOtaCatalog();
 String resolveOtaFirmwareUrl(String fid);
 bool fetchOtaFirmwareDetails(String fid);
@@ -340,6 +440,12 @@ void drawDirConfirmPopup();
 void handleDirConfirmPopupInput(Keyboard_Class::KeysState status);
 void drawMusicPlayer();
 void handleMusicPlayerInput(Keyboard_Class::KeysState status);
+void enterUsbDriveMode();
+void drawUsbDriveScreen();
+void handleUsbDriveInput(Keyboard_Class::KeysState status);
+void enterBadUsbMode();
+void drawBadUsbScreen();
+void handleBadUsbInput(Keyboard_Class::KeysState status);
 void updateMusicInputGate(bool enterDown);
 void populatePlaylist();
 void playNextTrack();
@@ -360,7 +466,7 @@ void populateFileList();
 void readSelectedFileContent(String fileName);
 void drawChippedButton(int x, int y, int w, int h, uint16_t color);
 void drawBatteryPercentBox();
-void drawWheelPositionIndicator(int focus, int totalItems);
+void drawWheelPositionIndicator(float scroll, int totalItems);
 void resetAudioSpectrum();
 void feedAudioSpectrumBuffer(const int16_t* samples, size_t sampleCount);
 void drawAudioSpectrum(int x, int baselineY, int width, int height);
@@ -373,6 +479,7 @@ void handleWifiPassInput(Keyboard_Class::KeysState status);
 void handleMainMenuInput(Keyboard_Class::KeysState status);
 void handleSshInput(Keyboard_Class::KeysState status);
 void drawRotatedText(String text, int cx, int cy, uint16_t color);
+void drawDefaultGlitchText(String text, int x, int y, int size, uint16_t color, bool center = true);
 void handleGridSelectInput(Keyboard_Class::KeysState status);
 void handlePhaseTransitionInput(Keyboard_Class::KeysState status);
 void initSPIFFS();
@@ -398,6 +505,15 @@ String fileManagerCurrentPath = "/";
 String clipboardSourcePath = "";
 String renameInputText = "";
 int fileActionsMenuSelected = 0;
+int fileNewTypeMenuSelected = 0;
+int fileNameInputMode = 0;
+String textEditorFileName = "";
+String textEditorPath = "";
+String textEditorBuffer = "";
+String textEditorStatus = "";
+int textEditorCursor = 0;
+bool textEditorDirty = false;
+unsigned long textEditorStatusUntil = 0;
 int settingsTab = 0;
 int settingsTabScrollOffset = 0;
 int settingsFocus = 0;
@@ -437,6 +553,35 @@ bool showSplashBootMenu = false;
 int splashBootFocus = 0;
 float currentSplashBootScroll = 0;
 float targetSplashBootScroll = 0;
+
+#if BREACH_USB_MSC_AVAILABLE
+USBMSC usbDriveMsc;
+#endif
+bool usbDriveConfigured = false;
+bool usbDriveActive = false;
+bool usbDriveSdMounted = false;
+uint32_t usbDriveSectorCount = 0;
+uint32_t usbDriveSectorSize = 512;
+volatile uint32_t usbDriveReadOps = 0;
+volatile uint32_t usbDriveWriteOps = 0;
+volatile uint32_t usbDriveErrorOps = 0;
+volatile bool usbDriveHostEjected = false;
+String usbDriveStatus = "IDLE";
+#if BREACH_USB_HID_AVAILABLE
+USBHIDKeyboard badUsbKeyboard;
+#endif
+std::vector<String> badUsbScripts;
+int badUsbFocus = 0;
+int badUsbScrollOffset = 0;
+int badUsbMode = 0;
+String badUsbSelectedName = "";
+String badUsbStatus = "IDLE";
+uint32_t badUsbLineNumber = 0;
+uint32_t badUsbExecutedLines = 0;
+uint32_t badUsbSkippedLines = 0;
+uint32_t badUsbDefaultDelayMs = 0;
+bool badUsbHidReady = false;
+bool badUsbAbortFlag = false;
 
 struct FirmwareCatalogItem {
     String fid;

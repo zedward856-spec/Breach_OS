@@ -1,5 +1,15 @@
 // Account profile screen and account update input handling.
 
+void returnFromAccountMenu() {
+    accountStatsFetched = false;
+    if (accountReturnToBreach) {
+        accountReturnToBreach = false;
+        returnToBreachMode();
+    } else {
+        enterMainMenu();
+    }
+}
+
 void drawAccountMenu() {
     canvas.startWrite();
     canvas.fillScreen(CP_BG);
@@ -129,12 +139,10 @@ void handleAccountInput(Keyboard_Class::KeysState status) {
                 drawMessage("UPDATE FAILED!");
             }
             delay(1500);
-            accountStatsFetched = false;
-            enterMainMenu();
+            returnFromAccountMenu();
             return;
         } else if (accountFocus == 4) {
-            accountStatsFetched = false;
-            enterMainMenu();
+            returnFromAccountMenu();
             return;
         }
         accountFocus++;

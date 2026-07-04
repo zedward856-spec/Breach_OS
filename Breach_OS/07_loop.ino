@@ -155,6 +155,24 @@ void loop() {
         if (appState == STATE_ACCOUNT) drawAccountMenu();
     }
     
+    if (appState == STATE_BREACH_MODE) {
+        if (keyChanged && keyPressed) {
+            handleBreachModeInput(globalStatus);
+            if (appState == STATE_BREACH_MODE) drawBreachModePrompt();
+        }
+        bool needsRedraw = false;
+        if (abs(currentBreachScroll - targetBreachScroll) > 0.01) {
+            currentBreachScroll += (targetBreachScroll - currentBreachScroll) * 0.3;
+            if (abs(currentBreachScroll - targetBreachScroll) <= 0.01) {
+                currentBreachScroll = targetBreachScroll;
+            }
+            needsRedraw = true;
+        }
+        if (needsRedraw) drawBreachModePrompt();
+        delay(10);
+        return;
+    }
+
     if (appState == STATE_AUTH_MENU) {
         if (keyChanged && keyPressed) {
             handleAuthInput(globalStatus);
@@ -187,9 +205,11 @@ void loop() {
         static unsigned long nextInsane = 500;
         if (now - lastInsane > nextInsane) {
             if (appState == STATE_AUTH_MENU) drawAuthMenu();
+            else if (appState == STATE_BREACH_MODE) drawBreachModePrompt();
             else if (appState == STATE_MAIN_MENU) drawMainMenu();
             else if (appState == STATE_ACCOUNT) drawAccountMenu();
             else if (appState == STATE_SSH) drawSshScreen();
+            else if (appState == STATE_TELNET_BBS) drawTelnetBbsScreen();
             else if (appState == STATE_GRID_SELECT) drawGridSelect();
             else if (appState == STATE_PHASE_TRANSITION) drawPhaseTransition();
             else if (appState == STATE_FAILED_SCREEN) drawGameOverFailed();
@@ -261,6 +281,15 @@ void loop() {
         return;
     }
 
+    if (appState == STATE_GITHUB_QR) {
+        if (keyChanged && keyPressed) {
+            handleGithubQrInput(globalStatus);
+            if (appState == STATE_GITHUB_QR) drawGithubQrScreen();
+        }
+        delay(10);
+        return;
+    }
+
     if (appState == STATE_SSH) {
         pollSshTerminal();
         static unsigned long lastSshTerminalDraw = 0;
@@ -274,6 +303,24 @@ void loop() {
             if (appState == STATE_SSH) drawSshScreen();
             sshTerminalDirty = false;
             lastSshTerminalDraw = now;
+        }
+        delay(10);
+        return;
+    }
+
+    if (appState == STATE_TELNET_BBS) {
+        pollTelnetBbs();
+        static unsigned long lastTelnetDraw = 0;
+        if (telnetTerminalDirty && now - lastTelnetDraw > 100) {
+            drawTelnetBbsScreen();
+            telnetTerminalDirty = false;
+            lastTelnetDraw = now;
+        }
+        if (keyChanged && keyPressed) {
+            handleTelnetBbsInput(globalStatus);
+            if (appState == STATE_TELNET_BBS) drawTelnetBbsScreen();
+            telnetTerminalDirty = false;
+            lastTelnetDraw = now;
         }
         delay(10);
         return;
@@ -335,6 +382,32 @@ void loop() {
         return;
     }
     
+    if (appState == STATE_USB_DRIVE) {
+        static unsigned long lastUsbDriveDraw = 0;
+        if (keyChanged && keyPressed) {
+            handleUsbDriveInput(globalStatus);
+        }
+        if (appState == STATE_USB_DRIVE && millis() - lastUsbDriveDraw > 500) {
+            drawUsbDriveScreen();
+            lastUsbDriveDraw = millis();
+        }
+        delay(10);
+        return;
+    }
+
+    if (appState == STATE_BADUSB) {
+        static unsigned long lastBadUsbDraw = 0;
+        if (keyChanged && keyPressed) {
+            handleBadUsbInput(globalStatus);
+        }
+        if (appState == STATE_BADUSB && badUsbMode != 2 && millis() - lastBadUsbDraw > 250) {
+            drawBadUsbScreen();
+            lastBadUsbDraw = millis();
+        }
+        delay(10);
+        return;
+    }
+
     if (appState == STATE_OTA_CATALOG) {
         static unsigned long lastOtaMarquee = 0;
         if (millis() - lastOtaMarquee > 150) {
@@ -406,6 +479,14 @@ void loop() {
         delay(10);
         return;
     }
+
+    if (appState == STATE_FILE_NEW_TYPE_MENU) {
+        if (keyChanged && keyPressed) {
+            handleFileNewTypeMenuInput(globalStatus);
+        }
+        delay(10);
+        return;
+    }
     
     if (appState == STATE_FILE_RENAME_INPUT) {
         if (keyChanged && keyPressed) {
@@ -419,6 +500,22 @@ void loop() {
             lastRenameBlink = millis();
         }
         
+        delay(10);
+        return;
+    }
+
+    if (appState == STATE_FILE_TEXT_EDITOR) {
+        if (keyChanged && keyPressed) {
+            handleFileTextEditorInput(globalStatus);
+        }
+
+        static unsigned long lastTextEditorBlink = 0;
+        if (millis() - lastTextEditorBlink > 500) {
+            blinkState = !blinkState;
+            drawFileTextEditor();
+            lastTextEditorBlink = millis();
+        }
+
         delay(10);
         return;
     }
@@ -457,7 +554,14 @@ void loop() {
             
             if (status.enter || status.del) {
                 playSound(sound_select, sound_select_size);
-                enterMainMenu();
+                if (leaderboardReturnToBreach) {
+                    leaderboardReturnToBreach = false;
+                    appState = STATE_BREACH_MODE;
+                    resetBreachModeScroll();
+                    drawBreachModePrompt();
+                } else {
+                    enterMainMenu();
+                }
             }
         }
         delay(10);
@@ -512,7 +616,7 @@ void loop() {
             if (globalStatus.enter) {
                 playSound(sound_select, sound_select_size);
                 lastBreachFailed = true;
-                enterMainMenu();
+                returnToBreachMode();
             }
         }
         delay(10);

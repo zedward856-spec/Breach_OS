@@ -15,6 +15,187 @@ void resetSplashBootScroll() {
     targetSplashBootScroll = splashBootFocus;
 }
 
+void resetBreachModeScroll() {
+    currentBreachScroll = breachModeFocus;
+    targetBreachScroll = breachModeFocus;
+}
+
+void returnToBreachMode() {
+    launchBreachAfterAuth = false;
+    launchAccountAfterAuth = false;
+    appState = STATE_BREACH_MODE;
+    resetBreachModeScroll();
+    drawBreachModePrompt();
+}
+
+void returnToBootBreach() {
+    appState = STATE_SPLASH;
+    showSplashBootMenu = true;
+    splashBootFocus = 0;
+    resetSplashBootScroll();
+    drawSplash();
+}
+
+void startBreachGridSelect() {
+    appState = STATE_GRID_SELECT;
+    gridMenuFocus = 0;
+    currentGridScroll = 0;
+    targetGridScroll = 0;
+    drawGridSelect();
+}
+
+void startOfflineBreach() {
+    resumeOtaAfterWifi = false;
+    launchBreachAfterAuth = false;
+    launchAccountAfterAuth = false;
+    WiFi.disconnect(true);
+    WiFi.mode(WIFI_OFF);
+    isGuest = true;
+    authUser = "GUEST";
+    startBreachGridSelect();
+}
+
+void startOnlineBreach() {
+    resumeOtaAfterWifi = false;
+    launchBreachAfterAuth = true;
+    launchAccountAfterAuth = false;
+    if (WiFi.status() == WL_CONNECTED) {
+        appState = STATE_AUTH_MENU;
+        drawAuthMenu();
+    } else {
+        startWifiScan();
+    }
+}
+
+void enterBreachAccount() {
+    accountReturnToBreach = true;
+    appState = STATE_ACCOUNT;
+    accountFocus = 0;
+    accountStatsFetched = false;
+    drawAccountMenu();
+}
+
+void openBreachAccount() {
+    resumeOtaAfterWifi = false;
+    launchBreachAfterAuth = false;
+    if (WiFi.status() == WL_CONNECTED && !isGuest && authUser != "") {
+        launchAccountAfterAuth = false;
+        enterBreachAccount();
+        return;
+    }
+    launchAccountAfterAuth = true;
+    if (WiFi.status() == WL_CONNECTED) {
+        appState = STATE_AUTH_MENU;
+        drawAuthMenu();
+    } else {
+        startWifiScan();
+    }
+}
+
+void openBreachLeaderboard() {
+    leaderboardReturnToBreach = true;
+    appState = STATE_LEADERBOARD;
+    drawMessage("FETCHING DATABANK...");
+    fetchLeaderboard(0, 10);
+    leaderboardCursor = 0;
+    leaderboardScrollOffset = 0;
+    drawLeaderboard();
+}
+
+void drawBreachModePrompt() {
+    canvas.startWrite();
+    canvas.fillScreen(CP_BG);
+
+    drawGlitchText("BREACH MODE", 72, 4, 1, CP_CYAN, true, true);
+
+    canvas.drawCircle(-80, 67, 110, CP_DIM);
+    canvas.drawCircle(-80, 67, 109, CP_DIM);
+
+    int totalItems = 5;
+    const char* labels[5] = {"ONLINE", "OFFLINE", "ACCOUNT", "LEADERBOARD", "BACK"};
+    for (int i = 0; i < totalItems; i++) {
+        float rawOffset = i - currentBreachScroll;
+        float offset = fmod(rawOffset, (float)totalItems);
+        float halfItems = (float)totalItems / 2.0;
+        if (offset > halfItems) offset -= (float)totalItems;
+        if (offset < -halfItems) offset += (float)totalItems;
+
+        if (abs(offset) > 1.5) continue;
+
+        float angle = offset * 0.391;
+        float tickY = 67 + sin(angle) * 110;
+        float tickX = -80 + cos(angle) * 110;
+
+        bool selected = (i == breachModeFocus);
+        uint16_t tColor = selected ? CP_CYAN : CP_DIM;
+        float tickEndX = -80 + cos(angle) * (selected ? 117 : 115);
+        float tickEndY = 67 + sin(angle) * (selected ? 117 : 115);
+
+        canvas.drawLine(tickX, tickY, tickEndX, tickEndY, tColor);
+        canvas.drawLine(tickX, tickY - 1, tickEndX, tickEndY - 1, tColor);
+        if (selected) canvas.drawLine(tickX, tickY + 1, tickEndX, tickEndY + 1, tColor);
+
+        float scale = 1.0 - abs(offset) * 0.3333;
+        if (scale < 0.1) scale = 0.1;
+        float h = 30.0 * scale;
+        float y = tickY - h / 2.0;
+        float w = 195.0 * scale;
+        float x = tickX + 10;
+        uint16_t color = selected ? CP_YELLOW : CP_DIM;
+
+        drawChippedButton(x, y, w, h, color);
+        canvas.setTextColor(color);
+        canvas.setTextSize(selected ? 2 : 1);
+        canvas.setCursor(x + 15, y + (selected ? 7 : 6));
+        canvas.print(labels[i]);
+    }
+
+    drawWheelPositionIndicator(currentBreachScroll, totalItems);
+
+    pushCanvas();
+}
+
+void handleBreachModeInput(Keyboard_Class::KeysState status) {
+    bool hasUp = false, hasDown = false, hasLeft = false, hasRight = false, hasEsc = false;
+    for (char c : status.word) {
+        if (c == ';') hasUp = true;
+        if (c == '.') hasDown = true;
+        if (c == ',') hasLeft = true;
+        if (c == '/') hasRight = true;
+        if (c == '`') hasEsc = true;
+    }
+
+    if (hasEsc) {
+        playSound(sound_select, sound_select_size);
+        returnToBootBreach();
+        return;
+    }
+    if (hasUp || hasLeft) {
+        playSound(sound_hover, sound_hover_size);
+        breachModeFocus--;
+        if (breachModeFocus < 0) breachModeFocus = 4;
+        targetBreachScroll -= 1.0;
+        drawBreachModePrompt();
+        return;
+    }
+    if (hasDown || hasRight) {
+        playSound(sound_hover, sound_hover_size);
+        breachModeFocus++;
+        if (breachModeFocus > 4) breachModeFocus = 0;
+        targetBreachScroll += 1.0;
+        drawBreachModePrompt();
+        return;
+    }
+    if (status.enter) {
+        playSound(sound_select, sound_select_size);
+        if (breachModeFocus == 0) startOnlineBreach();
+        else if (breachModeFocus == 1) startOfflineBreach();
+        else if (breachModeFocus == 2) openBreachAccount();
+        else if (breachModeFocus == 3) openBreachLeaderboard();
+        else returnToBootBreach();
+    }
+}
+
 void drawWheelPositionArcBar(int cx, int cy, int radius, float startAngle, float endAngle, uint16_t color) {
     int lastX = cx + cos(startAngle) * radius;
     int lastY = cy + sin(startAngle) * radius;
@@ -56,7 +237,7 @@ void drawWheelPositionArcEndCap(int cx, int cy, int innerR, int outerR, float an
     }
 }
 
-void drawWheelPositionIndicator(int focus, int totalItems) {
+void drawWheelPositionIndicator(float scroll, int totalItems) {
     const int cx = -80;
     const int cy = 67;
     const int outerR = 95;
@@ -71,7 +252,14 @@ void drawWheelPositionIndicator(int focus, int totalItems) {
 
     if (totalItems <= 1) return;
 
-    float pos = focus;
+    float wrapped = fmod(scroll, (float)totalItems);
+    if (wrapped < 0.0) wrapped += (float)totalItems;
+
+    float lastIndex = (float)(totalItems - 1);
+    float pos = wrapped;
+    if (wrapped > lastIndex) {
+        pos = lastIndex * ((float)totalItems - wrapped);
+    }
     float ratio = pos / (float)(totalItems - 1);
     if (ratio < 0.0) ratio = 0.0;
     if (ratio > 1.0) ratio = 1.0;
@@ -81,9 +269,7 @@ void drawWheelPositionIndicator(int focus, int totalItems) {
     int dotX = cx + (int)(cos(angle) * dotR);
     int dotY = cy + (int)(sin(angle) * dotR);
 
-    canvas.fillCircle(dotX, dotY, 5, CP_BG);
-    canvas.drawCircle(dotX, dotY, 5, CP_CYAN);
-    canvas.fillCircle(dotX, dotY, 4, CP_CYAN);
+    canvas.fillCircle(dotX, dotY, 5, CP_CYAN);
 }
 
 void drawSplash() {
@@ -92,7 +278,7 @@ void drawSplash() {
     
     canvas.setTextColor(CP_CYAN);
     canvas.setTextSize(2);
-    drawGlitchText("Breach_OS", 120, 5, 2, CP_CYAN, true, true);
+    drawDefaultGlitchText("Breach_OS", 120, 5, 2, CP_CYAN, true);
     
     int maxLogs = 7;
     int y = 35;
@@ -106,18 +292,19 @@ void drawSplash() {
     }
 
     canvas.setTextSize(1);
-    canvas.setCursor(10, 24);
+    String wifiStatusText = (WiFi.status() == WL_CONNECTED) ? "WIFI: CONNECTED" : "WIFI: CONNECTING";
+    String versionText = "v1.1";
+    String statusGap = "  ";
+    int statusX = (240 - (canvas.textWidth(wifiStatusText) + canvas.textWidth(statusGap) + canvas.textWidth(versionText))) / 2;
     if (WiFi.status() == WL_CONNECTED) {
         canvas.setTextColor(CP_YELLOW);
-        canvas.print("WIFI: CONNECTED");
     } else {
         canvas.setTextColor(CP_DIM);
-        canvas.print("WIFI: CONNECTING");
     }
-    
+    canvas.drawString(wifiStatusText, statusX, 24);
+
     canvas.setTextColor(CP_YELLOW);
-    canvas.setCursor(116, 24);
-    canvas.print("v1.0_OS");
+    canvas.drawString(versionText, statusX + canvas.textWidth(wifiStatusText) + canvas.textWidth(statusGap), 24);
     
     canvas.setTextSize(1);
     canvas.setTextColor(WHITE);
@@ -125,13 +312,13 @@ void drawSplash() {
     if (showSplashBootMenu) {
         canvas.fillScreen(CP_BG);
 
-        drawGlitchText("SELECT BOOT NODE", 120, 4, 1, CP_CYAN, true, true);
+        drawGlitchText("SELECT BOOT NODE", 72, 4, 1, CP_CYAN, true, true);
 
         canvas.drawCircle(-80, 67, 110, CP_DIM);
         canvas.drawCircle(-80, 67, 109, CP_DIM);
 
-        int totalItems = 5;
-        std::vector<String> options = {"HARDWARE NODE", "NETWORK NODE", "OFFLINE PLAY", "OTA CATALOG", "SYSTEM SETTINGS"};
+        int totalItems = 4;
+        std::vector<String> options = {"BREACH", "HARDWARE NODE", "NETWORK NODE", "SYSTEM SETTINGS"};
         for (int i = 0; i < totalItems; i++) {
             float rawOffset = i - currentSplashBootScroll;
             float offset = fmod(rawOffset, (float)totalItems);
@@ -178,7 +365,7 @@ void drawSplash() {
             canvas.print(options[i]);
         }
 
-        drawWheelPositionIndicator(splashBootFocus, totalItems);
+        drawWheelPositionIndicator(currentSplashBootScroll, totalItems);
     } else {
         canvas.drawString("> Press ", 10, 115);
         int x1 = 10 + canvas.textWidth("> Press ");
@@ -213,12 +400,12 @@ void handleSplashInput(Keyboard_Class::KeysState status) {
     
     if (hasUp) {
         playSound(sound_hover, sound_hover_size);
-        splashBootFocus = (splashBootFocus - 1 + 5) % 5;
+        splashBootFocus = (splashBootFocus - 1 + 4) % 4;
         targetSplashBootScroll -= 1.0;
         drawSplash();
     } else if (hasDown) {
         playSound(sound_hover, sound_hover_size);
-        splashBootFocus = (splashBootFocus + 1) % 5;
+        splashBootFocus = (splashBootFocus + 1) % 4;
         targetSplashBootScroll += 1.0;
         drawSplash();
     } else if (hasEsc) {
@@ -230,6 +417,11 @@ void handleSplashInput(Keyboard_Class::KeysState status) {
         showSplashBootMenu = false;
         
         if (splashBootFocus == 0) {
+            breachModeFocus = 0;
+            resetBreachModeScroll();
+            appState = STATE_BREACH_MODE;
+            drawBreachModePrompt();
+        } else if (splashBootFocus == 1) {
             appState = STATE_HARDWARE_MENU;
             hardwareMenuFocus = 0;
             currentHardwareScroll = 0;
@@ -237,23 +429,15 @@ void handleSplashInput(Keyboard_Class::KeysState status) {
             showHardwareDesc = false;
             hardwareDescAnimWidth = 0.0;
             drawHardwareMenu();
-        } else if (splashBootFocus == 1) {
+        } else if (splashBootFocus == 2) {
+            launchBreachAfterAuth = false;
             if (WiFi.status() == WL_CONNECTED) {
                 appState = STATE_AUTH_MENU;
                 drawAuthMenu();
             } else {
                 startWifiScan();
             }
-        } else if (splashBootFocus == 2) {
-            WiFi.disconnect(true);
-            WiFi.mode(WIFI_OFF);
-            isGuest = true;
-            authUser = "GUEST";
-            enterMainMenu();
         } else if (splashBootFocus == 3) {
-            resumeOtaAfterWifi = false;
-            enterOtaCatalog();
-        } else if (splashBootFocus == 4) {
             appState = STATE_HARDWARE_SETTINGS;
             settingsFocus = 0;
             drawHardwareSettings();
@@ -282,6 +466,12 @@ void startWifiScan() {
             if (resumeOtaAfterWifi) {
                 resumeOtaAfterWifi = false;
                 enterOtaCatalog();
+            } else if (launchAccountAfterAuth) {
+                appState = STATE_AUTH_MENU;
+                drawAuthMenu();
+            } else if (launchBreachAfterAuth) {
+                appState = STATE_AUTH_MENU;
+                drawAuthMenu();
             } else {
                 enterMainMenu();
             }
@@ -453,7 +643,15 @@ void handleAuthInput(Keyboard_Class::KeysState status) {
                 }
                 
                 isGuest = false;
-                enterMainMenu();
+                if (launchAccountAfterAuth) {
+                    launchAccountAfterAuth = false;
+                    enterBreachAccount();
+                } else if (launchBreachAfterAuth) {
+                    launchBreachAfterAuth = false;
+                    startBreachGridSelect();
+                } else {
+                    enterMainMenu();
+                }
             } else {
                 http.end();
                 playSound(sound_fail, sound_fail_size);
@@ -464,8 +662,19 @@ void handleAuthInput(Keyboard_Class::KeysState status) {
             return;
         } else if (authFocus == 4) {
             isGuest = true;
+            authUser = "GUEST";
             playSound(wifi_finished_wav, wifi_finished_wav_len);
-            enterMainMenu();
+            if (launchAccountAfterAuth) {
+                launchAccountAfterAuth = false;
+                drawMessage("ACCOUNT NEEDS LOGIN");
+                delay(1000);
+                returnToBreachMode();
+            } else if (launchBreachAfterAuth) {
+                launchBreachAfterAuth = false;
+                startBreachGridSelect();
+            } else {
+                enterMainMenu();
+            }
             return;
         }
         authFocus++;
@@ -564,12 +773,21 @@ void handleWifiScanInput(Keyboard_Class::KeysState status) {
     if (status.enter && wifiList.size() > 0) {
         playSound(sound_select, sound_select_size);
         if (wifiList[wifiSelection] == "[PLAY OFFLINE]") {
-            resumeOtaAfterWifi = false;
-            WiFi.disconnect(true);
-            WiFi.mode(WIFI_OFF);
-            isGuest = true;
-            authUser = "GUEST";
-            enterMainMenu();
+            if (launchBreachAfterAuth) {
+                startOfflineBreach();
+            } else if (launchAccountAfterAuth) {
+                launchAccountAfterAuth = false;
+                drawMessage("ACCOUNT NEEDS WIFI");
+                delay(1000);
+                returnToBreachMode();
+            } else {
+                resumeOtaAfterWifi = false;
+                WiFi.disconnect(true);
+                WiFi.mode(WIFI_OFF);
+                isGuest = true;
+                authUser = "GUEST";
+                enterMainMenu();
+            }
             return;
         }
         appState = STATE_WIFI_PASS;
@@ -666,23 +884,15 @@ void drawMainMenu() {
     canvas.startWrite();
     canvas.fillScreen(CP_BG);
     
-    // Compact header stays above the wheel buttons; username sits on the right.
-    String headerUser = isGuest ? String("GUEST") : authUser;
-    if (headerUser.length() > 10) headerUser = headerUser.substring(0, 9) + "~";
+    // Compact header stays above the wheel buttons.
     drawGlitchText("NETWORK NODE", 72, 4, 1, CP_CYAN, true, true);
-    drawGlitchText(headerUser, 188, 4, 1, CP_DIM, true, true);
     
     // Draw rotating wheel arc on the left
     canvas.drawCircle(-80, 67, 110, CP_DIM);
     canvas.drawCircle(-80, 67, 109, CP_DIM);
     
-    int totalItems = isGuest ? 4 : 6;
-    std::vector<String> labels;
-    if (isGuest) {
-        labels = {"HACK", "SSH", "CREDITS", "BACK"};
-    } else {
-        labels = {"HACK", "LEADERBOARD", "ACCOUNT", "SSH", "CREDITS", "BACK"};
-    }
+    int totalItems = 4;
+    std::vector<String> labels = {"SSH", "TELNET BBS", "OTA CATALOG", "BACK"};
     
     for (int i = 0; i < totalItems; i++) {
         // Calculate shortest wrapping distance for seamless infinite scroll
@@ -740,7 +950,7 @@ void drawMainMenu() {
         canvas.print(labels[i]);
     }
 
-    drawWheelPositionIndicator(mainMenuFocus, totalItems);
+    drawWheelPositionIndicator(currentMenuScroll, totalItems);
 
     if (descAnimWidth >= 10.0) {
         int x = 40;
@@ -759,24 +969,15 @@ void drawMainMenu() {
             String line1 = "";
             String line2 = "";
             
-            if (label == "HACK") {
-                line1 = "Access subnet";
-                line2 = "gateways";
-            } else if (label == "LEADERBOARD") {
-                line1 = "View global";
-                line2 = "scores";
-            } else if (label == "ACCOUNT") {
-                line1 = "Operative";
-                line2 = "profile";
-            } else if (label == "SSH") {
+            if (label == "SSH") {
                 line1 = "Remote shell";
                 line2 = "terminal";
-            } else if (label == "CONTROLS") {
-                line1 = "Keyboard";
-                line2 = "bindings";
-            } else if (label == "CREDITS") {
-                line1 = "System";
-                line2 = "developers";
+            } else if (label == "TELNET BBS") {
+                line1 = "Retro BBS";
+                line2 = "dial-in";
+            } else if (label == "OTA CATALOG") {
+                line1 = "Firmware";
+                line2 = "downloads";
             }
             
             if (line1 != "") {
@@ -802,7 +1003,7 @@ void handleMainMenuInput(Keyboard_Class::KeysState status) {
         if (c == '/') hasRight = true;
         if (c == ',') hasLeft = true;
     }
-    int maxFocus = isGuest ? 3 : 5;
+    int maxFocus = 3;
     if (mainMenuFocus < 0 || mainMenuFocus > maxFocus) {
         mainMenuFocus = 0;
         currentMenuScroll = 0;
@@ -828,45 +1029,28 @@ void handleMainMenuInput(Keyboard_Class::KeysState status) {
         showMenuDesc = false;
         descAnimWidth = 0.0;
         
-        std::vector<String> labels;
-        if (isGuest) {
-            labels = {"HACK", "SSH", "CREDITS", "BACK"};
-        } else {
-            labels = {"HACK", "LEADERBOARD", "ACCOUNT", "SSH", "CREDITS", "BACK"};
-        }
-        
+        std::vector<String> labels = {"SSH", "TELNET BBS", "OTA CATALOG", "BACK"};
+
         String selectedLabel = labels[mainMenuFocus];
-        if (selectedLabel == "HACK") {
-            appState = STATE_GRID_SELECT;
-            gridMenuFocus = 0;
-            currentGridScroll = 0;
-            targetGridScroll = 0;
-            drawGridSelect();
-        } else if (selectedLabel == "LEADERBOARD") {
-            appState = STATE_LEADERBOARD;
-            drawMessage("FETCHING DATABANK...");
-            fetchLeaderboard(0, 10);
-            leaderboardCursor = 0;
-            leaderboardScrollOffset = 0;
-            drawLeaderboard();
-        } else if (selectedLabel == "ACCOUNT") {
-            appState = STATE_ACCOUNT;
-            accountFocus = 0;
-            accountStatsFetched = false;
-        } else if (selectedLabel == "SSH") {
-            sshFocus = 0;
+        if (selectedLabel == "SSH") {
+            prepareSshSetupPrompt();
             appState = STATE_SSH;
             drawSshScreen();
-        } else if (selectedLabel == "CONTROLS") {
-            appState = STATE_CONTROLS;
-            drawControlsScreen();
-        } else if (selectedLabel == "CREDITS") {
-            appState = STATE_CREDITS;
-            drawCreditsScreen();
+        } else if (selectedLabel == "TELNET BBS") {
+            prepareTelnetBbsSetup();
+            appState = STATE_TELNET_BBS;
+            drawTelnetBbsScreen();
+        } else if (selectedLabel == "OTA CATALOG") {
+            if (WiFi.status() == WL_CONNECTED) {
+                enterOtaCatalog();
+            } else {
+                resumeOtaAfterWifi = true;
+                startWifiScan();
+            }
         } else if (selectedLabel == "BACK") {
             appState = STATE_SPLASH;
             showSplashBootMenu = true;
-            splashBootFocus = 1;
+            splashBootFocus = 2;
             resetSplashBootScroll();
             logOffset = 0;
             drawSplash();

@@ -4,6 +4,8 @@ const int OTA_CATALOG_PAGE_SIZE = 10;
 const int OTA_DETAIL_DESC_MAX_CHARS = 540;
 const int OTA_DETAIL_DESC_LINES = 3;
 const char OTA_M5LAUNCHER_CARDPUTER_FID[] = "967e0377b9889c7b82f059fb8a30adda";
+const char OTA_FIRMWARE_OS_DIR[] = "/Breach_OS";
+const char OTA_FIRMWARE_DIR[] = "/Breach_OS/firmware";
 const char OTA_M5LAUNCHER_CARDPUTER_DESC[] =
     "M5Launcher for Cardputer. Turn your device into a swiss knife: load .bin files from SD, "
     "download wirelessly from M5Burner, or send binaries from your computer or phone through its WebUI. "
@@ -52,10 +54,17 @@ String formatOtaBytesOrUnknown(size_t bytes) {
     return bytes == 0 ? String("?") : formatOtaBytes(bytes);
 }
 
-String formatOtaEta(unsigned long seconds) {
-    if (seconds == 0) return "--";
-    if (seconds >= 60) return String(seconds / 60) + "m " + String(seconds % 60) + "s";
-    return String(seconds) + "s";
+String formatOtaDurationMs(unsigned long ms) {
+    if (ms == 0) return "--";
+    if (ms < 1000) return String(ms) + "ms";
+
+    unsigned long seconds = ms / 1000;
+    unsigned long millisPart = ms % 1000;
+    String frac = String(millisPart);
+    while (frac.length() < 3) frac = "0" + frac;
+
+    if (seconds < 60) return String(seconds) + "." + frac + "s";
+    return String(seconds / 60) + "m " + String(seconds % 60) + "." + frac + "s";
 }
 
 String formatOtaDataRatio(size_t doneBytes, size_t totalBytes) {
@@ -104,10 +113,10 @@ void drawOtaTransferProgress(int progress, String statusText, size_t doneBytes, 
 
     unsigned long elapsed = (startedAt > 0 && millis() > startedAt) ? millis() - startedAt : 0;
     size_t bytesPerSecond = (elapsed > 0 && doneBytes > 0) ? (size_t)(((uint64_t)doneBytes * 1000ULL) / elapsed) : 0;
-    unsigned long etaSeconds = 0;
-    if (bytesPerSecond > 0 && totalBytes > doneBytes) {
-        etaSeconds = (totalBytes - doneBytes) / bytesPerSecond;
-        if (etaSeconds == 0) etaSeconds = 1;
+    unsigned long etaMs = 0;
+    if (elapsed > 0 && doneBytes > 0 && totalBytes > doneBytes) {
+        etaMs = (unsigned long)((((uint64_t)(totalBytes - doneBytes) * elapsed) + doneBytes - 1) / doneBytes);
+        if (etaMs == 0) etaMs = 1;
     }
 
     canvas.startWrite();
@@ -137,7 +146,7 @@ void drawOtaTransferProgress(int progress, String statusText, size_t doneBytes, 
     canvas.setCursor(24, 100);
     canvas.print("RATE: " + formatOtaBytes(bytesPerSecond) + "/s");
     canvas.setCursor(24, 112);
-    canvas.print("ETA : " + formatOtaEta(etaSeconds));
+    canvas.print("ETA : " + formatOtaDurationMs(etaMs));
 
     pushCanvas();
 }
@@ -605,7 +614,7 @@ void handleOtaCatalogInput(Keyboard_Class::KeysState status) {
             } else {
                 downloadUrl = "https://m5burner-cdn.m5stack.com/firmware/" + file;
             }
-            performOtaUpdate(downloadUrl, otaVersions[otaVersionFocus].sizeBytes);
+            performOtaUpdate(downloadUrl, otaVersions[otaVersionFocus].sizeBytes, otaDetailName, otaVersions[otaVersionFocus].version);
         }
         return;
     }
@@ -618,11 +627,13 @@ void handleOtaCatalogInput(Keyboard_Class::KeysState status) {
     if (hasEsc) {
         playSound(sound_select, sound_select_size);
         resumeOtaAfterWifi = false;
-        appState = STATE_SPLASH;
-        showSplashBootMenu = true;
-        splashBootFocus = 3;
-        resetSplashBootScroll();
-        drawSplash();
+        appState = STATE_MAIN_MENU;
+        mainMenuFocus = 2;
+        currentMenuScroll = mainMenuFocus;
+        targetMenuScroll = mainMenuFocus;
+        showMenuDesc = false;
+        descAnimWidth = 0.0;
+        drawMainMenu();
         return;
     }
     
@@ -955,11 +966,98 @@ void drawOtaFirmwareDetails() {
 }
 
 void performOtaUpdate(String binUrl) {
-    performOtaUpdate(binUrl, 0);
+    performOtaUpdate(binUrl, 0, "", "");
 }
 
 void performOtaUpdate(String binUrl, size_t expectedBytes) {
-    drawOtaTransferProgress(0, "CONNECTING SECURE ENDPOINT", 0, 0, 0, CP_CYAN);
+    performOtaUpdate(binUrl, expectedBytes, "", "");
+}
+
+bool ensureOtaFirmwareDir(const char* path) {
+    File dir = SD.open(path);
+    if (dir) {
+        bool ok = dir.isDirectory();
+        dir.close();
+        return ok;
+    }
+    return SD.mkdir(path);
+}
+
+String otaFirmwareFileNameFromMetadata(String binUrl, String firmwareName, String firmwareVersion) {
+    int query = binUrl.indexOf('?');
+    if (query >= 0) binUrl = binUrl.substring(0, query);
+    int hash = binUrl.indexOf('#');
+    if (hash >= 0) binUrl = binUrl.substring(0, hash);
+
+    int slash = binUrl.lastIndexOf('/');
+    firmwareName.trim();
+    firmwareVersion.trim();
+    String name = "";
+    if (firmwareName != "" && firmwareVersion != "") {
+        name = firmwareName + "+" + firmwareVersion;
+    } else if (firmwareName != "") {
+        name = firmwareName;
+    } else {
+        name = (slash >= 0) ? binUrl.substring(slash + 1) : binUrl;
+    }
+    name.trim();
+    if (name == "") name = "firmware.bin";
+
+    String safe = "";
+    for (int i = 0; i < name.length() && safe.length() < 64; i++) {
+        char c = name.charAt(i);
+        bool keep = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+                    (c >= '0' && c <= '9') || c == '.' || c == '-' || c == '_' || c == '+';
+        safe += keep ? c : '_';
+    }
+    if (safe == "" || safe == "." || safe == "..") safe = "firmware.bin";
+    if (!safe.endsWith(".bin")) safe += ".bin";
+    return safe;
+}
+
+bool prepareOtaFirmwareDownload(String binUrl, String firmwareName, String firmwareVersion, String &savePath) {
+    drawOtaTransferProgress(0, "PREPARING SD DOWNLOAD", 0, 0, 0, CP_CYAN);
+    SPI.begin(40, 39, 14, 12);
+    if (!SD.begin(12, SPI, 20000000) || SD.cardType() == CARD_NONE) return false;
+    if (!ensureOtaFirmwareDir(OTA_FIRMWARE_OS_DIR) || !ensureOtaFirmwareDir(OTA_FIRMWARE_DIR)) return false;
+
+    savePath = String(OTA_FIRMWARE_DIR) + "/" + otaFirmwareFileNameFromMetadata(binUrl, firmwareName, firmwareVersion);
+    SD.remove(savePath.c_str());
+    return true;
+}
+
+void performOtaUpdate(String binUrl, size_t expectedBytes, String firmwareName, String firmwareVersion) {
+    drawOtaTransferProgress(0, "CONNECTING DOWNLOAD", 0, 0, 0, CP_CYAN);
+
+    String firmwareSavePath = "";
+    if (!prepareOtaFirmwareDownload(binUrl, firmwareName, firmwareVersion, firmwareSavePath)) {
+        canvas.fillScreen(CP_BG);
+        canvas.setTextColor(CP_RED);
+        canvas.setTextSize(1);
+        canvas.drawCenterString("SD DOWNLOAD ERROR", 120, 46);
+        canvas.setTextColor(CP_YELLOW);
+        canvas.drawCenterString("/Breach_OS/firmware", 120, 68);
+        canvas.setTextColor(CP_DIM);
+        canvas.drawCenterString("CHECK SD CARD", 120, 90);
+        pushCanvas();
+        delay(3000);
+        drawOtaCatalog();
+        return;
+    }
+
+    File firmwareFile = SD.open(firmwareSavePath.c_str(), FILE_WRITE);
+    if (!firmwareFile) {
+        canvas.fillScreen(CP_BG);
+        canvas.setTextColor(CP_RED);
+        canvas.setTextSize(1);
+        canvas.drawCenterString("SD FILE OPEN FAIL", 120, 46);
+        canvas.setTextColor(CP_YELLOW);
+        canvas.drawCenterString("/Breach_OS/firmware", 120, 68);
+        pushCanvas();
+        delay(3000);
+        drawOtaCatalog();
+        return;
+    }
     
     if (!secureClientInit) { secureClient.setInsecure(); secureClientInit = true; }
     HTTPClient http;
@@ -969,63 +1067,79 @@ void performOtaUpdate(String binUrl, size_t expectedBytes) {
         if (httpCode == HTTP_CODE_OK) {
             int contentLength = http.getSize();
             size_t transferTotal = (contentLength > 0) ? (size_t)contentLength : expectedBytes;
-            size_t updateSize = (transferTotal > 0) ? transferTotal : UPDATE_SIZE_UNKNOWN;
-            
-            bool canBegin = Update.begin(updateSize);
-            if (canBegin) {
-                WiFiClient* stream = http.getStreamPtr();
-                size_t written = 0;
-                int remaining = (contentLength > 0) ? contentLength : -1;
-                uint8_t buff[2048] = { 0 };
-                unsigned long lastUpdate = 0;
-                unsigned long downloadStart = millis();
-                drawOtaTransferProgress(0, "FLASHING OTA STREAM", 0, transferTotal, downloadStart, CP_CYAN);
-                
-                while (http.connected() && (remaining > 0 || remaining == -1)) {
-                    size_t size = stream->available();
-                    if (size) {
-                        int c = stream->readBytes(buff, ((size > sizeof(buff)) ? sizeof(buff) : size));
-                        Update.write(buff, c);
-                        written += c;
-                        if (remaining > 0) remaining -= c;
-                        
-                        unsigned long currentMillis = millis();
-                        if (currentMillis - lastUpdate > 250) {
-                            int progress = calculateOtaStreamProgress(written, transferTotal);
-                            drawOtaTransferProgress(progress, "FLASHING OTA STREAM", written, transferTotal, downloadStart, CP_CYAN);
-                            lastUpdate = currentMillis;
-                        }
+            WiFiClient* stream = http.getStreamPtr();
+            size_t written = 0;
+            int remaining = (contentLength > 0) ? contentLength : -1;
+            uint8_t buff[2048] = { 0 };
+            unsigned long lastUpdate = 0;
+            unsigned long downloadStart = millis();
+            unsigned long lastByte = millis();
+            bool sdWriteFailed = false;
+            drawOtaTransferProgress(0, "DOWNLOADING TO SD", 0, transferTotal, downloadStart, CP_CYAN);
+
+            while (http.connected() && (remaining > 0 || remaining == -1)) {
+                size_t size = stream->available();
+                if (size) {
+                    int c = stream->readBytes(buff, ((size > sizeof(buff)) ? sizeof(buff) : size));
+                    if (c <= 0) continue;
+                    if (firmwareFile.write(buff, c) != (size_t)c) {
+                        sdWriteFailed = true;
+                        break;
                     }
-                    if (remaining == 0 || (remaining == -1 && transferTotal > 0 && written >= transferTotal)) break;
-                    delay(1);
-                }
-                size_t finalTotal = (transferTotal > 0) ? transferTotal : written;
-                drawOtaTransferProgress(100, "OTA STREAM COMPLETE", written, finalTotal, downloadStart, CP_GREEN);
-                
-                if (Update.end()) {
-                    if (Update.isFinished()) {
-                        canvas.fillScreen(CP_BG);
-                        canvas.setTextColor(CP_CYAN);
-                        canvas.setTextSize(2);
-                        canvas.drawCenterString("FLASH COMPLETE!", 120, 50);
-                        canvas.setTextSize(1);
-                        canvas.setTextColor(CP_YELLOW);
-                        canvas.drawCenterString("REBOOTING SYSTEM...", 120, 80);
-                        pushCanvas();
-                        delay(2000);
-                        ESP.restart();
+                    written += c;
+                    if (remaining > 0) remaining -= c;
+                    lastByte = millis();
+
+                    unsigned long currentMillis = millis();
+                    if (currentMillis - lastUpdate > 250) {
+                        int progress = calculateOtaStreamProgress(written, transferTotal);
+                        drawOtaTransferProgress(progress, "DOWNLOADING TO SD", written, transferTotal, downloadStart, CP_CYAN);
+                        lastUpdate = currentMillis;
                     }
                 }
-            } else {
+                if (remaining == 0 || (remaining == -1 && transferTotal > 0 && written >= transferTotal)) break;
+                if (millis() - lastByte > 12000) break;
+                delay(1);
+            }
+            firmwareFile.close();
+
+            bool incompleteDownload = (transferTotal > 0 && written < transferTotal);
+            if (sdWriteFailed || incompleteDownload) {
+                SD.remove(firmwareSavePath.c_str());
                 canvas.fillScreen(CP_BG);
                 canvas.setTextColor(CP_RED);
                 canvas.setTextSize(1);
-                canvas.drawCenterString("PARTITION ERROR", 120, 50);
-                canvas.drawCenterString("SIZE EXCEEDS LIMIT", 120, 70);
+                canvas.drawCenterString(sdWriteFailed ? "SD WRITE FAILED" : "DOWNLOAD INCOMPLETE", 120, 50);
+                canvas.setTextColor(CP_DIM);
+                canvas.drawCenterString("PARTIAL FILE REMOVED", 120, 75);
                 pushCanvas();
                 delay(3000);
+                http.end();
+                drawOtaFirmwareDetails();
+                return;
             }
+
+            size_t finalTotal = (transferTotal > 0) ? transferTotal : written;
+            drawOtaTransferProgress(100, "FIRMWARE SAVED TO SD", written, finalTotal, downloadStart, CP_GREEN);
+
+            canvas.fillScreen(CP_BG);
+            canvas.setTextColor(CP_CYAN);
+            canvas.setTextSize(2);
+            canvas.drawCenterString("DOWNLOAD", 120, 38);
+            canvas.drawCenterString("COMPLETE", 120, 60);
+            canvas.setTextSize(1);
+            canvas.setTextColor(CP_YELLOW);
+            canvas.drawCenterString("SAVED TO SD", 120, 88);
+            canvas.setTextColor(CP_DIM);
+            canvas.drawCenterString("/Breach_OS/firmware", 120, 108);
+            pushCanvas();
+            delay(2500);
+            http.end();
+            drawOtaFirmwareDetails();
+            return;
         } else {
+            firmwareFile.close();
+            SD.remove(firmwareSavePath.c_str());
             canvas.fillScreen(CP_BG);
             canvas.setTextColor(CP_RED);
             canvas.setTextSize(1);
@@ -1035,6 +1149,8 @@ void performOtaUpdate(String binUrl, size_t expectedBytes) {
         }
         http.end();
     } else {
+        firmwareFile.close();
+        SD.remove(firmwareSavePath.c_str());
         canvas.fillScreen(CP_BG);
         canvas.setTextColor(CP_RED);
         canvas.setTextSize(1);
