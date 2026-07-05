@@ -326,6 +326,21 @@ void loop() {
         return;
     }
 
+    if (appState == STATE_TEXTFILES) {
+        static unsigned long lastTextfilesDraw = 0;
+        if (keyChanged && keyPressed) {
+            handleTextfilesInput(globalStatus);
+            if (appState == STATE_TEXTFILES) drawTextfilesScreen();
+            lastTextfilesDraw = now;
+        }
+        if (appState == STATE_TEXTFILES && (updateTextfilesUi() || now - lastTextfilesDraw > 500)) {
+            drawTextfilesScreen();
+            lastTextfilesDraw = now;
+        }
+        delay(10);
+        return;
+    }
+
     if (appState == STATE_HARDWARE_MENU) {
         if (insaneMode == 1) {
             static unsigned long lastHardwareGlitch = 0;
@@ -403,6 +418,35 @@ void loop() {
         if (appState == STATE_BADUSB && badUsbMode != 2 && millis() - lastBadUsbDraw > 250) {
             drawBadUsbScreen();
             lastBadUsbDraw = millis();
+        }
+        delay(10);
+        return;
+    }
+
+    if (appState == STATE_IR) {
+        static unsigned long lastIrDraw = 0;
+        bool irUpdated = pollIrReceiver();
+        if (keyChanged && keyPressed) {
+            handleIrInput(globalStatus);
+        }
+        bool irAnimUpdated = updateIrUiAnimation();
+        if (appState == STATE_IR && (irUpdated || irAnimUpdated || millis() - lastIrDraw > 250)) {
+            drawIrScreen();
+            lastIrDraw = millis();
+        }
+        delay(10);
+        return;
+    }
+
+    if (appState == STATE_SSTV) {
+        static unsigned long lastSstvDraw = 0;
+        if (keyChanged && keyPressed) {
+            handleSstvInput(globalStatus);
+        }
+        bool sstvAnimUpdated = updateSstvUiAnimation();
+        if (appState == STATE_SSTV && (sstvAnimUpdated || millis() - lastSstvDraw > 250)) {
+            drawSstvScreen();
+            lastSstvDraw = millis();
         }
         delay(10);
         return;

@@ -1,8 +1,13 @@
 # Breach_OS
 
-![Main Menu](Images/Main_Menu.jpg)
-![Network Node](Images/Network_Node.jpg)
-![Scroll Wheel](Images/Scroll_Wheel.jpg)
+![Splash](Images/IMG_20260704_191059.jpg)
+The splash Menu serves no purpose other than looking cool and showing the version number
+![Boot Menu](Images/IMG_20260704_191122.jpg)
+This is the boot menu it divides the functions into different categories
+![SSH](Images/IMG_20260704_191209.jpg)
+SSH
+![Voice Recorder](Images/IMG_20260704_191232.jpg)
+Voice Recorder
 
 Breach_OS is a cyberpunk M5Stack Cardputer firmware centered on a Breach Protocol-style hacking minigame, plus a growing set of Cardputer utility nodes: Wi-Fi/account play, global scores, SSH/Telnet terminals, SD/flash file tools, USB mass storage, a DuckyScript HID executor, music playback, WAV recording, OTA catalog browsing, and device settings.
 

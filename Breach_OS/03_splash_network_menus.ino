@@ -46,6 +46,7 @@ void startBreachGridSelect() {
 
 void startOfflineBreach() {
     resumeOtaAfterWifi = false;
+    resumeTextfilesAfterWifi = false;
     launchBreachAfterAuth = false;
     launchAccountAfterAuth = false;
     WiFi.disconnect(true);
@@ -57,6 +58,7 @@ void startOfflineBreach() {
 
 void startOnlineBreach() {
     resumeOtaAfterWifi = false;
+    resumeTextfilesAfterWifi = false;
     launchBreachAfterAuth = true;
     launchAccountAfterAuth = false;
     if (WiFi.status() == WL_CONNECTED) {
@@ -77,6 +79,7 @@ void enterBreachAccount() {
 
 void openBreachAccount() {
     resumeOtaAfterWifi = false;
+    resumeTextfilesAfterWifi = false;
     launchBreachAfterAuth = false;
     if (WiFi.status() == WL_CONNECTED && !isGuest && authUser != "") {
         launchAccountAfterAuth = false;
@@ -293,7 +296,7 @@ void drawSplash() {
 
     canvas.setTextSize(1);
     String wifiStatusText = (WiFi.status() == WL_CONNECTED) ? "WIFI: CONNECTED" : "WIFI: CONNECTING";
-    String versionText = "v1.1";
+    String versionText = "v1.2";
     String statusGap = "  ";
     int statusX = (240 - (canvas.textWidth(wifiStatusText) + canvas.textWidth(statusGap) + canvas.textWidth(versionText))) / 2;
     if (WiFi.status() == WL_CONNECTED) {
@@ -466,6 +469,9 @@ void startWifiScan() {
             if (resumeOtaAfterWifi) {
                 resumeOtaAfterWifi = false;
                 enterOtaCatalog();
+            } else if (resumeTextfilesAfterWifi) {
+                resumeTextfilesAfterWifi = false;
+                enterTextfilesMode();
             } else if (launchAccountAfterAuth) {
                 appState = STATE_AUTH_MENU;
                 drawAuthMenu();
@@ -485,8 +491,7 @@ void startWifiScan() {
     delay(100);
     int n = WiFi.scanNetworks();
     wifiList.clear();
-    wifiList.push_back("[PLAY OFFLINE]");
-    for (int i = 0; i < n && i < 9; ++i) {
+    for (int i = 0; i < n && i < 10; ++i) {
         wifiList.push_back(WiFi.SSID(i));
     }
     appState = STATE_WIFI_SCAN;
@@ -772,24 +777,6 @@ void handleWifiScanInput(Keyboard_Class::KeysState status) {
     
     if (status.enter && wifiList.size() > 0) {
         playSound(sound_select, sound_select_size);
-        if (wifiList[wifiSelection] == "[PLAY OFFLINE]") {
-            if (launchBreachAfterAuth) {
-                startOfflineBreach();
-            } else if (launchAccountAfterAuth) {
-                launchAccountAfterAuth = false;
-                drawMessage("ACCOUNT NEEDS WIFI");
-                delay(1000);
-                returnToBreachMode();
-            } else {
-                resumeOtaAfterWifi = false;
-                WiFi.disconnect(true);
-                WiFi.mode(WIFI_OFF);
-                isGuest = true;
-                authUser = "GUEST";
-                enterMainMenu();
-            }
-            return;
-        }
         appState = STATE_WIFI_PASS;
         if (wifiList[wifiSelection] == savedSSID) {
             wifiPass = savedWifiPass;
@@ -848,6 +835,9 @@ void handleWifiPassInput(Keyboard_Class::KeysState status) {
             if (resumeOtaAfterWifi) {
                 resumeOtaAfterWifi = false;
                 enterOtaCatalog();
+            } else if (resumeTextfilesAfterWifi) {
+                resumeTextfilesAfterWifi = false;
+                enterTextfilesMode();
             } else {
                 appState = STATE_AUTH_MENU;
                 drawAuthMenu();
@@ -891,8 +881,8 @@ void drawMainMenu() {
     canvas.drawCircle(-80, 67, 110, CP_DIM);
     canvas.drawCircle(-80, 67, 109, CP_DIM);
     
-    int totalItems = 4;
-    std::vector<String> labels = {"SSH", "TELNET BBS", "OTA CATALOG", "BACK"};
+    int totalItems = 5;
+    std::vector<String> labels = {"SSH", "TELNET BBS", "OTA CATALOG", "TEXTFILES", "BACK"};
     
     for (int i = 0; i < totalItems; i++) {
         // Calculate shortest wrapping distance for seamless infinite scroll
@@ -978,6 +968,9 @@ void drawMainMenu() {
             } else if (label == "OTA CATALOG") {
                 line1 = "Firmware";
                 line2 = "downloads";
+            } else if (label == "TEXTFILES") {
+                line1 = "BBS text";
+                line2 = "archive";
             }
             
             if (line1 != "") {
@@ -1003,7 +996,7 @@ void handleMainMenuInput(Keyboard_Class::KeysState status) {
         if (c == '/') hasRight = true;
         if (c == ',') hasLeft = true;
     }
-    int maxFocus = 3;
+    int maxFocus = 4;
     if (mainMenuFocus < 0 || mainMenuFocus > maxFocus) {
         mainMenuFocus = 0;
         currentMenuScroll = 0;
@@ -1029,7 +1022,7 @@ void handleMainMenuInput(Keyboard_Class::KeysState status) {
         showMenuDesc = false;
         descAnimWidth = 0.0;
         
-        std::vector<String> labels = {"SSH", "TELNET BBS", "OTA CATALOG", "BACK"};
+        std::vector<String> labels = {"SSH", "TELNET BBS", "OTA CATALOG", "TEXTFILES", "BACK"};
 
         String selectedLabel = labels[mainMenuFocus];
         if (selectedLabel == "SSH") {
@@ -1041,10 +1034,19 @@ void handleMainMenuInput(Keyboard_Class::KeysState status) {
             appState = STATE_TELNET_BBS;
             drawTelnetBbsScreen();
         } else if (selectedLabel == "OTA CATALOG") {
+            resumeTextfilesAfterWifi = false;
             if (WiFi.status() == WL_CONNECTED) {
                 enterOtaCatalog();
             } else {
                 resumeOtaAfterWifi = true;
+                startWifiScan();
+            }
+        } else if (selectedLabel == "TEXTFILES") {
+            resumeOtaAfterWifi = false;
+            if (WiFi.status() == WL_CONNECTED) {
+                enterTextfilesMode();
+            } else {
+                resumeTextfilesAfterWifi = true;
                 startWifiScan();
             }
         } else if (selectedLabel == "BACK") {

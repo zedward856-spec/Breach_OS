@@ -9,6 +9,7 @@ void setup() {
     initSPIFFS();
     M5Cardputer.Display.setRotation(1);
     canvas.createSprite(240, 135);
+    resetUsbDriveStateForBoot();
     
     prefs.begin("breach", false);
     highScore = prefs.getInt("highscore", 0);

@@ -32,6 +32,18 @@
 #include <AudioGeneratorMP3.h>
 #include <AudioGeneratorWAV.h>
 #include <AudioFileSourceBuffer.h>
+#define EXCLUDE_EXOTIC_PROTOCOLS
+#define DECODE_NEC
+#define DECODE_SAMSUNG
+#define DECODE_LG
+#define DECODE_SONY
+#define DECODE_RC5
+#define DECODE_RC6
+#define DECODE_DISTANCE_WIDTH
+#define DECODE_HASH
+#define RAW_BUFFER_LENGTH 750
+#define NO_LED_FEEDBACK_CODE
+#include <IRremote.hpp>
 #if defined(ARDUINO_USB_MODE) && (ARDUINO_USB_MODE == 0)
 #include <USB.h>
 #include <USBMSC.h>
@@ -190,6 +202,7 @@ enum AppState {
     STATE_ACCOUNT,
     STATE_SSH,
     STATE_TELNET_BBS,
+    STATE_TEXTFILES,
     STATE_GRID_SELECT,
     STATE_PHASE_TRANSITION,
     STATE_FAILED_SCREEN,
@@ -209,7 +222,9 @@ enum AppState {
     STATE_DIR_CONFIRM_POPUP,
     STATE_MUSIC_PLAYER,
     STATE_USB_DRIVE,
-    STATE_BADUSB
+    STATE_BADUSB,
+    STATE_IR,
+    STATE_SSTV
 };
 AppState appState = STATE_SPLASH;
 bool suppressBatteryPercentBox = false;
@@ -236,6 +251,7 @@ int wifiSelection = 0;
 int wifiScrollOffset = 0;
 String wifiPass = "";
 bool resumeOtaAfterWifi = false;
+bool resumeTextfilesAfterWifi = false;
 
 struct LeaderboardEntry {
     String username;
@@ -384,6 +400,10 @@ bool connectTelnetBbs();
 void pollTelnetBbs();
 void closeTelnetBbs();
 void handleTelnetBbsInput(Keyboard_Class::KeysState status);
+void enterTextfilesMode();
+void drawTextfilesScreen();
+void handleTextfilesInput(Keyboard_Class::KeysState status);
+bool updateTextfilesUi();
 bool trySshKeyFile(ssh_session session, const String &authSecret, const char* path);
 bool authenticateSshSession(ssh_session session, const String &authSecret);
 TaskHandle_t getSshTaskHandle();
@@ -440,12 +460,22 @@ void drawDirConfirmPopup();
 void handleDirConfirmPopupInput(Keyboard_Class::KeysState status);
 void drawMusicPlayer();
 void handleMusicPlayerInput(Keyboard_Class::KeysState status);
+void resetUsbDriveStateForBoot();
 void enterUsbDriveMode();
 void drawUsbDriveScreen();
 void handleUsbDriveInput(Keyboard_Class::KeysState status);
 void enterBadUsbMode();
 void drawBadUsbScreen();
 void handleBadUsbInput(Keyboard_Class::KeysState status);
+void enterIrMode();
+void drawIrScreen();
+void handleIrInput(Keyboard_Class::KeysState status);
+bool pollIrReceiver();
+bool updateIrUiAnimation();
+void enterSstvMode();
+void drawSstvScreen();
+void handleSstvInput(Keyboard_Class::KeysState status);
+bool updateSstvUiAnimation();
 void updateMusicInputGate(bool enterDown);
 void populatePlaylist();
 void playNextTrack();
@@ -555,7 +585,7 @@ float currentSplashBootScroll = 0;
 float targetSplashBootScroll = 0;
 
 #if BREACH_USB_MSC_AVAILABLE
-USBMSC usbDriveMsc;
+USBMSC *usbDriveMsc = nullptr;
 #endif
 bool usbDriveConfigured = false;
 bool usbDriveActive = false;
@@ -582,6 +612,57 @@ uint32_t badUsbSkippedLines = 0;
 uint32_t badUsbDefaultDelayMs = 0;
 bool badUsbHidReady = false;
 bool badUsbAbortFlag = false;
+int irFocus = 0;
+int irFileFocus = 0;
+int irConfirmFocus = 0;
+float currentIrActionScroll = 0;
+float targetIrActionScroll = 0;
+float currentIrFileScroll = 0;
+float targetIrFileScroll = 0;
+float currentIrConfirmScroll = 0;
+float targetIrConfirmScroll = 0;
+bool irReady = false;
+bool irPinsSwapped = false;
+bool irFileMode = false;
+bool irAutoSaveNext = false;
+bool irConfirmMode = false;
+bool irNameMode = false;
+int irNameCursor = 0;
+uint8_t irRxPin = G1;
+uint8_t irTxPin = G2;
+String irStatus = "IDLE";
+String irPendingFileName = "";
+String irLastProtocolName = "NONE";
+decode_type_t irLastProtocol = UNKNOWN;
+uint16_t irLastAddress = 0;
+uint16_t irLastCommand = 0;
+uint16_t irLastBits = 0;
+IRDecodedRawDataType irLastRaw = 0;
+std::vector<uint16_t> irLastRawMicros;
+uint8_t irLastFlags = 0;
+bool irHasLastCode = false;
+uint32_t irReceiveCount = 0;
+uint32_t irOverflowCount = 0;
+uint32_t irSendCount = 0;
+uint32_t irFileSaveCount = 0;
+unsigned long irLastReceiveMs = 0;
+unsigned long irLastOverflowMs = 0;
+unsigned long irLastActionMs = 0;
+std::vector<String> irSavedFiles;
+int sstvFocus = 0;
+int sstvFileFocus = 0;
+int sstvMode = 0;
+float currentSstvActionScroll = 0;
+float targetSstvActionScroll = 0;
+float currentSstvFileScroll = 0;
+float targetSstvFileScroll = 0;
+bool sstvFileMode = false;
+bool sstvTransmitting = false;
+String sstvStatus = "IDLE";
+std::vector<String> sstvFiles;
+std::vector<uint8_t> sstvImage;
+uint32_t sstvTransmitCount = 0;
+unsigned long sstvLastActionMs = 0;
 
 struct FirmwareCatalogItem {
     String fid;

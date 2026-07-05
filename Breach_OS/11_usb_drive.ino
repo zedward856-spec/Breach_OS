@@ -130,19 +130,31 @@ static bool startUsbDriveMsc() {
     usbDriveErrorOps = 0;
     usbDriveHostEjected = false;
 
-    if (usbDriveConfigured) {
-        usbDriveMsc.end();
+    if (usbDriveMsc == nullptr) {
+        usbDriveMsc = new USBMSC();
+        if (usbDriveMsc == nullptr) {
+            usbDriveConfigured = false;
+            usbDriveActive = false;
+            usbDriveStatus = "MSC ALLOC FAIL";
+            SD.end();
+            usbDriveSdMounted = false;
+            return false;
+        }
     }
 
-    usbDriveMsc.vendorID("Breach");
-    usbDriveMsc.productID("SD USB Drive");
-    usbDriveMsc.productRevision("1.1");
-    usbDriveMsc.onRead(usbDriveReadCallback);
-    usbDriveMsc.onWrite(usbDriveWriteCallback);
-    usbDriveMsc.onStartStop(usbDriveStartStopCallback);
-    usbDriveMsc.isWritable(true);
-    usbDriveMsc.mediaPresent(true);
-    if (!usbDriveMsc.begin(usbDriveSectorCount, usbDriveSectorSize)) {
+    if (usbDriveConfigured) {
+        usbDriveMsc->end();
+    }
+
+    usbDriveMsc->vendorID("Breach");
+    usbDriveMsc->productID("SD USB Drive");
+    usbDriveMsc->productRevision("1.2");
+    usbDriveMsc->onRead(usbDriveReadCallback);
+    usbDriveMsc->onWrite(usbDriveWriteCallback);
+    usbDriveMsc->onStartStop(usbDriveStartStopCallback);
+    usbDriveMsc->isWritable(true);
+    usbDriveMsc->mediaPresent(true);
+    if (!usbDriveMsc->begin(usbDriveSectorCount, usbDriveSectorSize)) {
         usbDriveConfigured = false;
         usbDriveActive = false;
         usbDriveStatus = "MSC START FAIL";
@@ -167,16 +179,40 @@ static bool startUsbDriveMsc() {
 
 static void stopUsbDriveMsc() {
 #if BREACH_USB_MSC_AVAILABLE
-    if (usbDriveConfigured) {
-        usbDriveMsc.mediaPresent(false);
+    if (usbDriveMsc != nullptr && usbDriveConfigured) {
+        usbDriveMsc->mediaPresent(false);
+        usbDriveMsc->end();
     }
 #endif
+    usbDriveConfigured = false;
     usbDriveActive = false;
     usbDriveStatus = usbDriveHostEjected ? "HOST EJECTED" : "USB DRIVE EJECTED";
     if (usbDriveSdMounted) {
         SD.end();
         usbDriveSdMounted = false;
     }
+}
+
+void resetUsbDriveStateForBoot() {
+#if BREACH_USB_MSC_AVAILABLE
+    if (usbDriveMsc != nullptr && usbDriveConfigured) {
+        usbDriveMsc->mediaPresent(false);
+        usbDriveMsc->end();
+    }
+#endif
+    if (usbDriveSdMounted) {
+        SD.end();
+    }
+    usbDriveConfigured = false;
+    usbDriveActive = false;
+    usbDriveSdMounted = false;
+    usbDriveSectorCount = 0;
+    usbDriveSectorSize = 512;
+    usbDriveReadOps = 0;
+    usbDriveWriteOps = 0;
+    usbDriveErrorOps = 0;
+    usbDriveHostEjected = false;
+    usbDriveStatus = "STANDBY";
 }
 
 static String usbDriveSizeText() {
@@ -190,9 +226,8 @@ static String usbDriveSizeText() {
 
 void enterUsbDriveMode() {
     stopMp3Playback();
-    drawProgressBar(0, "MOUNTING SD USB DRIVE", CP_CYAN);
+    resetUsbDriveStateForBoot();
     appState = STATE_USB_DRIVE;
-    startUsbDriveMsc();
     drawUsbDriveScreen();
 }
 
@@ -223,8 +258,13 @@ void drawUsbDriveScreen() {
         canvas.drawCenterString("DEL/ESC BACK AFTER EJECT", 120, 112);
     } else {
         canvas.setTextColor(CP_DIM);
-        canvas.drawCenterString("INSERT SD OR CHECK HOST", 120, 58);
-        canvas.drawCenterString("ENTER RETRY", 120, 76);
+        if (usbDriveStatus == "STANDBY") {
+            canvas.drawCenterString("NO USB DRIVE ACTIVE", 120, 58);
+            canvas.drawCenterString("ENTER EXPORTS SD", 120, 76);
+        } else {
+            canvas.drawCenterString("CHECK SD OR HOST", 120, 58);
+            canvas.drawCenterString("ENTER RETRY", 120, 76);
+        }
         canvas.drawCenterString("DEL/ESC BACK", 120, 112);
     }
 #else

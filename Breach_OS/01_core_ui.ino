@@ -338,6 +338,7 @@ void drawCurrentScreen() {
         case STATE_ACCOUNT: drawAccountMenu(); break;
         case STATE_SSH: drawSshScreen(); break;
         case STATE_TELNET_BBS: drawTelnetBbsScreen(); break;
+        case STATE_TEXTFILES: drawTextfilesScreen(); break;
         case STATE_GRID_SELECT: drawGridSelect(); break;
         case STATE_PHASE_TRANSITION: drawPhaseTransition(); break;
         case STATE_FAILED_SCREEN: drawGameOverFailed(); break;
@@ -358,6 +359,8 @@ void drawCurrentScreen() {
         case STATE_MUSIC_PLAYER: drawMusicPlayer(); break;
         case STATE_USB_DRIVE: drawUsbDriveScreen(); break;
         case STATE_BADUSB: drawBadUsbScreen(); break;
+        case STATE_IR: drawIrScreen(); break;
+        case STATE_SSTV: drawSstvScreen(); break;
     }
 }
 

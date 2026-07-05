@@ -1206,8 +1206,8 @@ void drawHardwareMenu() {
     canvas.drawCircle(-80, 67, 110, CP_DIM);
     canvas.drawCircle(-80, 67, 109, CP_DIM);
     
-    int totalItems = 8;
-    std::vector<String> labels = {"FLASH MEMORY", "SD CARD", "USB DRIVE", "BADUSB", "MUSIC PLAYER", "SOUND REC", "BATTERY STATUS", "BACK"};
+    int totalItems = 10;
+    std::vector<String> labels = {"FLASH MEMORY", "SD CARD", "USB DRIVE", "BADUSB", "IR", "SSTV", "MUSIC PLAYER", "SOUND REC", "BATTERY STATUS", "BACK"};
     
     for (int i = 0; i < totalItems; i++) {
         float rawOffset = i - currentHardwareScroll;
@@ -1281,6 +1281,12 @@ void drawHardwareMenu() {
             } else if (label == "BADUSB") {
                 line1 = "Ducky";
                 line2 = "executor";
+            } else if (label == "IR") {
+                line1 = "Grove IR";
+                line2 = "TX/RX";
+            } else if (label == "SSTV") {
+                line1 = "Slow scan";
+                line2 = "image TX";
             } else if (label == "MUSIC PLAYER") {
                 line1 = "Offline";
                 line2 = "player";
@@ -1345,16 +1351,20 @@ void handleHardwareMenuInput(Keyboard_Class::KeysState status) {
         } else if (hardwareMenuFocus == 3) {
             enterBadUsbMode();
         } else if (hardwareMenuFocus == 4) {
+            enterIrMode();
+        } else if (hardwareMenuFocus == 5) {
+            enterSstvMode();
+        } else if (hardwareMenuFocus == 6) {
             appState = STATE_MUSIC_PLAYER;
             playlistFocus = 0;
             playlistScrollOffset = 0;
             populatePlaylist();
             drawMusicPlayer();
-        } else if (hardwareMenuFocus == 5) {
-            soundRec();
-        } else if (hardwareMenuFocus == 6) {
-            showBatteryStatus();
         } else if (hardwareMenuFocus == 7) {
+            soundRec();
+        } else if (hardwareMenuFocus == 8) {
+            showBatteryStatus();
+        } else if (hardwareMenuFocus == 9) {
             appState = STATE_SPLASH;
             showSplashBootMenu = true;
             splashBootFocus = 1;
@@ -1366,7 +1376,7 @@ void handleHardwareMenuInput(Keyboard_Class::KeysState status) {
     }
     
     if (!showHardwareDesc) {
-        int maxFocus = 7;
+        int maxFocus = 9;
         if (hasUp) {
             playSound(sound_hover, sound_hover_size);
             hardwareMenuFocus--;
