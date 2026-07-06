@@ -296,7 +296,7 @@ void drawSplash() {
 
     canvas.setTextSize(1);
     String wifiStatusText = (WiFi.status() == WL_CONNECTED) ? "WIFI: CONNECTED" : "WIFI: CONNECTING";
-    String versionText = "v1.2";
+    String versionText = "v1.3";
     String statusGap = "  ";
     int statusX = (240 - (canvas.textWidth(wifiStatusText) + canvas.textWidth(statusGap) + canvas.textWidth(versionText))) / 2;
     if (WiFi.status() == WL_CONNECTED) {
