@@ -307,8 +307,9 @@ static bool textfilesFetchDirectory(String path) {
     }
     http.end();
 
-    if (html.length() >= TEXTFILES_HTML_MAX_BYTES) {
-        textfilesStatus = "DIR TOO LARGE";
+    bool truncated = html.length() >= TEXTFILES_HTML_MAX_BYTES;
+    if (html.length() == 0) {
+        textfilesStatus = "DIR EMPTY";
         return false;
     }
 
@@ -317,8 +318,17 @@ static bool textfilesFetchDirectory(String path) {
     textfilesFocus = 0;
     textfilesScroll = 0;
     textfilesLoaded = true;
-    textfilesStatus = textfilesEntries.empty() ? "NO LINKS" : ("LINKS " + String(textfilesEntries.size()));
-    return !textfilesEntries.empty();
+
+    int visibleLinks = textfilesEntries.size();
+    if (path != TEXTFILES_START_PATH && visibleLinks > 0 && textfilesEntries[0].name == "..") {
+        visibleLinks--;
+    }
+    if (visibleLinks <= 0) {
+        textfilesStatus = "NO LINKS";
+    } else {
+        textfilesStatus = "LINKS " + String(visibleLinks) + (truncated ? "+" : "");
+    }
+    return visibleLinks > 0;
 }
 
 static String textfilesSafeFileName(String remotePath) {

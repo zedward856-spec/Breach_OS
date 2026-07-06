@@ -1488,18 +1488,20 @@ void drawHardwareSettings() {
     if (settingsTab == 1) rowCount = 2; // NETWORK: SSID, PASSWORD (scan nets removed)
     else if (settingsTab == 2) rowCount = 2; // OFFLINE: PLAY LOOP, MUSIC DIR
     else if (settingsTab == 3) rowCount = 1; // OTA: SORT BY ONLY (open list removed)
-    else if (settingsTab == 4) rowCount = 4; // APPEARANCE: GLITCH TEXT, BRIGHTNESS, VOLUME, CHARGING MODE
+    else if (settingsTab == 4) rowCount = 6; // APPEARANCE: GLITCH TEXT, BRIGHTNESS, VOLUME, DISABLE SPLASH, DISABLE BOOT SOUND, CHARGING MODE
     else if (settingsTab == 5) rowCount = 2; // CREDITS: OPEN CREDITS, GITHUB QR
     
-    int startY = 41;
+    int startY = (settingsTab == 4) ? 40 : 41;
+    int rowStep = (settingsTab == 4) ? 14 : 17;
+    int rowHeight = (settingsTab == 4) ? 13 : 15;
     
     for (int i = 0; i < rowCount; i++) {
         bool isFocus = (settingsFocus == i);
         uint16_t borderCol = isFocus ? CP_YELLOW : CP_DIM;
-        int rowY = startY + i * 17;
+        int rowY = startY + i * rowStep;
         
-        canvas.fillRect(15, rowY, 210, 15, isFocus ? canvas.color565(30, 30, 30) : CP_BG);
-        canvas.drawRect(15, rowY, 210, 15, borderCol);
+        canvas.fillRect(15, rowY, 210, rowHeight, isFocus ? canvas.color565(30, 30, 30) : CP_BG);
+        canvas.drawRect(15, rowY, 210, rowHeight, borderCol);
         
         canvas.setTextColor(isFocus ? CP_YELLOW : WHITE);
         canvas.setCursor(22, rowY + 3);
@@ -1581,6 +1583,16 @@ void drawHardwareSettings() {
                 canvas.setTextColor(isFocus ? WHITE : CP_DIM);
                 canvas.print("< " + String(globalVolume) + "% >");
             } else if (i == 3) {
+                canvas.print("DISABLE SPLASH:");
+                canvas.setCursor(154, rowY + 3);
+                canvas.setTextColor(isFocus ? WHITE : CP_DIM);
+                canvas.print(disableSplash ? "< ON >" : "< OFF >");
+            } else if (i == 4) {
+                canvas.print("DISABLE BOOT SOUND:");
+                canvas.setCursor(154, rowY + 3);
+                canvas.setTextColor(isFocus ? WHITE : CP_DIM);
+                canvas.print(disableBootSound ? "< ON >" : "< OFF >");
+            } else if (i == 5) {
                 canvas.print("CHARGING MODE:");
                 canvas.setCursor(120, rowY + 3);
                 canvas.setTextColor(isFocus ? WHITE : CP_DIM);
@@ -1634,7 +1646,7 @@ void handleHardwareSettingsInput(Keyboard_Class::KeysState status) {
     if (settingsTab == 1) maxFocus = 1; // NETWORK: SSID, PASSWORD
     else if (settingsTab == 2) maxFocus = 1; // OFFLINE: PLAY LOOP, MUSIC DIR
     else if (settingsTab == 3) maxFocus = 0; // OTA: SORT BY
-    else if (settingsTab == 4) maxFocus = 3; // APPEARANCE: GLITCH TEXT, BRIGHTNESS, VOLUME, CHARGING MODE
+    else if (settingsTab == 4) maxFocus = 5; // APPEARANCE: GLITCH TEXT, BRIGHTNESS, VOLUME, DISABLE SPLASH, DISABLE BOOT SOUND, CHARGING MODE
     else if (settingsTab == 5) maxFocus = 1; // CREDITS: OPEN CREDITS, GITHUB QR
     
     if (settingsFocus == -1) {
@@ -1731,6 +1743,12 @@ void handleHardwareSettingsInput(Keyboard_Class::KeysState status) {
                 }
                 M5Cardputer.Speaker.setVolume((globalVolume * 255) / 100);
                 prefs.putInt("volume", globalVolume);
+            } else if (settingsFocus == 3) {
+                disableSplash = !disableSplash;
+                prefs.putBool("disable_splash", disableSplash);
+            } else if (settingsFocus == 4) {
+                disableBootSound = !disableBootSound;
+                prefs.putBool(PREF_BOOT_SOUND_OFF, disableBootSound);
             }
         }
         drawHardwareSettings();
@@ -1745,6 +1763,14 @@ void handleHardwareSettingsInput(Keyboard_Class::KeysState status) {
             appState = STATE_GITHUB_QR;
             drawGithubQrScreen();
         } else if (settingsTab == 4 && settingsFocus == 3) {
+            disableSplash = !disableSplash;
+            prefs.putBool("disable_splash", disableSplash);
+            drawHardwareSettings();
+        } else if (settingsTab == 4 && settingsFocus == 4) {
+            disableBootSound = !disableBootSound;
+            prefs.putBool(PREF_BOOT_SOUND_OFF, disableBootSound);
+            drawHardwareSettings();
+        } else if (settingsTab == 4 && settingsFocus == 5) {
             enterChargingMode();
             drawHardwareSettings();
         } else if (settingsTab == 2 && settingsFocus == 1) { // OFFLINE: MUSIC DIR -> choose folder location automatically
@@ -1758,6 +1784,8 @@ void handleHardwareSettingsInput(Keyboard_Class::KeysState status) {
             showFileContent = false;
         } else { // Exit to Splash screen (Boot Node)
             prefs.putInt("insane", insaneMode);
+            prefs.putBool("disable_splash", disableSplash);
+            prefs.putBool(PREF_BOOT_SOUND_OFF, disableBootSound);
             populateFileList();
             fileManagerSelected = 0;
             fileManagerScrollOffset = 0;
@@ -2139,6 +2167,9 @@ void stopMp3Playback() {
     mp3IsPaused = false;
     musicPlaybackDurationMs = 0;
     musicPlaybackElapsedMs = 0;
+    mp3StartTime = 0;
+    mp3PausedTime = 0;
+    clearMusicDurationProbe();
     if (mp3) {
         mp3->stop();
         delete mp3;

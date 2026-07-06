@@ -881,8 +881,8 @@ void drawMainMenu() {
     canvas.drawCircle(-80, 67, 110, CP_DIM);
     canvas.drawCircle(-80, 67, 109, CP_DIM);
     
-    int totalItems = 5;
-    std::vector<String> labels = {"SSH", "TELNET BBS", "OTA CATALOG", "TEXTFILES", "BACK"};
+    std::vector<String> labels = {"SSH", "TELNET BBS", "OTA CATALOG", "TEXTFILES", "AP MODE", "WIFI SCAN", "BLUETOOTH", "BACK"};
+    int totalItems = labels.size();
     
     for (int i = 0; i < totalItems; i++) {
         // Calculate shortest wrapping distance for seamless infinite scroll
@@ -971,6 +971,15 @@ void drawMainMenu() {
             } else if (label == "TEXTFILES") {
                 line1 = "BBS text";
                 line2 = "archive";
+            } else if (label == "AP MODE") {
+                line1 = "Host WiFi";
+                line2 = "access point";
+            } else if (label == "WIFI SCAN") {
+                line1 = "WiFi AP";
+                line2 = "intelligence";
+            } else if (label == "BLUETOOTH") {
+                line1 = "BLE device";
+                line2 = "intelligence";
             }
             
             if (line1 != "") {
@@ -996,7 +1005,8 @@ void handleMainMenuInput(Keyboard_Class::KeysState status) {
         if (c == '/') hasRight = true;
         if (c == ',') hasLeft = true;
     }
-    int maxFocus = 4;
+    std::vector<String> labels = {"SSH", "TELNET BBS", "OTA CATALOG", "TEXTFILES", "AP MODE", "WIFI SCAN", "BLUETOOTH", "BACK"};
+    int maxFocus = labels.size() - 1;
     if (mainMenuFocus < 0 || mainMenuFocus > maxFocus) {
         mainMenuFocus = 0;
         currentMenuScroll = 0;
@@ -1022,8 +1032,6 @@ void handleMainMenuInput(Keyboard_Class::KeysState status) {
         showMenuDesc = false;
         descAnimWidth = 0.0;
         
-        std::vector<String> labels = {"SSH", "TELNET BBS", "OTA CATALOG", "TEXTFILES", "BACK"};
-
         String selectedLabel = labels[mainMenuFocus];
         if (selectedLabel == "SSH") {
             prepareSshSetupPrompt();
@@ -1049,6 +1057,18 @@ void handleMainMenuInput(Keyboard_Class::KeysState status) {
                 resumeTextfilesAfterWifi = true;
                 startWifiScan();
             }
+        } else if (selectedLabel == "AP MODE") {
+            resumeOtaAfterWifi = false;
+            resumeTextfilesAfterWifi = false;
+            enterApMode();
+        } else if (selectedLabel == "BLUETOOTH") {
+            resumeOtaAfterWifi = false;
+            resumeTextfilesAfterWifi = false;
+            enterBluetoothScan();
+        } else if (selectedLabel == "WIFI SCAN") {
+            resumeOtaAfterWifi = false;
+            resumeTextfilesAfterWifi = false;
+            enterWifiScanNode();
         } else if (selectedLabel == "BACK") {
             appState = STATE_SPLASH;
             showSplashBootMenu = true;

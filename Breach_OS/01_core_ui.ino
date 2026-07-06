@@ -15,6 +15,11 @@ void bootToFactory() {
 
 void playSound(const unsigned char* soundData, size_t soundSize) {
     if (soundData != nullptr && soundSize > 0) {
+        if (speakerInitSkippedForBootSound) {
+            M5Cardputer.Speaker.begin();
+            M5Cardputer.Speaker.setVolume((globalVolume * 255) / 100);
+            speakerInitSkippedForBootSound = false;
+        }
         M5Cardputer.Speaker.playWav(soundData, soundSize);
     }
 }
@@ -108,8 +113,20 @@ void drawMessage(String msg, String line2) {
     pushCanvas();
 }
 
+static constexpr uint32_t AUDIO_SPECTRUM_MIN_PEAK = 2048;
+static constexpr uint32_t AUDIO_SPECTRUM_NOISE_FLOOR = 96;
+static uint32_t audioSpectrumRollingPeak = AUDIO_SPECTRUM_MIN_PEAK;
+
 uint16_t audioSpectrumLevelFromAmp(uint32_t amp) {
-    uint32_t level = amp / 96;
+    if (amp > 32767) amp = 32767;
+    if (amp > audioSpectrumRollingPeak) audioSpectrumRollingPeak = amp;
+
+    uint32_t peak = audioSpectrumRollingPeak;
+    if (peak < AUDIO_SPECTRUM_MIN_PEAK) peak = AUDIO_SPECTRUM_MIN_PEAK;
+    if (amp <= AUDIO_SPECTRUM_NOISE_FLOOR) return 0;
+
+    uint32_t range = peak > AUDIO_SPECTRUM_NOISE_FLOOR ? peak - AUDIO_SPECTRUM_NOISE_FLOOR : 1;
+    uint32_t level = ((amp - AUDIO_SPECTRUM_NOISE_FLOOR) * 255UL * 4UL) / (range * 5UL);
     if (level > 255) level = 255;
     return (uint16_t)level;
 }
@@ -117,6 +134,7 @@ uint16_t audioSpectrumLevelFromAmp(uint32_t amp) {
 void resetAudioSpectrum() {
     for (int i = 0; i < AUDIO_SPECTRUM_BARS; i++) audioSpectrumLevels[i] = 0;
     audioSpectrumCursor = 0;
+    audioSpectrumRollingPeak = AUDIO_SPECTRUM_MIN_PEAK;
     audioSpectrumLastDecay = millis();
 }
 
@@ -164,6 +182,10 @@ void drawAudioSpectrum(int x, int baselineY, int width, int height) {
         for (int i = 0; i < AUDIO_SPECTRUM_BARS; i++) {
             audioSpectrumLevels[i] = (audioSpectrumLevels[i] * 13) / 16;
         }
+        if (audioSpectrumRollingPeak > AUDIO_SPECTRUM_MIN_PEAK) {
+            audioSpectrumRollingPeak = (audioSpectrumRollingPeak * 31) / 32;
+            if (audioSpectrumRollingPeak < AUDIO_SPECTRUM_MIN_PEAK) audioSpectrumRollingPeak = AUDIO_SPECTRUM_MIN_PEAK;
+        }
         audioSpectrumLastDecay += 35;
     }
 
@@ -176,7 +198,7 @@ void drawAudioSpectrum(int x, int baselineY, int width, int height) {
         if (h < 2) h = 2;
         if (h > height) h = height;
         int bx = x + i * (barW + gap);
-        uint16_t color = h > (height * 2 / 3) ? CP_RED : (h > (height / 3) ? CP_YELLOW : CP_CYAN);
+        uint16_t color = h >= (height / 2) ? CP_RED : (h >= (height / 4) ? CP_YELLOW : CP_CYAN);
         canvas.fillRect(bx, baselineY - h, barW, h, color);
         canvas.drawRect(bx, baselineY - h, barW, h, CP_DIM);
     }
@@ -339,6 +361,9 @@ void drawCurrentScreen() {
         case STATE_SSH: drawSshScreen(); break;
         case STATE_TELNET_BBS: drawTelnetBbsScreen(); break;
         case STATE_TEXTFILES: drawTextfilesScreen(); break;
+        case STATE_BLUETOOTH_SCAN: drawBluetoothScanScreen(); break;
+        case STATE_WIFI_SCANNER: drawWifiScanNodeScreen(); break;
+        case STATE_AP_MODE: drawApModeScreen(); break;
         case STATE_GRID_SELECT: drawGridSelect(); break;
         case STATE_PHASE_TRANSITION: drawPhaseTransition(); break;
         case STATE_FAILED_SCREEN: drawGameOverFailed(); break;

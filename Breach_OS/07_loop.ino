@@ -1,5 +1,43 @@
 // Main runtime loop and app-state input dispatch.
 
+static constexpr unsigned long ARROW_REPEAT_DELAY_MS = 700;
+static constexpr unsigned long ARROW_REPEAT_INTERVAL_MS = 250;
+static int arrowRepeatMask = 0;
+static unsigned long arrowRepeatStartMs = 0;
+static unsigned long arrowRepeatLastMs = 0;
+
+static int arrowBitForChar(char c) {
+    if (c == ';') return 1;  // up
+    if (c == '.') return 2;  // down
+    if (c == ',') return 4;  // left
+    if (c == '/') return 8;  // right
+    return 0;
+}
+
+static bool updateArrowKeyRepeat(int heldMask, bool initialPress, unsigned long now, int &repeatMask) {
+    repeatMask = 0;
+    if (heldMask == 0) {
+        arrowRepeatMask = 0;
+        arrowRepeatStartMs = 0;
+        arrowRepeatLastMs = 0;
+        return false;
+    }
+
+    if (initialPress || heldMask != arrowRepeatMask) {
+        arrowRepeatMask = heldMask;
+        arrowRepeatStartMs = now;
+        arrowRepeatLastMs = now;
+        return false;
+    }
+
+    if (now - arrowRepeatStartMs >= ARROW_REPEAT_DELAY_MS && now - arrowRepeatLastMs >= ARROW_REPEAT_INTERVAL_MS) {
+        repeatMask = heldMask;
+        arrowRepeatLastMs = now;
+        return true;
+    }
+    return false;
+}
+
 void loop() {
     if (WiFi.status() == WL_CONNECTED) {
         if (!otaInit) {
@@ -22,7 +60,7 @@ void loop() {
                     lastVisualizerUpdate = millis();
                 }
             } else {
-                bool stillPlaying = mp3 ? mp3->loop() : wav->loop();
+                bool stillPlaying = pumpMusicPlayback(false);
                 if (!stillPlaying) {
                     if (appState == STATE_MUSIC_PLAYER) {
                         playNextTrack();
@@ -45,12 +83,30 @@ void loop() {
     
     bool keyChanged = M5Cardputer.Keyboard.isChange();
     bool keyPressed = M5Cardputer.Keyboard.isPressed();
+    Keyboard_Class::KeysState liveStatus;
+    int liveArrowMask = 0;
+    if (keyPressed) {
+        liveStatus = M5Cardputer.Keyboard.keysState();
+        for (char c : liveStatus.word) {
+            liveArrowMask |= arrowBitForChar(c);
+        }
+    }
     Keyboard_Class::KeysState globalStatus;
-    if (keyChanged && keyPressed) {
-        globalStatus = M5Cardputer.Keyboard.keysState();
+    bool inputReady = keyChanged && keyPressed;
+    if (inputReady) {
+        globalStatus = liveStatus;
+    }
+    int repeatMask = 0;
+    if (updateArrowKeyRepeat(liveArrowMask, inputReady, now, repeatMask)) {
+        globalStatus.reset();
+        if (repeatMask & 1) globalStatus.word.push_back(';');
+        if (repeatMask & 2) globalStatus.word.push_back('.');
+        if (repeatMask & 4) globalStatus.word.push_back(',');
+        if (repeatMask & 8) globalStatus.word.push_back('/');
+        inputReady = true;
     }
     
-    if (keyChanged && keyPressed) {
+    if (inputReady) {
         Keyboard_Class::KeysState status = globalStatus;
         bool volChanged = false;
         bool brtChanged = false;
@@ -128,7 +184,7 @@ void loop() {
             lastBlink = now;
             drawSplash();
         }
-        if (keyChanged && keyPressed) {
+        if (inputReady) {
             handleSplashInput(globalStatus);
         }
 
@@ -156,7 +212,7 @@ void loop() {
     }
     
     if (appState == STATE_BREACH_MODE) {
-        if (keyChanged && keyPressed) {
+        if (inputReady) {
             handleBreachModeInput(globalStatus);
             if (appState == STATE_BREACH_MODE) drawBreachModePrompt();
         }
@@ -174,7 +230,7 @@ void loop() {
     }
 
     if (appState == STATE_AUTH_MENU) {
-        if (keyChanged && keyPressed) {
+        if (inputReady) {
             handleAuthInput(globalStatus);
             if (appState == STATE_AUTH_MENU) drawAuthMenu();
         }
@@ -183,7 +239,7 @@ void loop() {
     }
     
     if (appState == STATE_WIFI_SCAN) {
-        if (keyChanged && keyPressed) {
+        if (inputReady) {
             handleWifiScanInput(globalStatus);
             if (appState == STATE_WIFI_SCAN) drawWifiScan();
         }
@@ -192,7 +248,7 @@ void loop() {
     }
     
     if (appState == STATE_WIFI_PASS) {
-        if (keyChanged && keyPressed) {
+        if (inputReady) {
             handleWifiPassInput(globalStatus);
             if (appState == STATE_WIFI_PASS) drawWifiPass();
         }
@@ -210,6 +266,9 @@ void loop() {
             else if (appState == STATE_ACCOUNT) drawAccountMenu();
             else if (appState == STATE_SSH) drawSshScreen();
             else if (appState == STATE_TELNET_BBS) drawTelnetBbsScreen();
+            else if (appState == STATE_BLUETOOTH_SCAN) drawBluetoothScanScreen();
+            else if (appState == STATE_WIFI_SCANNER) drawWifiScanNodeScreen();
+            else if (appState == STATE_AP_MODE) drawApModeScreen();
             else if (appState == STATE_GRID_SELECT) drawGridSelect();
             else if (appState == STATE_PHASE_TRANSITION) drawPhaseTransition();
             else if (appState == STATE_FAILED_SCREEN) drawGameOverFailed();
@@ -231,7 +290,7 @@ void loop() {
             }
         }
         
-        if (keyChanged && keyPressed) {
+        if (inputReady) {
             handleMainMenuInput(globalStatus);
             if (appState == STATE_MAIN_MENU) drawMainMenu();
         }
@@ -264,7 +323,7 @@ void loop() {
     }
 
     if (appState == STATE_CONTROLS) {
-        if (keyChanged && keyPressed) {
+        if (inputReady) {
             handleControlsInput(globalStatus);
             if (appState == STATE_CONTROLS) drawControlsScreen();
         }
@@ -273,7 +332,7 @@ void loop() {
     }
 
     if (appState == STATE_CREDITS) {
-        if (keyChanged && keyPressed) {
+        if (inputReady) {
             handleCreditsInput(globalStatus);
             if (appState == STATE_CREDITS) drawCreditsScreen();
         }
@@ -282,7 +341,7 @@ void loop() {
     }
 
     if (appState == STATE_GITHUB_QR) {
-        if (keyChanged && keyPressed) {
+        if (inputReady) {
             handleGithubQrInput(globalStatus);
             if (appState == STATE_GITHUB_QR) drawGithubQrScreen();
         }
@@ -298,7 +357,7 @@ void loop() {
             sshTerminalDirty = false;
             lastSshTerminalDraw = now;
         }
-        if (keyChanged && keyPressed) {
+        if (inputReady) {
             handleSshInput(globalStatus);
             if (appState == STATE_SSH) drawSshScreen();
             sshTerminalDirty = false;
@@ -316,7 +375,7 @@ void loop() {
             telnetTerminalDirty = false;
             lastTelnetDraw = now;
         }
-        if (keyChanged && keyPressed) {
+        if (inputReady) {
             handleTelnetBbsInput(globalStatus);
             if (appState == STATE_TELNET_BBS) drawTelnetBbsScreen();
             telnetTerminalDirty = false;
@@ -328,7 +387,7 @@ void loop() {
 
     if (appState == STATE_TEXTFILES) {
         static unsigned long lastTextfilesDraw = 0;
-        if (keyChanged && keyPressed) {
+        if (inputReady) {
             handleTextfilesInput(globalStatus);
             if (appState == STATE_TEXTFILES) drawTextfilesScreen();
             lastTextfilesDraw = now;
@@ -336,6 +395,39 @@ void loop() {
         if (appState == STATE_TEXTFILES && (updateTextfilesUi() || now - lastTextfilesDraw > 500)) {
             drawTextfilesScreen();
             lastTextfilesDraw = now;
+        }
+        delay(10);
+        return;
+    }
+
+    if (appState == STATE_BLUETOOTH_SCAN) {
+        if (inputReady) {
+            handleBluetoothScanInput(globalStatus);
+            if (appState == STATE_BLUETOOTH_SCAN) drawBluetoothScanScreen();
+        }
+        delay(10);
+        return;
+    }
+
+    if (appState == STATE_WIFI_SCANNER) {
+        if (inputReady) {
+            handleWifiScanNodeInput(globalStatus);
+            if (appState == STATE_WIFI_SCANNER) drawWifiScanNodeScreen();
+        }
+        delay(10);
+        return;
+    }
+
+    if (appState == STATE_AP_MODE) {
+        static unsigned long lastApModeDraw = 0;
+        if (inputReady) {
+            handleApModeInput(globalStatus);
+            if (appState == STATE_AP_MODE) drawApModeScreen();
+            lastApModeDraw = now;
+        }
+        if (appState == STATE_AP_MODE && now - lastApModeDraw > 1000) {
+            drawApModeScreen();
+            lastApModeDraw = now;
         }
         delay(10);
         return;
@@ -352,7 +444,7 @@ void loop() {
             }
         }
         
-        if (keyChanged && keyPressed) {
+        if (inputReady) {
             handleHardwareMenuInput(globalStatus);
             if (appState == STATE_HARDWARE_MENU) drawHardwareMenu();
         }
@@ -390,7 +482,7 @@ void loop() {
             drawHardwareSettings();
             lastSettingsMarquee = millis();
         }
-        if (keyChanged && keyPressed) {
+        if (inputReady) {
             handleHardwareSettingsInput(globalStatus);
         }
         delay(10);
@@ -399,7 +491,7 @@ void loop() {
     
     if (appState == STATE_USB_DRIVE) {
         static unsigned long lastUsbDriveDraw = 0;
-        if (keyChanged && keyPressed) {
+        if (inputReady) {
             handleUsbDriveInput(globalStatus);
         }
         if (appState == STATE_USB_DRIVE && millis() - lastUsbDriveDraw > 500) {
@@ -412,7 +504,7 @@ void loop() {
 
     if (appState == STATE_BADUSB) {
         static unsigned long lastBadUsbDraw = 0;
-        if (keyChanged && keyPressed) {
+        if (inputReady) {
             handleBadUsbInput(globalStatus);
         }
         if (appState == STATE_BADUSB && badUsbMode != 2 && millis() - lastBadUsbDraw > 250) {
@@ -426,7 +518,7 @@ void loop() {
     if (appState == STATE_IR) {
         static unsigned long lastIrDraw = 0;
         bool irUpdated = pollIrReceiver();
-        if (keyChanged && keyPressed) {
+        if (inputReady) {
             handleIrInput(globalStatus);
         }
         bool irAnimUpdated = updateIrUiAnimation();
@@ -440,7 +532,7 @@ void loop() {
 
     if (appState == STATE_SSTV) {
         static unsigned long lastSstvDraw = 0;
-        if (keyChanged && keyPressed) {
+        if (inputReady) {
             handleSstvInput(globalStatus);
         }
         bool sstvAnimUpdated = updateSstvUiAnimation();
@@ -458,7 +550,7 @@ void loop() {
             drawOtaCatalog();
             lastOtaMarquee = millis();
         }
-        if (keyChanged && keyPressed) {
+        if (inputReady) {
             handleOtaCatalogInput(globalStatus);
         }
         delay(10);
@@ -466,7 +558,7 @@ void loop() {
     }
     
     if (appState == STATE_DIR_CONFIRM_POPUP) {
-        if (keyChanged && keyPressed) {
+        if (inputReady) {
             handleDirConfirmPopupInput(globalStatus);
         }
         delay(10);
@@ -476,16 +568,16 @@ void loop() {
     if (appState == STATE_MUSIC_PLAYER) {
         Keyboard_Class::KeysState musicStatus = M5Cardputer.Keyboard.keysState();
         updateMusicInputGate(musicStatus.enter);
-        if (keyChanged && keyPressed) {
+        if (inputReady) {
             handleMusicPlayerInput(globalStatus);
         }
-        // Let marquee titles scroll if needed
+        // Let marquee titles scroll if needed while stopped; playback redraws from the audio pump path.
         static unsigned long lastPlayerMarquee = 0;
-        if (millis() - lastPlayerMarquee > 150) {
+        if (!isMp3Playing && millis() - lastPlayerMarquee > 150) {
             drawMusicPlayer();
             lastPlayerMarquee = millis();
         }
-        delay(10);
+        delay(isMp3Playing ? 1 : 10);
         return;
     }
     
@@ -496,7 +588,7 @@ void loop() {
     }
     
     if (appState == STATE_FILE_MANAGER) {
-        if (keyChanged && keyPressed) {
+        if (inputReady) {
             handleFileManagerInput(globalStatus);
         }
         
@@ -517,7 +609,7 @@ void loop() {
     }
     
     if (appState == STATE_FILE_ACTIONS_MENU) {
-        if (keyChanged && keyPressed) {
+        if (inputReady) {
             handleFileActionsMenuInput(globalStatus);
         }
         delay(10);
@@ -525,7 +617,7 @@ void loop() {
     }
 
     if (appState == STATE_FILE_NEW_TYPE_MENU) {
-        if (keyChanged && keyPressed) {
+        if (inputReady) {
             handleFileNewTypeMenuInput(globalStatus);
         }
         delay(10);
@@ -533,7 +625,7 @@ void loop() {
     }
     
     if (appState == STATE_FILE_RENAME_INPUT) {
-        if (keyChanged && keyPressed) {
+        if (inputReady) {
             handleFileRenameInput(globalStatus);
         }
         
@@ -549,7 +641,7 @@ void loop() {
     }
 
     if (appState == STATE_FILE_TEXT_EDITOR) {
-        if (keyChanged && keyPressed) {
+        if (inputReady) {
             handleFileTextEditorInput(globalStatus);
         }
 
@@ -565,7 +657,7 @@ void loop() {
     }
 
     if (appState == STATE_LEADERBOARD) {
-        if (keyChanged && keyPressed) {
+        if (inputReady) {
             Keyboard_Class::KeysState status = globalStatus;
             
             bool hasUp = false, hasDown = false;
@@ -613,7 +705,7 @@ void loop() {
     }
     
     if (appState == STATE_ACCOUNT) {
-        if (keyChanged && keyPressed) {
+        if (inputReady) {
             handleAccountInput(globalStatus);
             if (appState == STATE_ACCOUNT) drawAccountMenu();
         }
@@ -622,7 +714,7 @@ void loop() {
     }
     
     if (appState == STATE_GRID_SELECT) {
-        if (keyChanged && keyPressed) {
+        if (inputReady) {
             handleGridSelectInput(globalStatus);
         }
         if (abs(currentGridScroll - targetGridScroll) > 0.01) {
@@ -642,7 +734,7 @@ void loop() {
             lastBlink = now;
             drawPhaseTransition();
         }
-        if (keyChanged && keyPressed) {
+        if (inputReady) {
             handlePhaseTransitionInput(globalStatus);
             if (appState == STATE_PHASE_TRANSITION) drawPhaseTransition();
         }
@@ -656,7 +748,7 @@ void loop() {
             lastBlink = now;
             drawGameOverFailed();
         }
-        if (keyChanged && keyPressed) {
+        if (inputReady) {
             if (globalStatus.enter) {
                 playSound(sound_select, sound_select_size);
                 lastBreachFailed = true;
@@ -704,7 +796,7 @@ void loop() {
         }
     }
     
-    if (keyChanged && keyPressed) {
+    if (inputReady) {
         Keyboard_Class::KeysState status = globalStatus;
         
         for (char c : status.word) {

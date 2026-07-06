@@ -32,6 +32,18 @@
 #include <AudioGeneratorMP3.h>
 #include <AudioGeneratorWAV.h>
 #include <AudioFileSourceBuffer.h>
+#include "bluetooth_scan_types.h"
+#include "sdkconfig.h"
+#include "soc/soc_caps.h"
+#if (defined(SOC_BLE_SUPPORTED) || defined(CONFIG_ESP_HOSTED_ENABLE_BT_NIMBLE)) && \
+    (defined(CONFIG_BLUEDROID_ENABLED) || defined(CONFIG_NIMBLE_ENABLED))
+#include <BLEDevice.h>
+#include <BLEScan.h>
+#include <BLEAdvertisedDevice.h>
+#define BREACH_BLE_SCAN_AVAILABLE 1
+#else
+#define BREACH_BLE_SCAN_AVAILABLE 0
+#endif
 #define EXCLUDE_EXOTIC_PROTOCOLS
 #define DECODE_NEC
 #define DECODE_SAMSUNG
@@ -56,6 +68,7 @@
 #endif
 
 static constexpr int AUDIO_SPECTRUM_BARS = 18;
+static constexpr const char* PREF_BOOT_SOUND_OFF = "boot_snd_off"; // ESP32 NVS keys max out at 15 chars.
 void feedAudioSpectrumSample(int16_t left, int16_t right);
 
 struct RealFile {
@@ -63,6 +76,8 @@ struct RealFile {
     String sizeStr;
     bool isDir;
 };
+
+struct BluetoothScanDeviceInfo;
 
 class AudioOutputM5Speaker : public AudioOutput {
   public:
@@ -72,6 +87,7 @@ class AudioOutputM5Speaker : public AudioOutput {
     }
     virtual ~AudioOutputM5Speaker(void) {};
     virtual bool begin(void) override { return true; }
+    bool hasOutputStarted() const { return _output_started; }
     virtual bool ConsumeSample(int16_t sample[2]) override {
       feedAudioSpectrumSample(sample[0], sample[1]);
       if (_tri_buffer_index < tri_buf_size) {
@@ -86,6 +102,7 @@ class AudioOutputM5Speaker : public AudioOutput {
     virtual void flush(void) override {
       if (_tri_buffer_index) { 
         _m5sound->playRaw(_tri_buffer[_tri_index], _tri_buffer_index, hertz, true, 1, _virtual_ch); 
+        _output_started = true;
         _tri_index = _tri_index < 2 ? _tri_index + 1 : 0; 
         _tri_buffer_index = 0; 
       }
@@ -93,15 +110,17 @@ class AudioOutputM5Speaker : public AudioOutput {
     virtual bool stop(void) override { 
         flush(); 
         _m5sound->stop(_virtual_ch); 
+        _output_started = false;
         return true; 
     }
   protected:
     m5::Speaker_Class* _m5sound; 
     uint8_t _virtual_ch; 
-    static constexpr size_t tri_buf_size = 2048;
+    static constexpr size_t tri_buf_size = 512;
     int16_t _tri_buffer[3][tri_buf_size]; 
     size_t _tri_buffer_index = 0; 
     size_t _tri_index = 0;
+    bool _output_started = false;
 };
 
 
@@ -203,6 +222,9 @@ enum AppState {
     STATE_SSH,
     STATE_TELNET_BBS,
     STATE_TEXTFILES,
+    STATE_BLUETOOTH_SCAN,
+    STATE_WIFI_SCANNER,
+    STATE_AP_MODE,
     STATE_GRID_SELECT,
     STATE_PHASE_TRANSITION,
     STATE_FAILED_SCREEN,
@@ -245,6 +267,15 @@ int authFocus = 0;
 bool rememberMe = false;
 String savedSSID = "";
 String savedWifiPass = "";
+String apModeSsid = "Breach_OS_AP";
+String apModePass = "breach123";
+int apModeChannel = 6;
+bool apModeOpen = false;
+bool apModeRunning = false;
+bool apModeStaWasConnected = false;
+int apModeFocus = 0;
+String apModeStatus = "READY";
+String apModeIp = "";
 
 std::vector<String> wifiList;
 int wifiSelection = 0;
@@ -404,6 +435,15 @@ void enterTextfilesMode();
 void drawTextfilesScreen();
 void handleTextfilesInput(Keyboard_Class::KeysState status);
 bool updateTextfilesUi();
+void enterBluetoothScan();
+void drawBluetoothScanScreen();
+void handleBluetoothScanInput(Keyboard_Class::KeysState status);
+void enterWifiScanNode();
+void drawWifiScanNodeScreen();
+void handleWifiScanNodeInput(Keyboard_Class::KeysState status);
+void enterApMode();
+void drawApModeScreen();
+void handleApModeInput(Keyboard_Class::KeysState status);
 bool trySshKeyFile(ssh_session session, const String &authSecret, const char* path);
 bool authenticateSshSession(ssh_session session, const String &authSecret);
 TaskHandle_t getSshTaskHandle();
@@ -477,6 +517,8 @@ void drawSstvScreen();
 void handleSstvInput(Keyboard_Class::KeysState status);
 bool updateSstvUiAnimation();
 void updateMusicInputGate(bool enterDown);
+bool pumpMusicPlayback(bool startupBurst);
+void clearMusicDurationProbe();
 void populatePlaylist();
 void playNextTrack();
 void playPrevTrack();
@@ -548,6 +590,9 @@ int settingsTab = 0;
 int settingsTabScrollOffset = 0;
 int settingsFocus = 0;
 bool showSystemFiles = false;
+bool disableSplash = false;
+bool disableBootSound = false;
+bool speakerInitSkippedForBootSound = false;
 unsigned long lastFileSelectionTime = 0;
 int marqueeScrollOffset = 0;
 unsigned long lastMarqueeUpdate = 0;
