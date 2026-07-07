@@ -5,6 +5,7 @@ void drawGridSelect() {
     canvas.fillScreen(CP_BG);
 
     drawGlitchText("Grid Selection", 72, 4, 1, CP_CYAN, true, true);
+    drawTopStatusIcons(132, 1);
     
     // Draw rotating wheel arc on the left
     canvas.drawCircle(-80, 67, 110, CP_DIM);

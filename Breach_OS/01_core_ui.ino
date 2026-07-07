@@ -95,6 +95,53 @@ void drawDefaultGlitchText(String text, int x, int y, int size, uint16_t color, 
     insaneMode = savedInsaneMode;
 }
 
+static void drawTopStatusWifiIcon(int x, int y, uint16_t color) {
+    canvas.fillRect(x + 1, y + 9, 2, 3, color);
+    canvas.fillRect(x + 5, y + 6, 2, 6, color);
+    canvas.fillRect(x + 9, y + 3, 2, 9, color);
+}
+
+static void drawTopStatusSdIcon(int x, int y, uint16_t color) {
+    canvas.drawLine(x, y, x + 8, y, color);
+    canvas.drawLine(x + 8, y, x + 11, y + 3, color);
+    canvas.drawLine(x + 11, y + 3, x + 11, y + 12, color);
+    canvas.drawLine(x, y, x, y + 12, color);
+    canvas.drawLine(x, y + 12, x + 11, y + 12, color);
+    canvas.drawLine(x + 7, y, x + 7, y + 4, color);
+    canvas.drawLine(x + 2, y + 9, x + 8, y + 9, color);
+}
+
+static void drawTopStatusBleIcon(int x, int y, uint16_t color) {
+    canvas.drawLine(x + 5, y, x + 5, y + 12, color);
+    canvas.drawLine(x + 5, y, x + 10, y + 4, color);
+    canvas.drawLine(x + 10, y + 4, x + 5, y + 7, color);
+    canvas.drawLine(x + 5, y + 7, x + 10, y + 10, color);
+    canvas.drawLine(x + 10, y + 10, x + 5, y + 12, color);
+    canvas.drawLine(x + 5, y + 6, x + 1, y + 2, color);
+    canvas.drawLine(x + 5, y + 6, x + 1, y + 10, color);
+}
+
+void drawTopStatusIcons(int x, int y) {
+    int iconX = x;
+    wifi_mode_t wifiMode = WiFi.getMode();
+    bool wifiActive = (WiFi.status() == WL_CONNECTED) || wifiMode == WIFI_AP || wifiMode == WIFI_AP_STA;
+    bool sdActive = SD.cardType() != CARD_NONE;
+
+    if (wifiActive) {
+        drawTopStatusWifiIcon(iconX, y, CP_GREEN);
+        iconX += 19;
+    }
+    if (sdActive) {
+        drawTopStatusSdIcon(iconX, y, CP_CYAN);
+        iconX += 19;
+    }
+#if BREACH_BLE_SCAN_AVAILABLE
+    if (appState == STATE_BLUETOOTH_SCAN) {
+        drawTopStatusBleIcon(iconX, y, CP_CYAN);
+    }
+#endif
+}
+
 void drawMessage(String msg) {
     drawMessage(msg, "");
 }

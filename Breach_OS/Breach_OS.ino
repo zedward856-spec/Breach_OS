@@ -10,6 +10,7 @@
 #include <WiFi.h>
 #include <SPI.h>
 #include <HTTPClient.h>
+#include <WebServer.h>
 #include <vector>
 #include <algorithm>
 #include <cstring>
@@ -267,6 +268,9 @@ int authFocus = 0;
 bool rememberMe = false;
 String savedSSID = "";
 String savedWifiPass = "";
+static constexpr const char* WIFI_CREDENTIALS_OS_DIR = "/Breach_OS";
+static constexpr const char* WIFI_CREDENTIALS_FILE = "/Breach_OS/wifi.txt";
+static constexpr const char* WIFI_CREDENTIALS_LEGACY_FILE = "/wifi.txt";
 String apModeSsid = "Breach_OS_AP";
 String apModePass = "breach123";
 int apModeChannel = 6;
@@ -283,6 +287,7 @@ int wifiScrollOffset = 0;
 String wifiPass = "";
 bool resumeOtaAfterWifi = false;
 bool resumeTextfilesAfterWifi = false;
+bool resumeApModeLanWebAfterWifi = false;
 
 struct LeaderboardEntry {
     String username;
@@ -441,9 +446,14 @@ void handleBluetoothScanInput(Keyboard_Class::KeysState status);
 void enterWifiScanNode();
 void drawWifiScanNodeScreen();
 void handleWifiScanNodeInput(Keyboard_Class::KeysState status);
+bool loadWifiCredentialsFromSd();
+bool saveWifiCredentialsToSd();
 void enterApMode();
+void enterApModeLanWeb();
 void drawApModeScreen();
 void handleApModeInput(Keyboard_Class::KeysState status);
+bool updateApModeSourcePromptAnimation();
+void serviceApModeWeb();
 bool trySshKeyFile(ssh_session session, const String &authSecret, const char* path);
 bool authenticateSshSession(ssh_session session, const String &authSecret);
 TaskHandle_t getSshTaskHandle();
@@ -538,6 +548,7 @@ void populateFileList();
 void readSelectedFileContent(String fileName);
 void drawChippedButton(int x, int y, int w, int h, uint16_t color);
 void drawBatteryPercentBox();
+void drawTopStatusIcons(int x, int y);
 void drawWheelPositionIndicator(float scroll, int totalItems);
 void resetAudioSpectrum();
 void feedAudioSpectrumBuffer(const int16_t* samples, size_t sampleCount);

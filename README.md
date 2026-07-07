@@ -165,7 +165,10 @@ Breach_OS creates or expects these SD paths for current functions:
   Ducky/          DuckyScript files for BADUSB
   firmware/       OTA catalog firmware downloads
   recordings/     SOUND REC WAV files
+  wifi.txt        generated Wi-Fi profile used for reconnect/migration
 ```
+
+`/Breach_OS/wifi.txt` is plaintext (`ssid=` and `password=`), so keep the SD card private.
 
 Music can be browsed from any selected SD directory via SYSTEM SETTINGS -> OFFLINE -> MUSIC DIR.
 

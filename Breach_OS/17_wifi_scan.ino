@@ -241,6 +241,7 @@ void drawWifiScanNodeScreen() {
     canvas.startWrite();
     canvas.fillScreen(CP_BG);
     drawGlitchText("WIFI", 72, 4, 1, wifiScanNodeDetailMode ? CP_YELLOW : CP_CYAN, true, true);
+    drawTopStatusIcons(132, 1);
     canvas.drawLine(5, 18, 235, 18, CP_DIM);
 
     canvas.setTextSize(1);

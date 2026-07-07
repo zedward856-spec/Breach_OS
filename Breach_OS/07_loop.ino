@@ -49,6 +49,7 @@ void loop() {
     }
 
     M5Cardputer.update();
+    serviceApModeWeb();
     unsigned long now = millis();
     
     if (isMp3Playing) {
@@ -423,6 +424,10 @@ void loop() {
         if (inputReady) {
             handleApModeInput(globalStatus);
             if (appState == STATE_AP_MODE) drawApModeScreen();
+            lastApModeDraw = now;
+        }
+        if (appState == STATE_AP_MODE && updateApModeSourcePromptAnimation()) {
+            drawApModeScreen();
             lastApModeDraw = now;
         }
         if (appState == STATE_AP_MODE && now - lastApModeDraw > 1000) {

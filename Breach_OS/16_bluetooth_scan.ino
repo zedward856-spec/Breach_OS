@@ -586,6 +586,7 @@ void drawBluetoothScanScreen() {
     canvas.startWrite();
     canvas.fillScreen(CP_BG);
     drawGlitchText("BLUETOOTH", 72, 4, 1, bluetoothDetailMode ? CP_YELLOW : CP_CYAN, true, true);
+    drawTopStatusIcons(132, 1);
     canvas.drawLine(5, 18, 235, 18, CP_DIM);
 
     canvas.setTextSize(1);

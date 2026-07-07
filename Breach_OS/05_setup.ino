@@ -22,6 +22,9 @@ void setup() {
     highScore = prefs.getInt("highscore", 0);
     savedSSID = prefs.getString("wifi_ssid", "");
     savedWifiPass = prefs.getString("wifi_pass", "");
+    if (!loadWifiCredentialsFromSd() && savedSSID != "") {
+        saveWifiCredentialsToSd();
+    }
     apModeSsid = prefs.getString("ap_ssid", "Breach_OS_AP");
     if (apModeSsid == "") apModeSsid = "Breach_OS_AP";
     if (apModeSsid.length() > 32) apModeSsid = apModeSsid.substring(0, 32);

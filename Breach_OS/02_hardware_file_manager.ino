@@ -1201,6 +1201,7 @@ void drawHardwareMenu() {
     
     // Compact header matches the other node menus.
     drawGlitchText("HARDWARE NODE", 72, 4, 1, CP_CYAN, true, true);
+    drawTopStatusIcons(132, 1);
     
     // Draw rotating wheel arc
     canvas.drawCircle(-80, 67, 110, CP_DIM);
