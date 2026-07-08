@@ -114,8 +114,8 @@ static bool badUsbDelay(uint32_t ms) {
     return true;
 }
 
+bool initBreachHidKeyboard() {
 #if BREACH_USB_HID_AVAILABLE
-static bool badUsbInitHid() {
     if (!badUsbHidReady) {
         badUsbKeyboard.begin();
         badUsbKeyboard.releaseAll();
@@ -123,6 +123,14 @@ static bool badUsbInitHid() {
         badUsbHidReady = true;
     }
     return true;
+#else
+    return false;
+#endif
+}
+
+#if BREACH_USB_HID_AVAILABLE
+static bool badUsbInitHid() {
+    return initBreachHidKeyboard();
 }
 
 static bool badUsbModifierToken(String token, uint8_t &key) {

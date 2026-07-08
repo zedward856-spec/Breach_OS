@@ -10,6 +10,12 @@ static constexpr int AP_MODE_MAX_SSID_LEN = 32;
 static constexpr int AP_MODE_MAX_PASS_LEN = 63;
 
 static constexpr int AP_MODE_SOURCE_COUNT = 3;
+static constexpr int AP_MODE_REMOTE_KEY_QUEUE_MAX = 16;
+static constexpr int AP_MODE_MIRROR_W = 240;
+static constexpr int AP_MODE_MIRROR_H = 135;
+static constexpr size_t AP_MODE_MIRROR_FRAME_BYTES = AP_MODE_MIRROR_W * AP_MODE_MIRROR_H * 2;
+static constexpr int AP_MODE_WEB_CLIENT_SLOTS = 4;
+static constexpr unsigned long AP_MODE_WEB_CLIENT_ACTIVE_MS = 15000UL;
 
 static int apModeListScroll = 0;
 static int apModeSourceFocus = 0;
@@ -26,6 +32,13 @@ static String apModeWebUploadDir = "/";
 static String apModeWebLastStatus = "";
 static int apModeWebSortField = 0;
 static bool apModeWebSortDesc = false;
+static String apModeRemoteWord = "";
+static bool apModeRemoteEnter = false;
+static bool apModeRemoteDel = false;
+static unsigned long apModeRemoteLastMs = 0;
+static String apModeRemoteLastLabel = "NONE";
+static String apModeWebClientIp[AP_MODE_WEB_CLIENT_SLOTS];
+static unsigned long apModeWebClientSeen[AP_MODE_WEB_CLIENT_SLOTS] = {0, 0, 0, 0};
 
 struct ApModeWebEntry {
     String name;
@@ -59,6 +72,117 @@ static String apModeMaskedPass() {
 
 static bool apModeWebActive() {
     return apModeRunning || apModeLanWebActive;
+}
+
+static String apModeWebGb(uint64_t bytes) {
+    return String((double)bytes / 1073741824.0, 1);
+}
+
+static String apModeWebSdGbPair(uint64_t used, uint64_t total) {
+    return apModeWebGb(used) + "/" + apModeWebGb(total) + "GB";
+}
+
+static void apModeWebClearClients() {
+    for (int i = 0; i < AP_MODE_WEB_CLIENT_SLOTS; i++) {
+        apModeWebClientIp[i] = "";
+        apModeWebClientSeen[i] = 0;
+    }
+}
+
+static void apModeWebTouchClient() {
+    WiFiClient client = apModeWebServer.client();
+    String remoteIp = client.remoteIP().toString();
+    if (remoteIp == "" || remoteIp == "0.0.0.0") return;
+
+    unsigned long now = millis();
+    int freeSlot = -1;
+    int oldestSlot = 0;
+    for (int i = 0; i < AP_MODE_WEB_CLIENT_SLOTS; i++) {
+        if (apModeWebClientIp[i] == remoteIp) {
+            apModeWebClientSeen[i] = now;
+            return;
+        }
+        if (apModeWebClientIp[i] == "" && freeSlot < 0) freeSlot = i;
+        if (apModeWebClientSeen[i] < apModeWebClientSeen[oldestSlot]) oldestSlot = i;
+    }
+
+    int slot = freeSlot >= 0 ? freeSlot : oldestSlot;
+    apModeWebClientIp[slot] = remoteIp;
+    apModeWebClientSeen[slot] = now;
+}
+
+static int apModeWebRecentClientCount() {
+    unsigned long now = millis();
+    int count = 0;
+    for (int i = 0; i < AP_MODE_WEB_CLIENT_SLOTS; i++) {
+        if (apModeWebClientIp[i] == "") continue;
+        if (now - apModeWebClientSeen[i] <= AP_MODE_WEB_CLIENT_ACTIVE_MS) {
+            count++;
+        } else {
+            apModeWebClientIp[i] = "";
+            apModeWebClientSeen[i] = 0;
+        }
+    }
+
+    int apClients = apModeRunning ? WiFi.softAPgetStationNum() : 0;
+    return count > apClients ? count : apClients;
+}
+
+static String apModeRemoteSafeLabel(String key) {
+    if (key == "ArrowUp") return "UP";
+    if (key == "ArrowDown") return "DOWN";
+    if (key == "ArrowLeft") return "LEFT";
+    if (key == "ArrowRight") return "RIGHT";
+    if (key == "Enter") return "ENTER";
+    if (key == "Backspace") return "BACKSPACE";
+    if (key == "Delete") return "DELETE";
+    if (key == "Escape") return "ESC";
+    if (key.length() == 1 && key[0] >= 32 && key[0] <= 126) return "TEXT";
+    return "UNKNOWN";
+}
+
+static void apModeQueueRemoteChar(char c) {
+    if ((int)apModeRemoteWord.length() >= AP_MODE_REMOTE_KEY_QUEUE_MAX) return;
+    apModeRemoteWord += c;
+    apModeRemoteLastMs = millis();
+}
+
+static void apModeQueueRemoteKey(String key) {
+    apModeRemoteLastLabel = apModeRemoteSafeLabel(key);
+    if (key == "ArrowUp") apModeQueueRemoteChar(';');
+    else if (key == "ArrowDown") apModeQueueRemoteChar('.');
+    else if (key == "ArrowLeft") apModeQueueRemoteChar(',');
+    else if (key == "ArrowRight") apModeQueueRemoteChar('/');
+    else if (key == "Enter") { apModeRemoteEnter = true; apModeRemoteLastMs = millis(); }
+    else if (key == "Backspace" || key == "Delete") { apModeRemoteDel = true; apModeRemoteLastMs = millis(); }
+    else if (key == "Escape") apModeQueueRemoteChar('`');
+    else if (key.length() == 1 && key[0] >= 32 && key[0] <= 126) apModeQueueRemoteChar(key[0]);
+}
+
+bool consumeApModeRemoteInput(Keyboard_Class::KeysState &status) {
+    bool consumed = false;
+    for (int i = 0; i < (int)apModeRemoteWord.length(); i++) {
+        status.word.push_back(apModeRemoteWord[i]);
+        consumed = true;
+    }
+    apModeRemoteWord = "";
+    if (apModeRemoteEnter) {
+        status.enter = true;
+        apModeRemoteEnter = false;
+        consumed = true;
+    }
+    if (apModeRemoteDel) {
+        status.del = true;
+        apModeRemoteDel = false;
+        consumed = true;
+    }
+    return consumed;
+}
+
+static void apModeClearRemoteInput() {
+    apModeRemoteWord = "";
+    apModeRemoteEnter = false;
+    apModeRemoteDel = false;
 }
 
 static String apModeConnectedNetworkLabel() {
@@ -95,6 +219,14 @@ static String apModeWebHtml(String text) {
     text.replace(">", "&gt;");
     text.replace("\"", "&quot;");
     text.replace("'", "&#39;");
+    return text;
+}
+
+static String apModeWebJson(String text) {
+    text.replace("\\", "\\\\");
+    text.replace("\"", "\\\"");
+    text.replace("\n", " ");
+    text.replace("\r", " ");
     return text;
 }
 
@@ -195,6 +327,13 @@ static String apModeWebSize(size_t bytes) {
     return String(bytes / 1048576.0f, 2) + " MB";
 }
 
+static String apModeWebSize64(uint64_t bytes) {
+    if (bytes < 1024ULL) return String((unsigned long)bytes) + " B";
+    if (bytes < 1048576ULL) return String((double)bytes / 1024.0, 1) + " KB";
+    if (bytes < 1073741824ULL) return String((double)bytes / 1048576.0, 1) + " MB";
+    return String((double)bytes / 1073741824.0, 2) + " GB";
+}
+
 static String apModeWebExtension(String name, bool isDir) {
     if (isDir) return "";
     int dot = name.lastIndexOf('.');
@@ -217,6 +356,25 @@ static String apModeWebSortLink(String path, const char *sort, const char *dir, 
 static bool apModeWebMountSd() {
     SPI.begin(40, 39, 14, 12);
     return SD.begin(12, SPI, 20000000) && SD.cardType() != CARD_NONE;
+}
+
+static String apModeMirrorSdInfo() {
+    static String cached = "0.0/0.0GB";
+    static unsigned long lastRead = 0;
+    unsigned long now = millis();
+    if (lastRead != 0 && now - lastRead < 3000) return cached;
+    lastRead = now;
+
+    if (!apModeWebMountSd()) {
+        cached = "0.0/0.0GB";
+        return cached;
+    }
+    uint64_t total = SD.totalBytes();
+    uint64_t used = SD.usedBytes();
+    uint64_t card = SD.cardSize();
+    if (total == 0) total = card;
+    cached = apModeWebSdGbPair(used, total);
+    return cached;
 }
 
 static void apModeWebRedirect(String path) {
@@ -270,10 +428,11 @@ static void apModeWebSendSdPage(String path) {
     html += F(".panel{position:relative;border:0;padding:10px;margin:10px 0;background:linear-gradient(#38bec9,#38bec9) top left/100% 1px no-repeat,linear-gradient(#38bec9,#38bec9) top left/1px 100% no-repeat,linear-gradient(#38bec9,#38bec9) top right/1px calc(100% - 14px) no-repeat,linear-gradient(#38bec9,#38bec9) bottom left/calc(100% - 14px) 1px no-repeat,linear-gradient(135deg,transparent 46%,#38bec9 47%,#38bec9 53%,transparent 54%) bottom right/14px 14px no-repeat,#0e1115}");
     html += F("input,.sort,.filepick,.filehint{display:inline-block;position:relative;box-sizing:border-box;border:0;border-radius:0;outline:0;vertical-align:middle;background:linear-gradient(#38bec9,#38bec9) top left/100% 1px no-repeat,linear-gradient(#38bec9,#38bec9) top left/1px 100% no-repeat,linear-gradient(#38bec9,#38bec9) top right/1px calc(100% - 14px) no-repeat,linear-gradient(#38bec9,#38bec9) bottom left/calc(100% - 14px) 1px no-repeat,linear-gradient(135deg,transparent 46%,#38bec9 47%,#38bec9 53%,transparent 54%) bottom right/14px 14px no-repeat,#0e1115;color:#dceb1b;padding:7px 14px;margin:3px;font-family:monospace;-webkit-appearance:none;appearance:none}");
     html += F("button{display:inline-block;position:relative;border:0;background:linear-gradient(#38bec9,#38bec9) top left/100% 1px no-repeat,linear-gradient(#38bec9,#38bec9) top left/1px 100% no-repeat,linear-gradient(#38bec9,#38bec9) top right/1px calc(100% - 14px) no-repeat,linear-gradient(#38bec9,#38bec9) bottom left/calc(100% - 14px) 1px no-repeat,linear-gradient(135deg,transparent 46%,#38bec9 47%,#38bec9 53%,transparent 54%) bottom right/14px 14px no-repeat,#38bec9;color:#0e1115;padding:7px 14px;margin:3px;font-family:monospace;font-weight:bold}");
-    html += F(".sort,.filepick,.filehint{min-width:96px;text-align:left;color:#dceb1b}.filepick{cursor:pointer}.filehint{min-width:150px}.foldername{min-width:150px}.nativefile,input[type=hidden]{display:none}.sort.active{background:linear-gradient(#38bec9,#38bec9) top left/100% 1px no-repeat,linear-gradient(#38bec9,#38bec9) top left/1px 100% no-repeat,linear-gradient(#38bec9,#38bec9) top right/1px calc(100% - 14px) no-repeat,linear-gradient(#38bec9,#38bec9) bottom left/calc(100% - 14px) 1px no-repeat,linear-gradient(135deg,transparent 46%,#38bec9 47%,#38bec9 53%,transparent 54%) bottom right/14px 14px no-repeat,#dceb1b;color:#0e1115}");
+    html += F(".sort,.filepick,.filehint{min-width:96px;text-align:left;color:#dceb1b}.topnav{margin:10px 0}.topnav .sort{font-weight:bold}.filepick{cursor:pointer}.filehint{min-width:150px}.foldername{min-width:150px}.nativefile,input[type=hidden]{display:none}.sort.active{background:linear-gradient(#38bec9,#38bec9) top left/100% 1px no-repeat,linear-gradient(#38bec9,#38bec9) top left/1px 100% no-repeat,linear-gradient(#38bec9,#38bec9) top right/1px calc(100% - 14px) no-repeat,linear-gradient(#38bec9,#38bec9) bottom left/calc(100% - 14px) 1px no-repeat,linear-gradient(135deg,transparent 46%,#38bec9 47%,#38bec9 53%,transparent 54%) bottom right/14px 14px no-repeat,#dceb1b;color:#0e1115}");
     html += F("button.danger{background:linear-gradient(#ff003c,#ff003c) top left/100% 1px no-repeat,linear-gradient(#ff003c,#ff003c) top left/1px 100% no-repeat,linear-gradient(#ff003c,#ff003c) top right/1px calc(100% - 14px) no-repeat,linear-gradient(#ff003c,#ff003c) bottom left/calc(100% - 14px) 1px no-repeat,linear-gradient(135deg,transparent 46%,#ff003c 47%,#ff003c 53%,transparent 54%) bottom right/14px 14px no-repeat,#ff003c;color:#0e1115;font-weight:bold}");
     html += F(".dim{color:#87905e}.bad{color:#ff003c}.ok{color:#00ff75}table{width:100%;border-collapse:collapse}td,th{border-bottom:1px solid #26313c;padding:7px 4px;text-align:left}.act{white-space:nowrap}</style></head><body><main class='shell'>");
     html += F("<h1>BREACH_OS SD FILE MANAGER</h1>");
+    html += F("<div class='topnav'><a class='sort active' href='/mirror'>START MIRROR</a><a class='sort' href='/sd?path="); html += apModeWebUrlEncode(path); html += F("&sort="); html += sortMode; html += F("&dir="); html += sortDir; html += F("'>SD FILES</a></div>");
     html += F("<div class='dim'>WEB: "); html += apModeWebHtml(apModeWebHostLabel()); html += F(" / http://"); html += apModeWebHtml(apModeIp); html += F("</div>");
     if (apModeWebLastStatus != "") {
         html += F("<div class='panel ok'>"); html += apModeWebHtml(apModeWebLastStatus); html += F("</div>");
@@ -454,6 +613,81 @@ static void apModeWebHandleUploadData() {
     }
 }
 
+static void apModeWebHandleMirrorPage() {
+    String html;
+    html.reserve(9000);
+    html += F("<!doctype html><html><head><meta name='viewport' content='width=device-width,initial-scale=1'><title>Breach_OS Mirror</title><style>");
+    html += F("body{background:#0e1115;color:#dceb1b;font-family:monospace;margin:0;padding:14px}a{color:#38bec9;text-decoration:none}h1{font-size:22px;margin:0 0 8px}");
+    html += F(".shell,.panel,.sort{clip-path:polygon(0 0,100% 0,100% calc(100% - 14px),calc(100% - 14px) 100%,0 100%)}");
+    html += F(".shell{position:relative;max-width:1040px;margin:0 auto;padding:14px;border:0;background:linear-gradient(#38bec9,#38bec9) top left/100% 1px no-repeat,linear-gradient(#38bec9,#38bec9) top left/1px 100% no-repeat,linear-gradient(#38bec9,#38bec9) top right/1px calc(100% - 14px) no-repeat,linear-gradient(#38bec9,#38bec9) bottom left/calc(100% - 14px) 1px no-repeat,linear-gradient(135deg,transparent 46%,#38bec9 47%,#38bec9 53%,transparent 54%) bottom right/14px 14px no-repeat,#111722}");
+    html += F(".panel,.sort{display:inline-block;position:relative;box-sizing:border-box;border:0;background:linear-gradient(#38bec9,#38bec9) top left/100% 1px no-repeat,linear-gradient(#38bec9,#38bec9) top left/1px 100% no-repeat,linear-gradient(#38bec9,#38bec9) top right/1px calc(100% - 14px) no-repeat,linear-gradient(#38bec9,#38bec9) bottom left/calc(100% - 14px) 1px no-repeat,linear-gradient(135deg,transparent 46%,#38bec9 47%,#38bec9 53%,transparent 54%) bottom right/14px 14px no-repeat,#0e1115;color:#dceb1b;padding:7px 14px;margin:3px;font-family:monospace}");
+    html += F(".sort.active{background:linear-gradient(#38bec9,#38bec9) top left/100% 1px no-repeat,linear-gradient(#38bec9,#38bec9) top left/1px 100% no-repeat,linear-gradient(#38bec9,#38bec9) top right/1px calc(100% - 14px) no-repeat,linear-gradient(#38bec9,#38bec9) bottom left/calc(100% - 14px) 1px no-repeat,linear-gradient(135deg,transparent 46%,#38bec9 47%,#38bec9 53%,transparent 54%) bottom right/14px 14px no-repeat,#dceb1b;color:#0e1115;font-weight:bold}.topnav{margin:10px 0}.dim{color:#87905e}.warn{color:#ff003c}.stage{margin:12px 0;text-align:center}.telemetry{display:grid;grid-template-columns:repeat(auto-fit,minmax(145px,1fr));gap:6px;margin:10px 0}.metric{display:block;margin:0}.metric b{display:block;color:#38bec9}.metric span{display:block;color:#dceb1b;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}");
+    html += F("#screen{display:block;width:min(96vw,960px);height:auto;max-width:100%;margin:10px auto;background:#000;image-rendering:pixelated;image-rendering:crisp-edges;outline:1px solid #38bec9;cursor:crosshair}</style></head><body><main class='shell'>");
+    html += F("<h1>BREACH_OS REMOTE MIRROR</h1><div class='topnav'><a class='sort' href='/sd?path=%2F'>SD FILES</a><a class='sort active' href='/mirror'>MIRROR ACTIVE</a></div>");
+    html += F("<div class='dim'>WEB: "); html += apModeWebHtml(apModeWebHostLabel()); html += F(" / http://"); html += apModeWebHtml(apModeIp); html += F("</div>");
+    html += F("<div class='panel warn'>REMOTE KEYBOARD ACTIVE AFTER CLICKING SCREEN</div><div class='stage'><canvas id='screen' width='240' height='135' tabindex='0'></canvas></div>");
+    html += F("<div class='telemetry'><div class='panel metric'><b>PING</b><span id='ping'>-- ms</span></div><div class='panel metric'><b>SD INFO</b><span id='sdinfo'>--</span></div><div class='panel metric'><b>LAST BUTTON</b><span id='lastkey'>NONE</span></div><div class='panel metric'><b>UPTIME</b><span id='uptime'>-- s</span></div><div class='panel metric'><b>CLIENTS</b><span id='clients'>--</span></div><div class='panel metric'><b>HEAP</b><span id='heap'>--</span></div></div>");
+    html += F("<div class='dim'>ARROWS / ENTER / ESC / BACKSPACE / TEXT</div><script>");
+    html += F("const W=240,H=135,cv=document.getElementById('screen'),cx=cv.getContext('2d'),img=cx.createImageData(W,H),ping=document.getElementById('ping'),sdinfo=document.getElementById('sdinfo'),lastkey=document.getElementById('lastkey'),uptime=document.getElementById('uptime'),clients=document.getElementById('clients'),heap=document.getElementById('heap');let busy=false;cv.onclick=()=>cv.focus();function safeKey(k){return k.length===1?'TEXT':k.replace('Arrow','').toUpperCase();}async function status(){const t=performance.now();try{const r=await fetch('/mirror/status?x='+Date.now(),{cache:'no-store'});const s=await r.json();ping.textContent=Math.round(performance.now()-t)+' ms';sdinfo.textContent=s.sd||'--';lastkey.textContent=s.last||'NONE';uptime.textContent=(s.uptime||0)+' s';clients.textContent=s.clients;heap.textContent=s.heap;}catch(e){ping.textContent='ERR';}setTimeout(status,1500);}async function frame(){if(busy)return;busy=true;try{const r=await fetch('/mirror/frame?x='+Date.now(),{cache:'no-store'});const b=new Uint8Array(await r.arrayBuffer());if(b.length===W*H*2){let j=0;for(let i=0;i<b.length;i+=2){const p=b[i]|(b[i+1]<<8);img.data[j++]=((p>>11)&31)*255/31;img.data[j++]=((p>>5)&63)*255/63;img.data[j++]=(p&31)*255/31;img.data[j++]=255;}cx.putImageData(img,0,0);}}catch(e){}busy=false;setTimeout(frame,110);}status();frame();");
+    html += F("function send(k){lastkey.textContent=safeKey(k);fetch('/mirror/key',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:'key='+encodeURIComponent(k)}).catch(()=>{});}const keys=new Set(['ArrowUp','ArrowDown','ArrowLeft','ArrowRight','Enter','Backspace','Delete','Escape']);window.addEventListener('keydown',e=>{if(document.activeElement!==cv)return;if(keys.has(e.key)||e.key.length===1){e.preventDefault();send(e.key);}});cv.focus();</script></main></body></html>");
+    apModeWebServer.send(200, "text/html", html);
+}
+
+static void apModeWebHandleMirrorFrame() {
+    if (!apModeWebActive()) {
+        apModeWebServer.send(503, "text/plain", "WEB UI OFFLINE");
+        return;
+    }
+    apModeWebTouchClient();
+    apModeWebServer.sendHeader("Cache-Control", "no-store");
+    apModeWebServer.setContentLength(AP_MODE_MIRROR_FRAME_BYTES);
+    apModeWebServer.send(200, "application/octet-stream", "");
+    WiFiClient client = apModeWebServer.client();
+    uint8_t row[AP_MODE_MIRROR_W * 2];
+    for (int y = 0; y < AP_MODE_MIRROR_H && client.connected(); y++) {
+        for (int x = 0; x < AP_MODE_MIRROR_W; x++) {
+            uint16_t pixel = (uint16_t)canvas.readPixel(x, y);
+            row[x * 2] = pixel & 0xFF;
+            row[x * 2 + 1] = pixel >> 8;
+        }
+        client.write(row, sizeof(row));
+    }
+}
+
+static void apModeWebHandleMirrorKey() {
+    if (!apModeWebActive()) {
+        apModeWebServer.send(503, "text/plain", "WEB UI OFFLINE");
+        return;
+    }
+    apModeWebTouchClient();
+    String key = apModeWebServer.hasArg("key") ? apModeWebServer.arg("key") : apModeWebServer.arg("plain");
+    apModeQueueRemoteKey(key);
+    apModeWebServer.send(200, "text/plain", "OK");
+}
+
+static void apModeWebHandleMirrorStatus() {
+    if (!apModeWebActive()) {
+        apModeWebServer.send(503, "application/json", "{\"error\":\"WEB UI OFFLINE\"}");
+        return;
+    }
+    apModeWebTouchClient();
+    apModeWebServer.sendHeader("Cache-Control", "no-store");
+    String json;
+    json.reserve(180);
+    json += F("{\"sd\":\"");
+    json += apModeWebJson(apModeMirrorSdInfo());
+    json += F("\",\"last\":\"");
+    json += apModeWebJson(apModeRemoteLastLabel);
+    json += F("\",\"uptime\":");
+    json += String(millis() / 1000UL);
+    json += F(",\"clients\":");
+    json += String(apModeWebRecentClientCount());
+    json += F(",\"heap\":");
+    json += String(ESP.getFreeHeap());
+    json += F("}");
+    apModeWebServer.send(200, "application/json", json);
+}
+
 static void apModeWebHandleNotFound() {
     apModeWebServer.send(404, "text/plain", "BREACH_OS AP WEB: NOT FOUND");
 }
@@ -465,6 +699,10 @@ static void apModeStartWebServer() {
         apModeWebServer.on("/mkdir", HTTP_POST, apModeWebHandleMkdir);
         apModeWebServer.on("/delete", HTTP_POST, apModeWebHandleDelete);
         apModeWebServer.on("/download", HTTP_GET, apModeWebHandleDownload);
+        apModeWebServer.on("/mirror", HTTP_GET, apModeWebHandleMirrorPage);
+        apModeWebServer.on("/mirror/frame", HTTP_GET, apModeWebHandleMirrorFrame);
+        apModeWebServer.on("/mirror/key", HTTP_POST, apModeWebHandleMirrorKey);
+        apModeWebServer.on("/mirror/status", HTTP_GET, apModeWebHandleMirrorStatus);
         apModeWebServer.on("/upload", HTTP_POST, apModeWebHandleUploadDone, apModeWebHandleUploadData);
         apModeWebServer.onNotFound(apModeWebHandleNotFound);
         apModeWebRoutesConfigured = true;
@@ -477,6 +715,8 @@ static void apModeStartWebServer() {
 
 static void apModeStopWebServer() {
     if (apModeWebUploadFile) apModeWebUploadFile.close();
+    apModeClearRemoteInput();
+    apModeWebClearClients();
     if (apModeWebServerStarted) apModeWebServer.stop();
     apModeWebServerStarted = false;
 }
@@ -487,6 +727,10 @@ void serviceApModeWeb() {
     } else if (!apModeWebActive() && apModeWebServerStarted) {
         apModeStopWebServer();
     }
+}
+
+bool isApModeWebUiActive() {
+    return apModeWebActive() && apModeWebServerStarted;
 }
 
 static bool apModeStartLanWeb() {
@@ -592,6 +836,17 @@ static void apModeReturnToNetworkNode() {
     showMenuDesc = false;
     descAnimWidth = 0.0;
     drawMainMenu();
+}
+
+static void apModeReturnToSourcePrompt() {
+    apModePromptActive = true;
+    apModeSourceFocus = apModeUseLanSource ? 1 : 0;
+    currentApModeSourceScroll = (float)apModeSourceFocus;
+    targetApModeSourceScroll = (float)apModeSourceFocus;
+    apModeFocus = 0;
+    apModeListScroll = 0;
+    appState = STATE_AP_MODE;
+    drawApModeScreen();
 }
 
 static void apModeEnsureVisible() {
@@ -837,7 +1092,8 @@ void drawApModeScreen() {
 
     canvas.startWrite();
     canvas.fillScreen(CP_BG);
-    drawGlitchText("AP MODE", 72, 4, 1, apModeWebActive() ? CP_YELLOW : CP_CYAN, true, true);
+    String apModeHeader = apModeUseLanSource ? "NETWORK" : "AP MODE";
+    drawGlitchText(apModeHeader, 72, 4, 1, apModeWebActive() ? CP_YELLOW : CP_CYAN, true, true);
     drawTopStatusIcons(132, 1);
     canvas.drawLine(5, 18, 235, 18, CP_DIM);
 
@@ -972,7 +1228,7 @@ void handleApModeInput(Keyboard_Class::KeysState status) {
     if (hasBack || (hasLeft && apModeFocus != 3 && apModeFocus != 4)) {
         playSound(sound_select, sound_select_size);
         apModeSavePrefs();
-        apModeReturnToNetworkNode();
+        apModeReturnToSourcePrompt();
         return;
     }
 

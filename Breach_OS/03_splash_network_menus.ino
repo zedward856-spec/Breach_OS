@@ -359,6 +359,15 @@ void drawWheelPositionIndicator(float scroll, int totalItems) {
 
     if (totalItems <= 1) return;
 
+    int dotR = (outerR + innerR) / 2;
+    for (int i = 0; i < totalItems; i++) {
+        float anchorRatio = (float)i / (float)(totalItems - 1);
+        float anchorAngle = startAngle + anchorRatio * (endAngle - startAngle);
+        int anchorX = cx + (int)(cos(anchorAngle) * dotR);
+        int anchorY = cy + (int)(sin(anchorAngle) * dotR);
+        canvas.fillCircle(anchorX, anchorY, 1, CP_CYAN);
+    }
+
     float wrapped = fmod(scroll, (float)totalItems);
     if (wrapped < 0.0) wrapped += (float)totalItems;
 
@@ -372,7 +381,6 @@ void drawWheelPositionIndicator(float scroll, int totalItems) {
     if (ratio > 1.0) ratio = 1.0;
 
     float angle = startAngle + ratio * (endAngle - startAngle);
-    int dotR = (outerR + innerR) / 2;
     int dotX = cx + (int)(cos(angle) * dotR);
     int dotY = cy + (int)(sin(angle) * dotR);
 
@@ -387,7 +395,7 @@ void drawSplash() {
     canvas.setTextSize(2);
     drawDefaultGlitchText("Breach_OS", 120, 5, 2, CP_CYAN, true);
     
-    int maxLogs = 7;
+    int maxLogs = 6;
     int y = 35;
     canvas.setTextColor(CP_ACTIVE_LINE);
     canvas.setTextSize(1);
@@ -400,7 +408,7 @@ void drawSplash() {
 
     canvas.setTextSize(1);
     String wifiStatusText = (WiFi.status() == WL_CONNECTED) ? "WIFI: CONNECTED" : "WIFI: CONNECTING";
-    String versionText = "v1.4";
+    String versionText = "v1.5";
     String statusGap = "  ";
     int statusX = (240 - (canvas.textWidth(wifiStatusText) + canvas.textWidth(statusGap) + canvas.textWidth(versionText))) / 2;
     if (WiFi.status() == WL_CONNECTED) {
@@ -475,12 +483,18 @@ void drawSplash() {
 
         drawWheelPositionIndicator(currentSplashBootScroll, totalItems);
     } else {
-        canvas.drawString("> Press ", 10, 115);
+        canvas.setTextColor(CP_CYAN);
+        canvas.drawCenterString("WIFI GRAPH | QR GEN | THEMES", 120, 98);
+        canvas.setTextColor(CP_DIM);
+        canvas.drawCenterString("VOLT GRAPH | WEB MIRROR | PASSWORDS", 120, 107);
+
+        canvas.setTextColor(WHITE);
+        canvas.drawString("> Press ", 10, 123);
         int x1 = 10 + canvas.textWidth("> Press ");
-        drawGlitchText("ENTER", x1, 115, 1, CP_YELLOW, false, true);
+        drawGlitchText("ENTER", x1, 123, 1, CP_YELLOW, false, true);
         int x2 = x1 + canvas.textWidth("ENTER");
         canvas.setTextColor(WHITE);
-        canvas.drawString(" to Select Boot Target", x2, 115);
+        canvas.drawString(" to Select Boot Target", x2, 123);
     }
     
     pushCanvas();
@@ -995,7 +1009,7 @@ void drawMainMenu() {
     canvas.drawCircle(-80, 67, 110, CP_DIM);
     canvas.drawCircle(-80, 67, 109, CP_DIM);
     
-    std::vector<String> labels = {"SSH", "TELNET BBS", "OTA CATALOG", "TEXTFILES", "WEB UI", "WIFI SCAN", "BLUETOOTH", "BACK"};
+    std::vector<String> labels = {"SSH", "TELNET BBS", "OTA CATALOG", "TEXTFILES", "WEB UI", "WIFI SCAN", "WIFI GRAPH", "BLUETOOTH", "BACK"};
     int totalItems = labels.size();
     
     for (int i = 0; i < totalItems; i++) {
@@ -1091,6 +1105,9 @@ void drawMainMenu() {
             } else if (label == "WIFI SCAN") {
                 line1 = "WiFi AP";
                 line2 = "intelligence";
+            } else if (label == "WIFI GRAPH") {
+                line1 = "Channel RF";
+                line2 = "traffic";
             } else if (label == "BLUETOOTH") {
                 line1 = "BLE device";
                 line2 = "intelligence";
@@ -1119,7 +1136,7 @@ void handleMainMenuInput(Keyboard_Class::KeysState status) {
         if (c == '/') hasRight = true;
         if (c == ',') hasLeft = true;
     }
-    std::vector<String> labels = {"SSH", "TELNET BBS", "OTA CATALOG", "TEXTFILES", "WEB UI", "WIFI SCAN", "BLUETOOTH", "BACK"};
+    std::vector<String> labels = {"SSH", "TELNET BBS", "OTA CATALOG", "TEXTFILES", "WEB UI", "WIFI SCAN", "WIFI GRAPH", "BLUETOOTH", "BACK"};
     int maxFocus = labels.size() - 1;
     if (mainMenuFocus < 0 || mainMenuFocus > maxFocus) {
         mainMenuFocus = 0;
@@ -1188,6 +1205,11 @@ void handleMainMenuInput(Keyboard_Class::KeysState status) {
             resumeTextfilesAfterWifi = false;
             resumeApModeLanWebAfterWifi = false;
             enterWifiScanNode();
+        } else if (selectedLabel == "WIFI GRAPH") {
+            resumeOtaAfterWifi = false;
+            resumeTextfilesAfterWifi = false;
+            resumeApModeLanWebAfterWifi = false;
+            enterWifiGraph();
         } else if (selectedLabel == "BACK") {
             appState = STATE_SPLASH;
             showSplashBootMenu = true;

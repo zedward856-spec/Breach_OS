@@ -106,6 +106,10 @@ void loop() {
         if (repeatMask & 8) globalStatus.word.push_back('/');
         inputReady = true;
     }
+    if (!inputReady) globalStatus.reset();
+    if (consumeApModeRemoteInput(globalStatus)) {
+        inputReady = true;
+    }
     
     if (inputReady) {
         Keyboard_Class::KeysState status = globalStatus;
@@ -269,6 +273,7 @@ void loop() {
             else if (appState == STATE_TELNET_BBS) drawTelnetBbsScreen();
             else if (appState == STATE_BLUETOOTH_SCAN) drawBluetoothScanScreen();
             else if (appState == STATE_WIFI_SCANNER) drawWifiScanNodeScreen();
+            else if (appState == STATE_WIFI_GRAPH) drawWifiGraphScreen();
             else if (appState == STATE_AP_MODE) drawApModeScreen();
             else if (appState == STATE_GRID_SELECT) drawGridSelect();
             else if (appState == STATE_PHASE_TRANSITION) drawPhaseTransition();
@@ -419,6 +424,21 @@ void loop() {
         return;
     }
 
+    if (appState == STATE_WIFI_GRAPH) {
+        static unsigned long lastWifiGraphDraw = 0;
+        if (inputReady) {
+            handleWifiGraphInput(globalStatus);
+            if (appState == STATE_WIFI_GRAPH) drawWifiGraphScreen();
+            lastWifiGraphDraw = now;
+        }
+        if (appState == STATE_WIFI_GRAPH && (updateWifiGraph() || now - lastWifiGraphDraw > 500)) {
+            drawWifiGraphScreen();
+            lastWifiGraphDraw = now;
+        }
+        delay(10);
+        return;
+    }
+
     if (appState == STATE_AP_MODE) {
         static unsigned long lastApModeDraw = 0;
         if (inputReady) {
@@ -520,6 +540,23 @@ void loop() {
         return;
     }
 
+    if (appState == STATE_PASSWORD_MANAGER) {
+        static unsigned long lastPasswordManagerDraw = 0;
+        if (inputReady) {
+            handlePasswordManagerInput(globalStatus);
+            if (appState == STATE_PASSWORD_MANAGER) {
+                drawPasswordManagerScreen();
+                lastPasswordManagerDraw = millis();
+            }
+        }
+        if (appState == STATE_PASSWORD_MANAGER && (updatePasswordManagerUi() || millis() - lastPasswordManagerDraw > 500)) {
+            drawPasswordManagerScreen();
+            lastPasswordManagerDraw = millis();
+        }
+        delay(5);
+        return;
+    }
+
     if (appState == STATE_IR) {
         static unsigned long lastIrDraw = 0;
         bool irUpdated = pollIrReceiver();
@@ -544,6 +581,15 @@ void loop() {
         if (appState == STATE_SSTV && (sstvAnimUpdated || millis() - lastSstvDraw > 250)) {
             drawSstvScreen();
             lastSstvDraw = millis();
+        }
+        delay(10);
+        return;
+    }
+
+    if (appState == STATE_QR_GENERATOR) {
+        if (inputReady) {
+            handleQrGeneratorInput(globalStatus);
+            if (appState == STATE_QR_GENERATOR) drawQrGeneratorScreen();
         }
         delay(10);
         return;

@@ -676,7 +676,7 @@ void handleBluetoothScanInput(Keyboard_Class::KeysState status) {
     if (hasBack || (!bluetoothDetailMode && hasLeft)) {
         playSound(sound_select, sound_select_size);
         appState = STATE_MAIN_MENU;
-        mainMenuFocus = 6;
+        mainMenuFocus = 7;
         currentMenuScroll = mainMenuFocus;
         targetMenuScroll = mainMenuFocus;
         showMenuDesc = false;

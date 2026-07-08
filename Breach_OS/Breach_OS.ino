@@ -6,8 +6,10 @@
 #include <SD.h>
 #include <SPIFFS.h>
 #include "M5Cardputer.h"
+#include <lgfx/utility/lgfx_qrcode.h>
 #include <Preferences.h>
 #include <WiFi.h>
+#include <esp_wifi.h>
 #include <SPI.h>
 #include <HTTPClient.h>
 #include <WebServer.h>
@@ -33,6 +35,10 @@
 #include <AudioGeneratorMP3.h>
 #include <AudioGeneratorWAV.h>
 #include <AudioFileSourceBuffer.h>
+#include <mbedtls/md.h>
+#include <mbedtls/gcm.h>
+#include <mbedtls/base64.h>
+#include <esp_random.h>
 #include "bluetooth_scan_types.h"
 #include "sdkconfig.h"
 #include "soc/soc_caps.h"
@@ -171,15 +177,84 @@ size_t sound_fail_size = error_wav_len;
 
 // --------------------------
 
-// Cyberpunk Colors in RGB565
-#define CP_YELLOW canvas.color565(220, 244, 27)
-#define CP_CYAN canvas.color565(56, 190, 201)
+// Cyberpunk color themes in RGB565. Themes only swap the palette, not layout/behavior.
+static constexpr const char* PREF_UI_THEME = "ui_theme";
+static constexpr int THEME_CYBER = 0;
+static constexpr int THEME_RED = 1;
+static constexpr int THEME_GREEN = 2;
+static constexpr int THEME_PURPLE = 3;
+static constexpr int THEME_COUNT = 4;
+
+int breachTheme = THEME_CYBER;
+uint16_t breachThemeYellow = 0;
+uint16_t breachThemeCyan = 0;
+uint16_t breachThemeBg = 0;
+uint16_t breachThemePanel = 0;
+uint16_t breachThemeActiveLine = 0;
+uint16_t breachThemeDim = 0;
+uint16_t breachThemeWifi = 0;
+
+#define CP_YELLOW breachThemeYellow
+#define CP_CYAN breachThemeCyan
 #define CP_RED canvas.color565(255, 0, 60)
 #define CP_GREEN canvas.color565(0, 255, 75)
-#define CP_BG canvas.color565(14, 17, 21)
-#define CP_PANEL canvas.color565(14, 17, 21)
-#define CP_ACTIVE_LINE canvas.color565(44, 53, 71)
-#define CP_DIM canvas.color565(88, 97, 10)
+#define CP_BG breachThemeBg
+#define CP_PANEL breachThemePanel
+#define CP_ACTIVE_LINE breachThemeActiveLine
+#define CP_DIM breachThemeDim
+#define CP_WIFI breachThemeWifi
+
+const char* breachThemeName() {
+    if (breachTheme == THEME_RED) return "RED";
+    if (breachTheme == THEME_GREEN) return "GREEN";
+    if (breachTheme == THEME_PURPLE) return "PURPLE";
+    return "CYBER";
+}
+
+void applyBreachTheme() {
+    if (breachTheme < 0 || breachTheme >= THEME_COUNT) breachTheme = THEME_CYBER;
+
+    if (breachTheme == THEME_RED) {
+        breachThemeYellow = canvas.color565(255, 132, 55);
+        breachThemeCyan = canvas.color565(255, 42, 86);
+        breachThemeBg = canvas.color565(17, 11, 15);
+        breachThemePanel = canvas.color565(20, 12, 16);
+        breachThemeActiveLine = canvas.color565(74, 25, 36);
+        breachThemeDim = canvas.color565(112, 38, 48);
+        breachThemeWifi = breachThemeCyan;
+    } else if (breachTheme == THEME_GREEN) {
+        breachThemeYellow = canvas.color565(186, 255, 74);
+        breachThemeCyan = canvas.color565(0, 255, 125);
+        breachThemeBg = canvas.color565(9, 16, 13);
+        breachThemePanel = canvas.color565(10, 19, 14);
+        breachThemeActiveLine = canvas.color565(28, 76, 48);
+        breachThemeDim = canvas.color565(44, 112, 59);
+        breachThemeWifi = breachThemeCyan;
+    } else if (breachTheme == THEME_PURPLE) {
+        breachThemeYellow = canvas.color565(255, 78, 220);
+        breachThemeCyan = canvas.color565(184, 86, 255);
+        breachThemeBg = canvas.color565(14, 10, 20);
+        breachThemePanel = canvas.color565(17, 11, 24);
+        breachThemeActiveLine = canvas.color565(63, 36, 96);
+        breachThemeDim = canvas.color565(96, 50, 128);
+        breachThemeWifi = breachThemeCyan;
+    } else {
+        breachThemeYellow = canvas.color565(220, 244, 27);
+        breachThemeCyan = canvas.color565(56, 190, 201);
+        breachThemeBg = canvas.color565(14, 17, 21);
+        breachThemePanel = canvas.color565(14, 17, 21);
+        breachThemeActiveLine = canvas.color565(44, 53, 71);
+        breachThemeDim = canvas.color565(88, 97, 10);
+        breachThemeWifi = CP_GREEN;
+    }
+}
+
+void cycleBreachTheme(bool backwards) {
+    breachTheme += backwards ? -1 : 1;
+    if (breachTheme < 0) breachTheme = THEME_COUNT - 1;
+    if (breachTheme >= THEME_COUNT) breachTheme = 0;
+    applyBreachTheme();
+}
 
 String hexCodes[7] = {"1C", "55", "BD", "E9", "FF", "7A", "42"};
 
@@ -225,6 +300,7 @@ enum AppState {
     STATE_TEXTFILES,
     STATE_BLUETOOTH_SCAN,
     STATE_WIFI_SCANNER,
+    STATE_WIFI_GRAPH,
     STATE_AP_MODE,
     STATE_GRID_SELECT,
     STATE_PHASE_TRANSITION,
@@ -246,8 +322,10 @@ enum AppState {
     STATE_MUSIC_PLAYER,
     STATE_USB_DRIVE,
     STATE_BADUSB,
+    STATE_PASSWORD_MANAGER,
     STATE_IR,
-    STATE_SSTV
+    STATE_SSTV,
+    STATE_QR_GENERATOR
 };
 AppState appState = STATE_SPLASH;
 bool suppressBatteryPercentBox = false;
@@ -446,6 +524,10 @@ void handleBluetoothScanInput(Keyboard_Class::KeysState status);
 void enterWifiScanNode();
 void drawWifiScanNodeScreen();
 void handleWifiScanNodeInput(Keyboard_Class::KeysState status);
+void enterWifiGraph();
+void drawWifiGraphScreen();
+void handleWifiGraphInput(Keyboard_Class::KeysState status);
+bool updateWifiGraph();
 bool loadWifiCredentialsFromSd();
 bool saveWifiCredentialsToSd();
 void enterApMode();
@@ -454,6 +536,8 @@ void drawApModeScreen();
 void handleApModeInput(Keyboard_Class::KeysState status);
 bool updateApModeSourcePromptAnimation();
 void serviceApModeWeb();
+bool isApModeWebUiActive();
+bool consumeApModeRemoteInput(Keyboard_Class::KeysState &status);
 bool trySshKeyFile(ssh_session session, const String &authSecret, const char* path);
 bool authenticateSshSession(ssh_session session, const String &authSecret);
 TaskHandle_t getSshTaskHandle();
@@ -517,6 +601,11 @@ void handleUsbDriveInput(Keyboard_Class::KeysState status);
 void enterBadUsbMode();
 void drawBadUsbScreen();
 void handleBadUsbInput(Keyboard_Class::KeysState status);
+void enterPasswordManager();
+void drawPasswordManagerScreen();
+void handlePasswordManagerInput(Keyboard_Class::KeysState status);
+bool updatePasswordManagerUi();
+bool initBreachHidKeyboard();
 void enterIrMode();
 void drawIrScreen();
 void handleIrInput(Keyboard_Class::KeysState status);
@@ -526,6 +615,9 @@ void enterSstvMode();
 void drawSstvScreen();
 void handleSstvInput(Keyboard_Class::KeysState status);
 bool updateSstvUiAnimation();
+void enterQrGenerator();
+void drawQrGeneratorScreen();
+void handleQrGeneratorInput(Keyboard_Class::KeysState status);
 void updateMusicInputGate(bool enterDown);
 bool pumpMusicPlayback(bool startupBurst);
 void clearMusicDurationProbe();
@@ -599,6 +691,7 @@ bool textEditorDirty = false;
 unsigned long textEditorStatusUntil = 0;
 int settingsTab = 0;
 int settingsTabScrollOffset = 0;
+int settingsRowScrollOffset = 0;
 int settingsFocus = 0;
 bool showSystemFiles = false;
 bool disableSplash = false;
@@ -615,6 +708,7 @@ AudioFileSourceBuffer *audioBuffer = nullptr;
 AudioOutputM5Speaker *audioOut = nullptr;
 uint16_t audioSpectrumLevels[AUDIO_SPECTRUM_BARS] = {0};
 uint32_t audioSpectrumCursor = 0;
+uint32_t audioSpectrumFilledMask = 0;
 unsigned long audioSpectrumLastDecay = 0;
 bool isMp3Playing = false;
 String mp3PlayLoopMode = "name";
@@ -668,6 +762,36 @@ uint32_t badUsbSkippedLines = 0;
 uint32_t badUsbDefaultDelayMs = 0;
 bool badUsbHidReady = false;
 bool badUsbAbortFlag = false;
+
+struct PasswordEntry {
+    String service;
+    String account;
+    String password;
+    String note;
+};
+
+std::vector<PasswordEntry> passwordEntries;
+PasswordEntry passwordManagerEditEntry;
+int passwordManagerMode = 0;
+int passwordManagerFocus = 0;
+int passwordManagerScrollOffset = 0;
+int passwordManagerActionFocus = 0;
+int passwordManagerEditField = 0;
+int passwordManagerSelectedIndex = 0;
+int passwordManagerHidPayloadFocus = 0;
+int passwordManagerPendingHidAction = 0;
+int passwordManagerDeleteConfirm = 0;
+String passwordManagerInput = "";
+String passwordManagerInputConfirm = "";
+String passwordManagerStatus = "LOCKED";
+bool passwordManagerUnlocked = false;
+bool passwordManagerKeyReady = false;
+bool passwordManagerEditingNew = false;
+bool passwordManagerHidAbortFlag = false;
+uint8_t passwordManagerKey[32] = {0};
+uint8_t passwordManagerSalt[16] = {0};
+unsigned long passwordManagerLastActivityMs = 0;
+
 int irFocus = 0;
 int irFileFocus = 0;
 int irConfirmFocus = 0;

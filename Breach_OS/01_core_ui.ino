@@ -111,6 +111,16 @@ static void drawTopStatusSdIcon(int x, int y, uint16_t color) {
     canvas.drawLine(x + 2, y + 9, x + 8, y + 9, color);
 }
 
+static void drawTopStatusWebIcon(int x, int y, uint16_t color) {
+    canvas.drawRect(x, y + 2, 12, 8, color);
+    canvas.drawFastHLine(x + 3, y + 11, 6, color);
+    canvas.drawPixel(x + 3, y + 4, CP_YELLOW);
+    canvas.drawPixel(x + 6, y + 4, CP_YELLOW);
+    canvas.drawPixel(x + 9, y + 4, CP_YELLOW);
+    canvas.drawLine(x + 2, y + 7, x + 4, y + 7, color);
+    canvas.drawLine(x + 7, y + 7, x + 9, y + 7, color);
+}
+
 static void drawTopStatusBleIcon(int x, int y, uint16_t color) {
     canvas.drawLine(x + 5, y, x + 5, y + 12, color);
     canvas.drawLine(x + 5, y, x + 10, y + 4, color);
@@ -124,11 +134,15 @@ static void drawTopStatusBleIcon(int x, int y, uint16_t color) {
 void drawTopStatusIcons(int x, int y) {
     int iconX = x;
     wifi_mode_t wifiMode = WiFi.getMode();
-    bool wifiActive = (WiFi.status() == WL_CONNECTED) || wifiMode == WIFI_AP || wifiMode == WIFI_AP_STA;
+    bool wifiActive = (WiFi.status() == WL_CONNECTED) || wifiMode == WIFI_AP || wifiMode == WIFI_AP_STA || appState == STATE_WIFI_GRAPH;
     bool sdActive = SD.cardType() != CARD_NONE;
 
     if (wifiActive) {
-        drawTopStatusWifiIcon(iconX, y, CP_GREEN);
+        drawTopStatusWifiIcon(iconX, y, CP_WIFI);
+        iconX += 19;
+    }
+    if (isApModeWebUiActive()) {
+        drawTopStatusWebIcon(iconX, y, CP_YELLOW);
         iconX += 19;
     }
     if (sdActive) {
@@ -162,6 +176,7 @@ void drawMessage(String msg, String line2) {
 
 static constexpr uint32_t AUDIO_SPECTRUM_MIN_PEAK = 2048;
 static constexpr uint32_t AUDIO_SPECTRUM_NOISE_FLOOR = 96;
+static constexpr uint32_t AUDIO_SPECTRUM_FULL_MASK = (1UL << AUDIO_SPECTRUM_BARS) - 1;
 static uint32_t audioSpectrumRollingPeak = AUDIO_SPECTRUM_MIN_PEAK;
 
 uint16_t audioSpectrumLevelFromAmp(uint32_t amp) {
@@ -181,6 +196,7 @@ uint16_t audioSpectrumLevelFromAmp(uint32_t amp) {
 void resetAudioSpectrum() {
     for (int i = 0; i < AUDIO_SPECTRUM_BARS; i++) audioSpectrumLevels[i] = 0;
     audioSpectrumCursor = 0;
+    audioSpectrumFilledMask = 0;
     audioSpectrumRollingPeak = AUDIO_SPECTRUM_MIN_PEAK;
     audioSpectrumLastDecay = millis();
 }
@@ -194,6 +210,7 @@ void feedAudioSpectrumSample(int16_t left, int16_t right) {
     if (r > 32767) r = 32767;
     uint16_t level = audioSpectrumLevelFromAmp(((uint32_t)l + (uint32_t)r) / 2);
     int bin = audioSpectrumCursor++ % AUDIO_SPECTRUM_BARS;
+    audioSpectrumFilledMask |= (1UL << bin);
     if (level > audioSpectrumLevels[bin]) audioSpectrumLevels[bin] = level;
 }
 
@@ -219,6 +236,7 @@ void feedAudioSpectrumBuffer(const int16_t* samples, size_t sampleCount) {
         uint32_t mixed = avg + (peak / 2);
         uint16_t level = audioSpectrumLevelFromAmp(mixed);
         if (level > audioSpectrumLevels[i]) audioSpectrumLevels[i] = level;
+        audioSpectrumFilledMask |= (1UL << i);
     }
 }
 
@@ -239,13 +257,35 @@ void drawAudioSpectrum(int x, int baselineY, int width, int height) {
     int gap = 2;
     int barW = (width - (AUDIO_SPECTRUM_BARS - 1) * gap) / AUDIO_SPECTRUM_BARS;
     if (barW < 2) barW = 2;
-    canvas.drawFastHLine(x, baselineY, width, CP_DIM);
+    int topY = baselineY - height;
+    int barHeights[AUDIO_SPECTRUM_BARS];
     for (int i = 0; i < AUDIO_SPECTRUM_BARS; i++) {
         int h = 2 + (audioSpectrumLevels[i] * (height - 2)) / 255;
         if (h < 2) h = 2;
         if (h > height) h = height;
+        barHeights[i] = h;
+    }
+
+    uint16_t gridColor = canvas.color565(18, 78, 86);
+    for (int i = 1; i <= 3; i++) {
+        int gy = topY + (height * i) / 4;
+        canvas.drawFastHLine(x, gy, width, gridColor);
+    }
+    int gridStep = 3;
+    int gridOffset = (gridStep - (audioSpectrumCursor % gridStep)) % gridStep;
+    for (int i = gridOffset; i <= AUDIO_SPECTRUM_BARS; i += gridStep) {
+        int gx = x + i * (barW + gap);
+        if (gx >= x && gx < x + width) canvas.drawFastVLine(gx, topY, height, gridColor);
+    }
+    canvas.drawFastHLine(x, baselineY, width, CP_DIM);
+    for (int i = 0; i < AUDIO_SPECTRUM_BARS; i++) {
+        int h = barHeights[i];
         int bx = x + i * (barW + gap);
-        uint16_t color = h >= (height / 2) ? CP_RED : (h >= (height / 4) ? CP_YELLOW : CP_CYAN);
+        uint8_t level = (uint8_t)(((h - 2) * 255) / (height - 2));
+        uint8_t red = 30 - (level * 24) / 255;
+        uint8_t green = 205 - (level * 165) / 255;
+        uint8_t blue = 255 - (level * 95) / 255;
+        uint16_t color = canvas.color565(red, green, blue);
         canvas.fillRect(bx, baselineY - h, barW, h, color);
         canvas.drawRect(bx, baselineY - h, barW, h, CP_DIM);
     }
@@ -410,6 +450,7 @@ void drawCurrentScreen() {
         case STATE_TEXTFILES: drawTextfilesScreen(); break;
         case STATE_BLUETOOTH_SCAN: drawBluetoothScanScreen(); break;
         case STATE_WIFI_SCANNER: drawWifiScanNodeScreen(); break;
+        case STATE_WIFI_GRAPH: drawWifiGraphScreen(); break;
         case STATE_AP_MODE: drawApModeScreen(); break;
         case STATE_GRID_SELECT: drawGridSelect(); break;
         case STATE_PHASE_TRANSITION: drawPhaseTransition(); break;
@@ -431,8 +472,10 @@ void drawCurrentScreen() {
         case STATE_MUSIC_PLAYER: drawMusicPlayer(); break;
         case STATE_USB_DRIVE: drawUsbDriveScreen(); break;
         case STATE_BADUSB: drawBadUsbScreen(); break;
+        case STATE_PASSWORD_MANAGER: drawPasswordManagerScreen(); break;
         case STATE_IR: drawIrScreen(); break;
         case STATE_SSTV: drawSstvScreen(); break;
+        case STATE_QR_GENERATOR: drawQrGeneratorScreen(); break;
     }
 }
 

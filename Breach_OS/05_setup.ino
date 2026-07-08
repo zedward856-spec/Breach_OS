@@ -7,6 +7,8 @@ void setup() {
     prefs.begin("breach", false);
     disableSplash = prefs.getBool("disable_splash", false);
     disableBootSound = prefs.getBool(PREF_BOOT_SOUND_OFF, false);
+    breachTheme = prefs.getInt(PREF_UI_THEME, THEME_CYBER);
+    if (breachTheme < 0 || breachTheme >= THEME_COUNT) breachTheme = THEME_CYBER;
 
     auto cfg = M5.config();
     if (disableBootSound) {
@@ -17,6 +19,7 @@ void setup() {
     initSPIFFS();
     M5Cardputer.Display.setRotation(1);
     canvas.createSprite(240, 135);
+    applyBreachTheme();
     resetUsbDriveStateForBoot();
     
     highScore = prefs.getInt("highscore", 0);

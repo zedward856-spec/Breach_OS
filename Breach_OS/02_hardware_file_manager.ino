@@ -1064,6 +1064,21 @@ void soundRec() {
 int32_t cachedBatteryLevel = -1;
 int16_t cachedBatteryVoltageMv = 0;
 unsigned long lastBatteryReadMs = 0;
+static constexpr int BATTERY_VOLTAGE_GRAPH_POINTS = 52;
+int16_t batteryVoltageHistory[BATTERY_VOLTAGE_GRAPH_POINTS];
+int batteryVoltageHistoryCount = 0;
+
+void appendBatteryVoltageSample(int16_t voltageMv) {
+    if (voltageMv <= 0) return;
+    if (batteryVoltageHistoryCount < BATTERY_VOLTAGE_GRAPH_POINTS) {
+        batteryVoltageHistory[batteryVoltageHistoryCount++] = voltageMv;
+        return;
+    }
+    for (int i = 1; i < BATTERY_VOLTAGE_GRAPH_POINTS; i++) {
+        batteryVoltageHistory[i - 1] = batteryVoltageHistory[i];
+    }
+    batteryVoltageHistory[BATTERY_VOLTAGE_GRAPH_POINTS - 1] = voltageMv;
+}
 
 int32_t estimateBatteryLevelFromVoltage(int16_t voltageMv) {
     if (voltageMv <= 0) return -1;
@@ -1093,6 +1108,7 @@ void updateBatteryStatus() {
     if (cachedBatteryLevel < 0 || cachedBatteryLevel > 100) {
         cachedBatteryLevel = estimateBatteryLevelFromVoltage(cachedBatteryVoltageMv);
     }
+    appendBatteryVoltageSample(cachedBatteryVoltageMv);
     lastBatteryReadMs = now;
 }
 
@@ -1128,6 +1144,64 @@ void drawBatteryPercentBox() {
     canvas.drawCenterString(formatBatteryPercent(cachedBatteryLevel), 219, 6);
 }
 
+void drawBatteryVoltageGraph(int x, int y, int w, int h) {
+    drawChippedButton(x, y, w, h, CP_DIM);
+    canvas.setTextSize(1);
+
+    if (batteryVoltageHistoryCount <= 0) {
+        canvas.setTextColor(CP_DIM);
+        canvas.drawCenterString("COLLECTING VOLTAGE TRACE", x + w / 2, y + h / 2 - 3);
+        return;
+    }
+
+    int minMv = batteryVoltageHistory[0];
+    int maxMv = batteryVoltageHistory[0];
+    for (int i = 1; i < batteryVoltageHistoryCount; i++) {
+        if (batteryVoltageHistory[i] < minMv) minMv = batteryVoltageHistory[i];
+        if (batteryVoltageHistory[i] > maxMv) maxMv = batteryVoltageHistory[i];
+    }
+    if (maxMv - minMv < 120) {
+        int mid = (maxMv + minMv) / 2;
+        minMv = mid - 60;
+        maxMv = mid + 60;
+    } else {
+        int pad = (maxMv - minMv) / 5;
+        if (pad < 20) pad = 20;
+        minMv -= pad;
+        maxMv += pad;
+    }
+    if (minMv < 3000) minMv = 3000;
+    if (maxMv > 4300) maxMv = 4300;
+    if (maxMv <= minMv) maxMv = minMv + 1;
+
+    int left = x + 5;
+    int right = x + w - 6;
+    int top = y + 6;
+    int bottom = y + h - 6;
+    for (int g = 1; g <= 2; g++) {
+        int gy = top + ((bottom - top) * g) / 3;
+        canvas.drawLine(left, gy, right, gy, CP_PANEL);
+    }
+    for (int g = 1; g <= 3; g++) {
+        int gx = left + ((right - left) * g) / 4;
+        canvas.drawLine(gx, top, gx, bottom, CP_PANEL);
+    }
+
+    int prevX = -1;
+    int prevY = -1;
+    int denom = batteryVoltageHistoryCount > 1 ? batteryVoltageHistoryCount - 1 : 1;
+    for (int i = 0; i < batteryVoltageHistoryCount; i++) {
+        int px = right - ((batteryVoltageHistoryCount - 1 - i) * (right - left)) / denom;
+        int py = bottom - ((long)(batteryVoltageHistory[i] - minMv) * (bottom - top)) / (maxMv - minMv);
+        if (py < top) py = top;
+        if (py > bottom) py = bottom;
+        if (prevX >= 0) canvas.drawLine(prevX, prevY, px, py, CP_CYAN);
+        prevX = px;
+        prevY = py;
+    }
+    canvas.fillCircle(prevX, prevY, 2, CP_YELLOW);
+}
+
 void enterChargingMode();
 
 void drawBatteryStatusScreen() {
@@ -1143,17 +1217,18 @@ void drawBatteryStatusScreen() {
     canvas.drawCenterString("--- BATTERY STATUS ---", 120, 12);
 
     canvas.setTextColor(CP_CYAN);
-    canvas.setCursor(22, 44);
-    canvas.print("VOLTAGE  ");
+    canvas.setCursor(18, 29);
+    canvas.print("VOLT ");
     canvas.print(formatBatteryVoltage(cachedBatteryVoltageMv));
-
-    canvas.setCursor(22, 64);
-    canvas.print("CAPACITY ");
+    canvas.setCursor(135, 29);
+    canvas.print("CAP ");
     canvas.print(formatBatteryPercent(cachedBatteryLevel));
 
-    drawChippedButton(42, 86, 156, 18, CP_YELLOW);
+    drawBatteryVoltageGraph(16, 42, 208, 41);
+
+    drawChippedButton(42, 88, 156, 18, CP_YELLOW);
     canvas.setTextColor(CP_YELLOW);
-    canvas.drawCenterString("CHARGING MODE", 120, 91);
+    canvas.drawCenterString("CHARGING MODE", 120, 93);
 
     canvas.setTextColor(CP_DIM);
     canvas.drawCenterString("ENTER CHARGE | DEL/ESC BACK", 120, 112);
@@ -1207,8 +1282,8 @@ void drawHardwareMenu() {
     canvas.drawCircle(-80, 67, 110, CP_DIM);
     canvas.drawCircle(-80, 67, 109, CP_DIM);
     
-    int totalItems = 10;
-    std::vector<String> labels = {"FLASH MEMORY", "SD CARD", "USB DRIVE", "BADUSB", "IR", "SSTV", "MUSIC PLAYER", "SOUND REC", "BATTERY STATUS", "BACK"};
+    int totalItems = 12;
+    std::vector<String> labels = {"FLASH MEMORY", "SD CARD", "USB DRIVE", "BADUSB", "IR", "SSTV", "QR GENERATOR", "MUSIC PLAYER", "SOUND REC", "BATTERY STATUS", "PASSWORDS", "BACK"};
     
     for (int i = 0; i < totalItems; i++) {
         float rawOffset = i - currentHardwareScroll;
@@ -1288,6 +1363,9 @@ void drawHardwareMenu() {
             } else if (label == "SSTV") {
                 line1 = "Slow scan";
                 line2 = "image TX";
+            } else if (label == "QR GENERATOR") {
+                line1 = "QR code";
+                line2 = "maker";
             } else if (label == "MUSIC PLAYER") {
                 line1 = "Offline";
                 line2 = "player";
@@ -1297,6 +1375,9 @@ void drawHardwareMenu() {
             } else if (label == "BATTERY STATUS") {
                 line1 = "Battery";
                 line2 = "status";
+            } else if (label == "PASSWORDS") {
+                line1 = "Password";
+                line2 = "vault";
             } else if (label == "BACK") {
                 line1 = "Return to";
                 line2 = "terminal";
@@ -1356,16 +1437,20 @@ void handleHardwareMenuInput(Keyboard_Class::KeysState status) {
         } else if (hardwareMenuFocus == 5) {
             enterSstvMode();
         } else if (hardwareMenuFocus == 6) {
+            enterQrGenerator();
+        } else if (hardwareMenuFocus == 7) {
             appState = STATE_MUSIC_PLAYER;
             playlistFocus = 0;
             playlistScrollOffset = 0;
             populatePlaylist();
             drawMusicPlayer();
-        } else if (hardwareMenuFocus == 7) {
-            soundRec();
         } else if (hardwareMenuFocus == 8) {
-            showBatteryStatus();
+            soundRec();
         } else if (hardwareMenuFocus == 9) {
+            showBatteryStatus();
+        } else if (hardwareMenuFocus == 10) {
+            enterPasswordManager();
+        } else if (hardwareMenuFocus == 11) {
             appState = STATE_SPLASH;
             showSplashBootMenu = true;
             splashBootFocus = 1;
@@ -1377,7 +1462,7 @@ void handleHardwareMenuInput(Keyboard_Class::KeysState status) {
     }
     
     if (!showHardwareDesc) {
-        int maxFocus = 9;
+        int maxFocus = 11;
         if (hasUp) {
             playSound(sound_hover, sound_hover_size);
             hardwareMenuFocus--;
@@ -1432,12 +1517,173 @@ void enterChargingMode() {
     suppressBatteryPercentBox = false;
 }
 
+static void fillSettingsWebChip(int x, int y, int w, int h, uint16_t fillColor) {
+    int chip = (h > 25) ? 8 : 5;
+    if (w <= chip) return;
+    for (int yy = 1; yy < h; yy++) {
+        int lineW = w - 1;
+        if (yy > h - chip) {
+            lineW = w - (yy - (h - chip)) - 1;
+        }
+        if (lineW > 1) canvas.drawLine(x + 1, y + yy, x + lineW, y + yy, fillColor);
+    }
+}
+
+static void drawSettingsWebChip(int x, int y, int w, int h, uint16_t outlineColor, uint16_t fillColor) {
+    fillSettingsWebChip(x, y, w, h, fillColor);
+    drawChippedButton(x, y, w, h, outlineColor);
+}
+
+static constexpr int SETTINGS_WEB_INDICATOR_X = 226;
+static constexpr int SETTINGS_WEB_LIST_Y = 45;
+static constexpr int SETTINGS_WEB_LIST_H = 78;
+static constexpr int SETTINGS_WEB_ROW_X = 6;
+static constexpr int SETTINGS_WEB_ROW_W = 216;
+static constexpr int SETTINGS_WEB_ROW_H = 20;
+static constexpr int SETTINGS_WEB_ROW_STEP = 23;
+static constexpr int SETTINGS_WEB_LABEL_X = 13;
+static constexpr int SETTINGS_WEB_VALUE_RIGHT = 214;
+static constexpr int SETTINGS_WEB_VISIBLE_ROWS = 4;
+
+static String settingsShortValue(String s, int maxLen) {
+    if ((int)s.length() <= maxLen) return s;
+    if (maxLen <= 1) return s.substring(0, maxLen);
+    return s.substring(0, maxLen - 1) + "~";
+}
+
+static void drawSettingsWebScrollIndicator(int focus, int maxFocus, int x, int y, int h) {
+    const int railW = 6;
+    const int railR = railW / 2;
+    int midX = x + railR;
+    int topY = y + railR;
+    int bottomY = y + h - railR;
+
+    canvas.drawLine(x, topY, x, bottomY, CP_CYAN);
+    canvas.drawLine(x + railW, topY, x + railW, bottomY, CP_CYAN);
+    canvas.drawLine(x, topY - 1, x, topY - 1, CP_CYAN);
+    canvas.drawLine(x + 1, topY - 2, x + 1, topY - 2, CP_CYAN);
+    canvas.drawLine(midX - 1, topY - railR, midX + 1, topY - railR, CP_CYAN);
+    canvas.drawLine(x + railW - 1, topY - 2, x + railW - 1, topY - 2, CP_CYAN);
+    canvas.drawLine(x + railW, topY - 1, x + railW, topY - 1, CP_CYAN);
+    canvas.drawLine(x, bottomY + 1, x, bottomY + 1, CP_CYAN);
+    canvas.drawLine(x + 1, bottomY + 2, x + 1, bottomY + 2, CP_CYAN);
+    canvas.drawLine(midX - 1, bottomY + railR, midX + 1, bottomY + railR, CP_CYAN);
+    canvas.drawLine(x + railW - 1, bottomY + 2, x + railW - 1, bottomY + 2, CP_CYAN);
+    canvas.drawLine(x + railW, bottomY + 1, x + railW, bottomY + 1, CP_CYAN);
+
+    int dotY = topY;
+    if (maxFocus > 0) {
+        if (focus < 0) focus = 0;
+        if (focus > maxFocus) focus = maxFocus;
+        dotY = topY + (int)((bottomY - topY) * ((float)focus / (float)maxFocus));
+    }
+    canvas.fillCircle(midX, dotY, 5, CP_YELLOW);
+}
+
+static void settingsRowText(int tab, int index, String &label, String &value) {
+    label = "";
+    value = "";
+
+    if (tab == 0) {
+        if (index == 0) {
+            label = "SORT BY";
+            value = currentSortField == SORT_FIELD_NAME ? "< NAME >" : "< TYPE >";
+        } else if (index == 1) {
+            label = "ORDER";
+            value = currentSortOrder == SORT_ORDER_ASC ? "< ASCENDING >" : "< DESCENDING >";
+        } else if (index == 2) {
+            label = "SYS FILES";
+            value = showSystemFiles ? "< SHOW >" : "< HIDE >";
+        }
+    } else if (tab == 1) {
+        if (index == 0) {
+            label = "WIFI SSID";
+            value = savedSSID == "" ? "< NONE >" : savedSSID;
+        } else if (index == 1) {
+            label = "WIFI PASS";
+            value = savedWifiPass == "" ? "< NONE >" : "********";
+        }
+    } else if (tab == 2) {
+        if (index == 0) {
+            label = "PLAY LOOP";
+            value = mp3PlayLoopMode == "random" ? "< RANDOM >" : "< BY NAME >";
+        } else if (index == 1) {
+            label = "MUSIC DIR";
+            value = musicDir + " [SET]";
+        }
+    } else if (tab == 3) {
+        if (index == 0) {
+            label = "SORT BY";
+            if (otaSortField == "downloads") value = "< DOWNLOADS >";
+            else if (otaSortField == "date") value = "< TIME >";
+            else value = "< NAME >";
+        }
+    } else if (tab == 4) {
+        if (index == 0) {
+            label = "THEME";
+            value = "< " + String(breachThemeName()) + " >";
+        } else if (index == 1) {
+            label = "GLITCH TEXT";
+            if (insaneMode == 0) value = "< OFF >";
+            else if (insaneMode == 1) value = "< ON >";
+            else value = "< INSANE >";
+        } else if (index == 2) {
+            label = "BRIGHTNESS";
+            value = "< " + String(globalBrightness) + "% >";
+        } else if (index == 3) {
+            label = "VOLUME";
+            value = "< " + String(globalVolume) + "% >";
+        } else if (index == 4) {
+            label = "DISABLE SPLASH";
+            value = disableSplash ? "< ON >" : "< OFF >";
+        } else if (index == 5) {
+            label = "DISABLE BOOT SOUND";
+            value = disableBootSound ? "< ON >" : "< OFF >";
+        } else if (index == 6) {
+            label = "CHARGING MODE";
+            value = "< ENTER >";
+        }
+    } else if (tab == 5) {
+        if (index == 0) {
+            label = "CREDITS";
+            value = "< OPEN >";
+        } else if (index == 1) {
+            label = "GITHUB QR";
+            value = "< OPEN >";
+        }
+    }
+}
+
+static void drawSettingsWebRow(int tab, int index, int y, bool selected) {
+    String label;
+    String value;
+    settingsRowText(tab, index, label, value);
+    uint16_t color = selected ? CP_YELLOW : CP_DIM;
+
+    drawChippedButton(SETTINGS_WEB_ROW_X, y - 2, SETTINGS_WEB_ROW_W, SETTINGS_WEB_ROW_H, color);
+    canvas.setTextSize(1);
+    canvas.setTextColor(color);
+    canvas.setCursor(SETTINGS_WEB_LABEL_X, y + 5);
+    canvas.print(label);
+
+    String shownValue = value;
+    int minValueX = SETTINGS_WEB_LABEL_X + canvas.textWidth(label) + 8;
+    while (shownValue.length() > 1 && canvas.textWidth(shownValue) > SETTINGS_WEB_VALUE_RIGHT - minValueX) {
+        shownValue = settingsShortValue(value, shownValue.length() - 1);
+    }
+    int valueX = SETTINGS_WEB_VALUE_RIGHT - canvas.textWidth(shownValue);
+    if (valueX < minValueX) valueX = minValueX;
+    canvas.setTextColor(selected ? CP_CYAN : CP_DIM);
+    canvas.setCursor(valueX, y + 5);
+    canvas.print(shownValue);
+}
+
 void drawHardwareSettings() {
     canvas.startWrite();
     canvas.fillScreen(CP_BG);
     
-    canvas.drawRect(5, 5, 230, 125, CP_CYAN);
-    canvas.drawRect(7, 7, 226, 121, CP_DIM);
+    drawSettingsWebChip(5, 5, 230, 125, CP_CYAN, CP_PANEL);
+    drawSettingsWebChip(7, 7, 226, 121, CP_DIM, CP_BG);
     
     canvas.setTextColor(CP_YELLOW);
     canvas.setTextSize(1);
@@ -1462,10 +1708,8 @@ void drawHardwareSettings() {
         bool hasFocus = (settingsFocus == -1 && isActive);
         
         uint16_t borderCol = hasFocus ? CP_YELLOW : (isActive ? CP_CYAN : CP_DIM);
-        canvas.drawRect(tabX[t], 22, tabW[t], 14, borderCol);
-        if (hasFocus) {
-            canvas.fillRect(tabX[t] + 1, 23, tabW[t] - 2, 12, canvas.color565(30, 30, 20));
-        }
+        uint16_t fillCol = hasFocus ? CP_ACTIVE_LINE : CP_PANEL;
+        drawSettingsWebChip(tabX[t], 22, tabW[t], 14, borderCol, fillCol);
         canvas.setTextColor(isActive ? CP_YELLOW : WHITE);
         // Center text in smaller tabs: width of character size 1 is 6 pixels.
         // E.g. "NETWORK" (7 chars * 6 = 42 pixels), tab width 64 -> center offset (64 - 42) / 2 = 11 pixels!
@@ -1489,129 +1733,38 @@ void drawHardwareSettings() {
     if (settingsTab == 1) rowCount = 2; // NETWORK: SSID, PASSWORD (scan nets removed)
     else if (settingsTab == 2) rowCount = 2; // OFFLINE: PLAY LOOP, MUSIC DIR
     else if (settingsTab == 3) rowCount = 1; // OTA: SORT BY ONLY (open list removed)
-    else if (settingsTab == 4) rowCount = 6; // APPEARANCE: GLITCH TEXT, BRIGHTNESS, VOLUME, DISABLE SPLASH, DISABLE BOOT SOUND, CHARGING MODE
+    else if (settingsTab == 4) rowCount = 7; // APPEARANCE: THEME, GLITCH TEXT, BRIGHTNESS, VOLUME, DISABLE SPLASH, DISABLE BOOT SOUND, CHARGING MODE
     else if (settingsTab == 5) rowCount = 2; // CREDITS: OPEN CREDITS, GITHUB QR
     
-    int startY = (settingsTab == 4) ? 40 : 41;
-    int rowStep = (settingsTab == 4) ? 14 : 17;
-    int rowHeight = (settingsTab == 4) ? 13 : 15;
-    
-    for (int i = 0; i < rowCount; i++) {
-        bool isFocus = (settingsFocus == i);
-        uint16_t borderCol = isFocus ? CP_YELLOW : CP_DIM;
-        int rowY = startY + i * rowStep;
-        
-        canvas.fillRect(15, rowY, 210, rowHeight, isFocus ? canvas.color565(30, 30, 30) : CP_BG);
-        canvas.drawRect(15, rowY, 210, rowHeight, borderCol);
-        
-        canvas.setTextColor(isFocus ? CP_YELLOW : WHITE);
-        canvas.setCursor(22, rowY + 3);
-        
-        if (settingsTab == 0) { // HARDWARE
-            if (i == 0) {
-                canvas.print("SORT BY:");
-                canvas.setCursor(120, rowY + 3);
-                canvas.setTextColor(isFocus ? WHITE : CP_DIM);
-                canvas.print(currentSortField == SORT_FIELD_NAME ? "< NAME >" : "< TYPE >");
-            } else if (i == 1) {
-                canvas.print("ORDER:");
-                canvas.setCursor(120, rowY + 3);
-                canvas.setTextColor(isFocus ? WHITE : CP_DIM);
-                canvas.print(currentSortOrder == SORT_ORDER_ASC ? "< ASCENDING >" : "< DESCENDING >");
-            } else if (i == 2) {
-                canvas.print("SYS FILES:");
-                canvas.setCursor(120, rowY + 3);
-                canvas.setTextColor(isFocus ? WHITE : CP_DIM);
-                canvas.print(showSystemFiles ? "< SHOW >" : "< HIDE >");
-            }
-        } else if (settingsTab == 1) { // NETWORK
-            if (i == 0) {
-                canvas.print("WIFI SSID:");
-                canvas.setCursor(120, rowY + 3);
-                canvas.setTextColor(isFocus ? WHITE : CP_DIM);
-                String displaySsid = savedSSID == "" ? "< NONE >" : savedSSID;
-                if (displaySsid.length() > 14) displaySsid = displaySsid.substring(0, 11) + "...";
-                canvas.print(displaySsid);
-            } else if (i == 1) {
-                canvas.print("WIFI PASS:");
-                canvas.setCursor(120, rowY + 3);
-                canvas.setTextColor(isFocus ? WHITE : CP_DIM);
-                String displayPass = savedWifiPass == "" ? "< NONE >" : "********";
-                canvas.print(displayPass);
-            }
-        } else if (settingsTab == 2) { // OFFLINE
-            if (i == 0) {
-                canvas.print("PLAY LOOP:");
-                canvas.setCursor(120, rowY + 3);
-                canvas.setTextColor(isFocus ? WHITE : CP_DIM);
-                if (mp3PlayLoopMode == "random") canvas.print("< RANDOM >");
-                else canvas.print("< BY NAME >");
-            } else if (i == 1) {
-                canvas.print("MUSIC DIR:");
-                canvas.setCursor(120, rowY + 3);
-                canvas.setTextColor(isFocus ? WHITE : CP_DIM);
-                String displayDir = musicDir;
-                if (displayDir.length() > 14) displayDir = displayDir.substring(0, 11) + "...";
-                canvas.print(displayDir + " [SET]");
-            }
-        } else if (settingsTab == 3) { // OTA
-            if (i == 0) {
-                canvas.print("SORT BY:");
-                canvas.setCursor(120, rowY + 3);
-                canvas.setTextColor(isFocus ? WHITE : CP_DIM);
-                if (otaSortField == "downloads") canvas.print("< DOWNLOADS >");
-                else if (otaSortField == "date") canvas.print("< TIME >");
-                else canvas.print("< NAME >");
-            }
-        } else if (settingsTab == 4) { // APPEARANCE
-            if (i == 0) {
-                canvas.print("GLITCH TEXT:");
-                canvas.setCursor(120, rowY + 3);
-                canvas.setTextColor(isFocus ? WHITE : CP_DIM);
-                String glitchLabel = "";
-                if (insaneMode == 0) glitchLabel = "< OFF >";
-                else if (insaneMode == 1) glitchLabel = "< ON >";
-                else glitchLabel = "< INSANE >";
-                canvas.print(glitchLabel);
-            } else if (i == 1) {
-                canvas.print("BRIGHTNESS:");
-                canvas.setCursor(120, rowY + 3);
-                canvas.setTextColor(isFocus ? WHITE : CP_DIM);
-                canvas.print("< " + String(globalBrightness) + "% >");
-            } else if (i == 2) {
-                canvas.print("VOLUME:");
-                canvas.setCursor(120, rowY + 3);
-                canvas.setTextColor(isFocus ? WHITE : CP_DIM);
-                canvas.print("< " + String(globalVolume) + "% >");
-            } else if (i == 3) {
-                canvas.print("DISABLE SPLASH:");
-                canvas.setCursor(154, rowY + 3);
-                canvas.setTextColor(isFocus ? WHITE : CP_DIM);
-                canvas.print(disableSplash ? "< ON >" : "< OFF >");
-            } else if (i == 4) {
-                canvas.print("DISABLE BOOT SOUND:");
-                canvas.setCursor(154, rowY + 3);
-                canvas.setTextColor(isFocus ? WHITE : CP_DIM);
-                canvas.print(disableBootSound ? "< ON >" : "< OFF >");
-            } else if (i == 5) {
-                canvas.print("CHARGING MODE:");
-                canvas.setCursor(120, rowY + 3);
-                canvas.setTextColor(isFocus ? WHITE : CP_DIM);
-                canvas.print("< ENTER >");
-            }
-        } else if (settingsTab == 5) { // CREDITS
-            if (i == 0) {
-                canvas.print("CREDITS:");
-                canvas.setCursor(120, rowY + 3);
-                canvas.setTextColor(isFocus ? WHITE : CP_DIM);
-                canvas.print("< OPEN >");
-            } else if (i == 1) {
-                canvas.print("GITHUB QR:");
-                canvas.setCursor(120, rowY + 3);
-                canvas.setTextColor(isFocus ? WHITE : CP_DIM);
-                canvas.print("< OPEN >");
-            }
+    int startY = SETTINGS_WEB_LIST_Y;
+    int rowStep = SETTINGS_WEB_ROW_STEP;
+    int visibleRows = rowCount < SETTINGS_WEB_VISIBLE_ROWS ? rowCount : SETTINGS_WEB_VISIBLE_ROWS;
+    int maxRowScroll = rowCount - visibleRows;
+    if (maxRowScroll < 0) maxRowScroll = 0;
+    if (settingsFocus >= 0) {
+        if (settingsFocus < settingsRowScrollOffset) {
+            settingsRowScrollOffset = settingsFocus;
+        } else if (settingsFocus >= settingsRowScrollOffset + visibleRows) {
+            settingsRowScrollOffset = settingsFocus - visibleRows + 1;
         }
+    }
+    if (settingsRowScrollOffset < 0) settingsRowScrollOffset = 0;
+    if (settingsRowScrollOffset > maxRowScroll) settingsRowScrollOffset = maxRowScroll;
+
+    int firstRow = settingsRowScrollOffset;
+    int lastRow = firstRow + visibleRows;
+    if (lastRow > rowCount) lastRow = rowCount;
+    
+    for (int i = firstRow; i < lastRow; i++) {
+        bool isFocus = (settingsFocus == i);
+        int rowY = startY + (i - firstRow) * rowStep;
+        drawSettingsWebRow(settingsTab, i, rowY, isFocus);
+    }
+
+    if (rowCount > 0) {
+        int indicatorFocus = settingsFocus < 0 ? 0 : settingsFocus;
+        if (indicatorFocus >= rowCount) indicatorFocus = rowCount - 1;
+        drawSettingsWebScrollIndicator(indicatorFocus, rowCount - 1, SETTINGS_WEB_INDICATOR_X, SETTINGS_WEB_LIST_Y, SETTINGS_WEB_LIST_H);
     }
     
     pushCanvas();
@@ -1647,17 +1800,19 @@ void handleHardwareSettingsInput(Keyboard_Class::KeysState status) {
     if (settingsTab == 1) maxFocus = 1; // NETWORK: SSID, PASSWORD
     else if (settingsTab == 2) maxFocus = 1; // OFFLINE: PLAY LOOP, MUSIC DIR
     else if (settingsTab == 3) maxFocus = 0; // OTA: SORT BY
-    else if (settingsTab == 4) maxFocus = 5; // APPEARANCE: GLITCH TEXT, BRIGHTNESS, VOLUME, DISABLE SPLASH, DISABLE BOOT SOUND, CHARGING MODE
+    else if (settingsTab == 4) maxFocus = 6; // APPEARANCE: THEME, GLITCH TEXT, BRIGHTNESS, VOLUME, DISABLE SPLASH, DISABLE BOOT SOUND, CHARGING MODE
     else if (settingsTab == 5) maxFocus = 1; // CREDITS: OPEN CREDITS, GITHUB QR
     
     if (settingsFocus == -1) {
         if (hasLeft) {
             playSound(sound_hover, sound_hover_size);
             settingsTab = (settingsTab - 1 + 6) % 6;
+            settingsRowScrollOffset = 0;
             drawHardwareSettings();
         } else if (hasRight) {
             playSound(sound_hover, sound_hover_size);
             settingsTab = (settingsTab + 1) % 6;
+            settingsRowScrollOffset = 0;
             drawHardwareSettings();
         } else if (status.enter && settingsTab == 5) {
             playSound(sound_select, sound_select_size);
@@ -1666,6 +1821,7 @@ void handleHardwareSettingsInput(Keyboard_Class::KeysState status) {
         } else if (hasDown) {
             playSound(sound_hover, sound_hover_size);
             settingsFocus = 0;
+            settingsRowScrollOffset = 0;
             drawHardwareSettings();
         }
         return;
@@ -1719,12 +1875,15 @@ void handleHardwareSettingsInput(Keyboard_Class::KeysState status) {
             }
         } else if (settingsTab == 4) { // APPEARANCE
             if (settingsFocus == 0) {
+                cycleBreachTheme(hasLeft);
+                prefs.putInt(PREF_UI_THEME, breachTheme);
+            } else if (settingsFocus == 1) {
                 if (hasLeft) {
                     insaneMode = (insaneMode - 1 + 3) % 3;
                 } else {
                     insaneMode = (insaneMode + 1) % 3;
                 }
-            } else if (settingsFocus == 1) {
+            } else if (settingsFocus == 2) {
                 if (hasLeft) {
                     globalBrightness -= 5;
                     if (globalBrightness < 5) globalBrightness = 5;
@@ -1734,7 +1893,7 @@ void handleHardwareSettingsInput(Keyboard_Class::KeysState status) {
                 }
                 M5Cardputer.Display.setBrightness((globalBrightness * 255) / 100);
                 prefs.putInt("brightness", globalBrightness);
-            } else if (settingsFocus == 2) {
+            } else if (settingsFocus == 3) {
                 if (hasLeft) {
                     globalVolume -= 5;
                     if (globalVolume < 0) globalVolume = 0;
@@ -1744,10 +1903,10 @@ void handleHardwareSettingsInput(Keyboard_Class::KeysState status) {
                 }
                 M5Cardputer.Speaker.setVolume((globalVolume * 255) / 100);
                 prefs.putInt("volume", globalVolume);
-            } else if (settingsFocus == 3) {
+            } else if (settingsFocus == 4) {
                 disableSplash = !disableSplash;
                 prefs.putBool("disable_splash", disableSplash);
-            } else if (settingsFocus == 4) {
+            } else if (settingsFocus == 5) {
                 disableBootSound = !disableBootSound;
                 prefs.putBool(PREF_BOOT_SOUND_OFF, disableBootSound);
             }
@@ -1763,15 +1922,19 @@ void handleHardwareSettingsInput(Keyboard_Class::KeysState status) {
         } else if (settingsTab == 5 && settingsFocus == 1) {
             appState = STATE_GITHUB_QR;
             drawGithubQrScreen();
-        } else if (settingsTab == 4 && settingsFocus == 3) {
+        } else if (settingsTab == 4 && settingsFocus == 0) {
+            cycleBreachTheme(false);
+            prefs.putInt(PREF_UI_THEME, breachTheme);
+            drawHardwareSettings();
+        } else if (settingsTab == 4 && settingsFocus == 4) {
             disableSplash = !disableSplash;
             prefs.putBool("disable_splash", disableSplash);
             drawHardwareSettings();
-        } else if (settingsTab == 4 && settingsFocus == 4) {
+        } else if (settingsTab == 4 && settingsFocus == 5) {
             disableBootSound = !disableBootSound;
             prefs.putBool(PREF_BOOT_SOUND_OFF, disableBootSound);
             drawHardwareSettings();
-        } else if (settingsTab == 4 && settingsFocus == 5) {
+        } else if (settingsTab == 4 && settingsFocus == 6) {
             enterChargingMode();
             drawHardwareSettings();
         } else if (settingsTab == 2 && settingsFocus == 1) { // OFFLINE: MUSIC DIR -> choose folder location automatically
@@ -1785,6 +1948,7 @@ void handleHardwareSettingsInput(Keyboard_Class::KeysState status) {
             showFileContent = false;
         } else { // Exit to Splash screen (Boot Node)
             prefs.putInt("insane", insaneMode);
+            prefs.putInt(PREF_UI_THEME, breachTheme);
             prefs.putBool("disable_splash", disableSplash);
             prefs.putBool(PREF_BOOT_SOUND_OFF, disableBootSound);
             populateFileList();
