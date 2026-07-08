@@ -395,7 +395,7 @@ void drawSplash() {
     canvas.setTextSize(2);
     drawDefaultGlitchText("Breach_OS", 120, 5, 2, CP_CYAN, true);
     
-    int maxLogs = 6;
+    int maxLogs = 7;
     int y = 35;
     canvas.setTextColor(CP_ACTIVE_LINE);
     canvas.setTextSize(1);
@@ -483,18 +483,12 @@ void drawSplash() {
 
         drawWheelPositionIndicator(currentSplashBootScroll, totalItems);
     } else {
-        canvas.setTextColor(CP_CYAN);
-        canvas.drawCenterString("WIFI GRAPH | QR GEN | THEMES", 120, 98);
-        canvas.setTextColor(CP_DIM);
-        canvas.drawCenterString("VOLT GRAPH | WEB MIRROR | PASSWORDS", 120, 107);
-
-        canvas.setTextColor(WHITE);
-        canvas.drawString("> Press ", 10, 123);
+        canvas.drawString("> Press ", 10, 115);
         int x1 = 10 + canvas.textWidth("> Press ");
-        drawGlitchText("ENTER", x1, 123, 1, CP_YELLOW, false, true);
+        drawGlitchText("ENTER", x1, 115, 1, CP_YELLOW, false, true);
         int x2 = x1 + canvas.textWidth("ENTER");
         canvas.setTextColor(WHITE);
-        canvas.drawString(" to Select Boot Target", x2, 123);
+        canvas.drawString(" to Select Boot Target", x2, 115);
     }
     
     pushCanvas();
