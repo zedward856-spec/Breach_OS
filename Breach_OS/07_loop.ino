@@ -110,6 +110,9 @@ void loop() {
     if (consumeApModeRemoteInput(globalStatus)) {
         inputReady = true;
     }
+    if (inputReady && handleScreenshotShortcut(globalStatus)) {
+        inputReady = globalStatus.enter || globalStatus.del || !globalStatus.word.empty();
+    }
     
     if (inputReady) {
         Keyboard_Class::KeysState status = globalStatus;
@@ -174,6 +177,11 @@ void loop() {
                 drawCurrentScreen();
             }
         }
+    }
+
+    if (showScreenshotPopup && now > screenshotPopupUntil) {
+        showScreenshotPopup = false;
+        drawCurrentScreen();
     }
     
     if (appState == STATE_SPLASH) {

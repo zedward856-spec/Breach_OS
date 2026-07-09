@@ -163,6 +163,27 @@ bool isEditableTextFileName(String name, bool isDir) {
     return lower.endsWith(".txt");
 }
 
+bool isFileManagerImageFileName(String name, bool isDir) {
+    if (name == ".." || isDir) return false;
+    String lower = name;
+    lower.toLowerCase();
+    return lower.endsWith(".jpg") || lower.endsWith(".jpeg") || lower.endsWith(".bmp");
+}
+
+bool isFileManagerBmpFileName(String name) {
+    String lower = name;
+    lower.toLowerCase();
+    return lower.endsWith(".bmp");
+}
+
+void openFileManagerImage(String fileName) {
+    openedImageName = fileName;
+    imageScale = isFileManagerBmpFileName(fileName) ? 0.75f : 1.0f;
+    showImage = true;
+    appState = STATE_FILE_MANAGER;
+    drawFileManager();
+}
+
 void setTextEditorStatus(String status, uint16_t ms) {
     textEditorStatus = status;
     textEditorStatusUntil = millis() + ms;
@@ -1083,8 +1104,12 @@ void appendBatteryVoltageSample(int16_t voltageMv) {
 int32_t estimateBatteryLevelFromVoltage(int16_t voltageMv) {
     if (voltageMv <= 0) return -1;
 
-    static const int16_t volts[] = {3300, 3500, 3600, 3700, 3740, 3790, 3850, 3920, 4000, 4100, 4200};
-    static const int8_t pct[] =    {0,    10,   20,   30,   40,   50,   60,   70,   80,   90,   100};
+    // M5Stack's Cardputer UserDemo anchors are 3.40V=25%, 3.61V=50%,
+    // 3.88V=75%, 4.12V=100%. Keep Breach_OS' detailed display by
+    // interpolating between those official thresholds instead of snapping
+    // to only 0/25/50/75/100.
+    static const int16_t volts[] = {3300, 3400, 3610, 3880, 4120};
+    static const int8_t pct[] =    {0,    25,   50,   75,   100};
     if (voltageMv <= volts[0]) return 0;
     for (size_t i = 1; i < sizeof(volts) / sizeof(volts[0]); i++) {
         if (voltageMv <= volts[i]) {
@@ -1129,19 +1154,23 @@ String formatBatteryVoltage(int16_t voltageMv) {
 void drawBatteryPercentBox() {
     updateBatteryStatus();
     uint16_t color = cachedBatteryLevel >= 0 && cachedBatteryLevel <= 20 ? CP_RED : CP_CYAN;
-    int x = 200;
-    int y = 2;
-    int w = 38;
-    int h = 15;
-    int chip = 5;
+    int32_t displayLevel = cachedBatteryLevel;
+    if (displayLevel > 100) displayLevel = 100;
+    String batteryText = displayLevel < 0 ? "--" : String(displayLevel);
+    canvas.setTextSize(1);
+
+    int y = 1;
+    int h = 12;
+    int chip = 4;
+    int w = canvas.textWidth("100") + 8;
+    int x = 238 - w;
     canvas.drawLine(x, y, x + w, y, color);
     canvas.drawLine(x + w, y, x + w, y + h, color);
     canvas.drawLine(x + chip, y + h, x + w, y + h, color);
     canvas.drawLine(x, y, x, y + h - chip, color);
     canvas.drawLine(x, y + h - chip, x + chip, y + h, color);
     canvas.setTextColor(color);
-    canvas.setTextSize(1);
-    canvas.drawCenterString(formatBatteryPercent(cachedBatteryLevel), 219, 6);
+    canvas.drawCenterString(batteryText, x + w / 2, 4);
 }
 
 void drawBatteryVoltageGraph(int x, int y, int w, int h) {
@@ -1203,6 +1232,80 @@ void drawBatteryVoltageGraph(int x, int y, int w, int h) {
 }
 
 void enterChargingMode();
+
+static constexpr uint32_t CHARGING_MODE_CPU_MHZ = 80;
+static wifi_mode_t chargingModeSavedWifiMode = WIFI_OFF;
+static bool chargingModeSavedWifiWasConnected = false;
+static bool chargingModeSavedApWebWasRunning = false;
+static bool chargingModeSavedLanWebWasRunning = false;
+static bool chargingModeSavedOtaWasInit = false;
+static uint32_t chargingModeSavedCpuMhz = 0;
+
+static bool chargingModeHasSta(wifi_mode_t mode) {
+    return mode == WIFI_STA || mode == WIFI_AP_STA;
+}
+
+static void prepareChargingModeLowPower() {
+    chargingModeSavedWifiMode = WiFi.getMode();
+    chargingModeSavedWifiWasConnected = WiFi.status() == WL_CONNECTED;
+    chargingModeSavedOtaWasInit = otaInit;
+    chargingModeSavedCpuMhz = getCpuFrequencyMhz();
+
+    // Stop foreground/background work that would otherwise keep radios, DMA,
+    // sockets, or app tasks busy while the display is off.
+    closeSshSession();
+    closeTelnetBbs();
+    stopMp3Playback();
+    otaDataClient.stop();
+    secureClient.stop();
+    sshClient.stop();
+    telnetClient.stop();
+
+    if (otaInit) {
+        ArduinoOTA.end();
+        otaInit = false;
+    }
+
+    apModePrepareForCharging(chargingModeSavedApWebWasRunning, chargingModeSavedLanWebWasRunning);
+    stopBluetoothForLowPower();
+
+    esp_wifi_set_promiscuous(false);
+    esp_wifi_set_promiscuous_rx_cb(nullptr);
+    WiFi.scanDelete();
+    WiFi.disconnect(false);
+    WiFi.softAPdisconnect(true);
+    WiFi.mode(WIFI_OFF);
+
+    if (chargingModeSavedCpuMhz > CHARGING_MODE_CPU_MHZ) {
+        setCpuFrequencyMhz(CHARGING_MODE_CPU_MHZ);
+    }
+}
+
+static void restoreChargingModePower() {
+    if (chargingModeSavedCpuMhz > 0 && getCpuFrequencyMhz() != chargingModeSavedCpuMhz) {
+        setCpuFrequencyMhz(chargingModeSavedCpuMhz);
+    }
+
+    if (chargingModeSavedWifiWasConnected && savedSSID != "") {
+        WiFi.mode(WIFI_STA);
+        WiFi.begin(savedSSID.c_str(), savedWifiPass.c_str());
+        unsigned long startMs = millis();
+        while (WiFi.status() != WL_CONNECTED && millis() - startMs < 2500) {
+            M5Cardputer.update();
+            delay(50);
+        }
+    } else if (chargingModeHasSta(chargingModeSavedWifiMode)) {
+        WiFi.mode(WIFI_STA);
+    }
+
+    apModeRestoreAfterCharging(chargingModeSavedApWebWasRunning, chargingModeSavedLanWebWasRunning);
+
+    if (chargingModeSavedOtaWasInit && WiFi.status() == WL_CONNECTED) {
+        ArduinoOTA.setHostname("Cardputer-Breach");
+        ArduinoOTA.begin();
+        otaInit = true;
+    }
+}
 
 void drawBatteryStatusScreen() {
     updateBatteryStatus();
@@ -1494,6 +1597,7 @@ void enterChargingMode() {
 
     M5Cardputer.update();
     bool wakeKeysArmed = !chargingModeAnyKeyDown();
+    prepareChargingModeLowPower();
 
     suppressBatteryPercentBox = true;
     canvas.startWrite();
@@ -1514,6 +1618,7 @@ void enterChargingMode() {
 
     M5Cardputer.Display.wakeup();
     M5Cardputer.Display.setBrightness((globalBrightness * 255) / 100);
+    restoreChargingModePower();
     suppressBatteryPercentBox = false;
 }
 
@@ -1973,10 +2078,21 @@ void drawFileManager(bool push) {
         
         String fullPath = fileManagerCurrentPath + (fileManagerCurrentPath == "/" ? "" : "/") + openedImageName;
         
+        bool isBmp = isFileManagerBmpFileName(openedImageName);
+        bool imageDrawn = false;
         if (isSDCardManager) {
-            canvas.drawJpgFile(SD, fullPath.c_str(), 8, 8, 224, 105, 0, 0, imageScale, imageScale);
+            imageDrawn = isBmp
+                ? canvas.drawBmpFile(SD, fullPath.c_str(), 8, 8, 224, 105, 0, 0, imageScale, imageScale)
+                : canvas.drawJpgFile(SD, fullPath.c_str(), 8, 8, 224, 105, 0, 0, imageScale, imageScale);
         } else {
-            canvas.drawJpgFile(SPIFFS, fullPath.c_str(), 8, 8, 224, 105, 0, 0, imageScale, imageScale);
+            imageDrawn = isBmp
+                ? canvas.drawBmpFile(SPIFFS, fullPath.c_str(), 8, 8, 224, 105, 0, 0, imageScale, imageScale)
+                : canvas.drawJpgFile(SPIFFS, fullPath.c_str(), 8, 8, 224, 105, 0, 0, imageScale, imageScale);
+        }
+        if (!imageDrawn) {
+            canvas.setTextColor(CP_RED);
+            canvas.setTextSize(1);
+            canvas.drawCenterString("IMAGE OPEN FAIL", 120, 58);
         }
         
         canvas.setTextColor(CP_YELLOW);
@@ -2662,15 +2778,11 @@ void handleFileActionsMenuInput(Keyboard_Class::KeysState status) {
                 lowerName.toLowerCase();
                 if (lowerName.endsWith(".mp3") || lowerName.endsWith(".wav")) {
                     startMp3(targetFile.name);
-                } else if (lowerName.endsWith(".jpg") || lowerName.endsWith(".jpeg")) {
+                } else if (isFileManagerImageFileName(targetFile.name, targetFile.isDir)) {
                     playSound(sound_select, sound_select_size);
-                    openedImageName = targetFile.name;
-                    imageScale = 1.0f;
-                    showImage = true;
-                    appState = STATE_FILE_MANAGER;
-                    drawFileManager();
+                    openFileManagerImage(targetFile.name);
                 } else {
-                    // Open file content
+
                     readSelectedFileContent(targetFile.name);
                     showFileContent = true;
                     appState = STATE_FILE_MANAGER;

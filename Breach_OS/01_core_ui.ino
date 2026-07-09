@@ -431,6 +431,10 @@ void pushCanvas() {
     if (!suppressBatteryPercentBox && appState != STATE_PLAYING) {
         drawBatteryPercentBox();
     }
+    if (showScreenshotPopup) {
+        if (millis() <= screenshotPopupUntil) drawScreenshotSavedPopup();
+        else showScreenshotPopup = false;
+    }
     canvas.pushSprite(0, 0);
     canvas.endWrite();
 }

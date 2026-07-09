@@ -329,6 +329,11 @@ enum AppState {
 };
 AppState appState = STATE_SPLASH;
 bool suppressBatteryPercentBox = false;
+bool showScreenshotPopup = false;
+unsigned long screenshotPopupUntil = 0;
+String screenshotPopupLine1 = "";
+String screenshotPopupLine2 = "";
+String screenshotPopupLine3 = "";
 
 bool isGuest = false;
 bool launchBreachAfterAuth = false;
@@ -630,6 +635,9 @@ void stopMp3Playback();
 void stopMp3();
 void drawMessage(String msg);
 void drawMessage(String msg, String line2);
+void apModePrepareForCharging(bool &wasApRunning, bool &wasLanWebActive);
+void apModeRestoreAfterCharging(bool wasApRunning, bool wasLanWebActive);
+void stopBluetoothForLowPower();
 // Additional forward declarations for functions now split across sketch tabs.
 void bootToFactory();
 void playSound(const unsigned char* soundData, size_t soundSize);
@@ -641,6 +649,8 @@ void readSelectedFileContent(String fileName);
 void drawChippedButton(int x, int y, int w, int h, uint16_t color);
 void drawBatteryPercentBox();
 void drawTopStatusIcons(int x, int y);
+bool handleScreenshotShortcut(Keyboard_Class::KeysState &status);
+void drawScreenshotSavedPopup();
 void drawWheelPositionIndicator(float scroll, int totalItems);
 void resetAudioSpectrum();
 void feedAudioSpectrumBuffer(const int16_t* samples, size_t sampleCount);

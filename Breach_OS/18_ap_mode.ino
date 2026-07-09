@@ -1,7 +1,7 @@
 // NETWORK NODE / AP MODE: host one normal Cardputer Wi-Fi access point.
 // This is intentionally a single SoftAP for lab/field connectivity, not beacon spam.
 
-static constexpr int AP_MODE_ROW_COUNT = 5;
+static constexpr int AP_MODE_ROW_COUNT = 6;
 static constexpr int AP_MODE_FOCUS_COUNT = AP_MODE_ROW_COUNT;
 static constexpr int AP_MODE_VISIBLE_ROWS = 4;
 static constexpr int AP_MODE_MIN_CHANNEL = 1;
@@ -10,6 +10,9 @@ static constexpr int AP_MODE_MAX_SSID_LEN = 32;
 static constexpr int AP_MODE_MAX_PASS_LEN = 63;
 
 static constexpr int AP_MODE_SOURCE_COUNT = 3;
+static constexpr uint8_t AP_MODE_QR_VERSION = 4;
+static constexpr uint8_t AP_MODE_QR_ECC = ECC_LOW;
+static constexpr size_t AP_MODE_QR_BUFFER_BYTES = 512;
 static constexpr int AP_MODE_REMOTE_KEY_QUEUE_MAX = 16;
 static constexpr int AP_MODE_MIRROR_W = 240;
 static constexpr int AP_MODE_MIRROR_H = 135;
@@ -24,6 +27,7 @@ static float targetApModeSourceScroll = 0.0;
 static bool apModePromptActive = false;
 static bool apModeLanWebActive = false;
 static bool apModeUseLanSource = false;
+static bool apModeQrViewActive = false;
 static WebServer apModeWebServer(80);
 static File apModeWebUploadFile;
 static bool apModeWebServerStarted = false;
@@ -809,9 +813,40 @@ static void apModeStopLanWeb() {
 }
 
 static void apModeStopWebUi() {
+    apModeQrViewActive = false;
     if (apModeRunning) apModeStopAp();
     else if (apModeLanWebActive) apModeStopLanWeb();
     else apModeStatus = "WEB UI OFFLINE";
+}
+
+void apModePrepareForCharging(bool &wasApRunning, bool &wasLanWebActive) {
+    wasApRunning = apModeRunning;
+    wasLanWebActive = apModeLanWebActive;
+    apModeQrViewActive = false;
+
+    if (apModeWebServerStarted) apModeStopWebServer();
+    if (apModeRunning) {
+        WiFi.softAPdisconnect(true);
+        apModeRunning = false;
+    }
+    apModeLanWebActive = false;
+    apModeIp = "";
+
+    if (wasApRunning || wasLanWebActive) {
+        apModeStatus = "CHARGING SLEEP";
+    }
+}
+
+void apModeRestoreAfterCharging(bool wasApRunning, bool wasLanWebActive) {
+    if (wasApRunning) {
+        apModeStartAp();
+    } else if (wasLanWebActive) {
+        if (WiFi.status() == WL_CONNECTED) {
+            apModeStartLanWeb();
+        } else {
+            apModeStatus = "WEB UI NEEDS WIFI";
+        }
+    }
 }
 
 static bool apModeStartSelectedWeb() {
@@ -829,6 +864,7 @@ static bool apModeStartSelectedWeb() {
 }
 
 static void apModeReturnToNetworkNode() {
+    apModeQrViewActive = false;
     appState = STATE_MAIN_MENU;
     mainMenuFocus = 4;
     currentMenuScroll = mainMenuFocus;
@@ -839,6 +875,7 @@ static void apModeReturnToNetworkNode() {
 }
 
 static void apModeReturnToSourcePrompt() {
+    apModeQrViewActive = false;
     apModePromptActive = true;
     apModeSourceFocus = apModeUseLanSource ? 1 : 0;
     currentApModeSourceScroll = (float)apModeSourceFocus;
@@ -863,6 +900,83 @@ static void apModeEnsureVisible() {
     if (maxScroll < 0) maxScroll = 0;
     if (apModeListScroll > maxScroll) apModeListScroll = maxScroll;
     if (apModeListScroll < 0) apModeListScroll = 0;
+}
+
+
+static String apModeCurrentUrl() {
+    if (!apModeWebActive() || apModeIp == "") return "";
+    return String("http://") + apModeIp + "/";
+}
+
+static String apModeQrUrlLine(String url, int lineIndex) {
+    int start = lineIndex * 18;
+    if (start >= (int)url.length()) return "";
+    int end = start + 18;
+    if (end > (int)url.length()) end = url.length();
+    return url.substring(start, end);
+}
+
+static void drawApModeQrScreen() {
+    String url = apModeCurrentUrl();
+    static uint8_t qrModules[AP_MODE_QR_BUFFER_BYTES];
+    memset(qrModules, 0, AP_MODE_QR_BUFFER_BYTES);
+
+    QRCode qrcode;
+    bool qrReady = false;
+    if (url.length() > 0) {
+        qrReady = (lgfx_qrcode_initText(&qrcode, qrModules, AP_MODE_QR_VERSION, AP_MODE_QR_ECC, url.c_str()) == 0);
+    }
+
+    canvas.startWrite();
+    canvas.fillScreen(CP_BG);
+    drawGlitchText("WEB UI QR", 72, 5, 1, qrReady ? CP_YELLOW : CP_CYAN, true, true);
+    drawTopStatusIcons(132, 1);
+    canvas.drawLine(8, 20, 232, 20, CP_CYAN);
+
+    constexpr int moduleSize = 2;
+    constexpr int quietModules = 4;
+    constexpr int qrMaxSize = AP_MODE_QR_VERSION * 4 + 17;
+    constexpr int qrPixels = (qrMaxSize + quietModules * 2) * moduleSize;
+    constexpr int qrX = 8;
+    constexpr int qrY = 28;
+
+    canvas.fillRect(qrX, qrY, qrPixels, qrPixels, WHITE);
+    if (qrReady) {
+        for (int y = 0; y < qrcode.size; y++) {
+            for (int x = 0; x < qrcode.size; x++) {
+                if (!lgfx_qrcode_getModule(&qrcode, x, y)) continue;
+                canvas.fillRect(qrX + (x + quietModules) * moduleSize,
+                                qrY + (y + quietModules) * moduleSize,
+                                moduleSize, moduleSize, BLACK);
+            }
+        }
+    } else {
+        canvas.setTextColor(CP_DIM);
+        canvas.setTextSize(1);
+        canvas.drawCenterString("START", qrX + qrPixels / 2, qrY + 32);
+        canvas.drawCenterString("WEB UI", qrX + qrPixels / 2, qrY + 44);
+    }
+    canvas.drawRect(qrX - 1, qrY - 1, qrPixels + 2, qrPixels + 2, qrReady ? CP_YELLOW : CP_CYAN);
+
+    int panelX = 104;
+    drawChippedButton(panelX, 28, 130, 82, qrReady ? CP_YELLOW : CP_DIM);
+    canvas.setTextSize(1);
+    canvas.setTextColor(CP_CYAN);
+    canvas.setCursor(panelX + 8, 36);
+    canvas.print(apModeUseLanSource ? "NETWORK QR" : "AP MODE QR");
+    canvas.setTextColor(qrReady ? WHITE : CP_DIM);
+    for (int i = 0; i < 3; i++) {
+        canvas.setCursor(panelX + 8, 52 + i * 10);
+        String line = qrReady ? apModeQrUrlLine(url, i) : (i == 0 ? "START WEB UI" : "");
+        canvas.print(line);
+    }
+    canvas.setTextColor(qrReady ? CP_GREEN : CP_RED);
+    canvas.setCursor(panelX + 8, 86);
+    canvas.print(qrReady ? "SCAN TO OPEN" : "QR OFFLINE");
+
+    canvas.setTextColor(CP_DIM);
+    canvas.drawCenterString("TAB SCREENSHOT  ESC BACK", 120, 120);
+    pushCanvas();
 }
 
 static void apModeDrawVerticalScrollIndicator(int scroll, int maxScroll, int x, int y, int h) {
@@ -915,19 +1029,23 @@ static void apModeRowText(int index, String &label, String &value) {
             value = apModeUseLanSource ? "NETWORK" : "AP MODE";
             break;
         case 1:
+            label = "WEB QR";
+            value = apModeWebActive() && apModeIp != "" ? apModeIp : "START FIRST";
+            break;
+        case 2:
             label = "SSID";
             value = apModeSsid;
             if (value == "") value = "<EMPTY>";
             break;
-        case 2:
+        case 3:
             label = "PASS";
             value = apModeMaskedPass();
             break;
-        case 3:
+        case 4:
             label = "CHANNEL";
             value = String(apModeChannel);
             break;
-        case 4:
+        case 5:
             label = "SECURITY";
             value = apModeOpen ? "OPEN" : "WPA2 PSK";
             break;
@@ -937,6 +1055,7 @@ static void apModeRowText(int index, String &label, String &value) {
             break;
     }
 }
+
 
 static void apModeDrawRow(int index, int y) {
     bool selected = (apModeFocus == index);
@@ -958,8 +1077,8 @@ static void apModeDrawRow(int index, int y) {
         return;
     }
 
-    if (selected && (index == 1 || index == 2) && blinkState) value += "_";
-    if (selected && (index == 3 || index == 4)) value = "< " + value + " >";
+    if (selected && (index == 2 || index == 3) && blinkState) value += "_";
+    if (selected && (index == 4 || index == 5)) value = "< " + value + " >";
 
     drawChippedButton(6, y - 2, 216, 20, color);
     canvas.setTextSize(1);
@@ -984,7 +1103,7 @@ static void apModeDrawRow(int index, int y) {
 static void drawApModeSourcePrompt() {
     canvas.startWrite();
     canvas.fillScreen(CP_BG);
-    drawGlitchText("WEB UI", 72, 4, 1, CP_CYAN, true, true);
+    drawGlitchText("WEB UI", 72, 5, 1, CP_CYAN, true, true);
     drawTopStatusIcons(132, 1);
 
     canvas.drawCircle(-80, 67, 110, CP_DIM);
@@ -1020,7 +1139,7 @@ static void drawApModeSourcePrompt() {
         drawChippedButton(x, y, w, h, color);
         canvas.setTextColor(color);
         canvas.setTextSize(selected ? 2 : 1);
-        canvas.setCursor(x + 15, y + (selected ? 7 : 6));
+        canvas.setCursor(x + 15, y + (selected ? 8 : 7));
         canvas.print(labels[i]);
     }
 
@@ -1039,6 +1158,7 @@ bool updateApModeSourcePromptAnimation() {
 }
 
 void enterApMode() {
+    apModeQrViewActive = false;
     if (apModeSsid == "") apModeSsid = "Breach_OS_AP";
     if (apModePass == "") apModePass = "breach123";
     apModeClampChannel();
@@ -1062,6 +1182,7 @@ void enterApMode() {
 }
 
 void enterApModeLanWeb() {
+    apModeQrViewActive = false;
     if (apModeSsid == "") apModeSsid = "Breach_OS_AP";
     if (apModePass == "") apModePass = "breach123";
     apModeClampChannel();
@@ -1089,11 +1210,16 @@ void drawApModeScreen() {
         drawApModeSourcePrompt();
         return;
     }
+    if (apModeQrViewActive) {
+        drawApModeQrScreen();
+        return;
+    }
 
     canvas.startWrite();
     canvas.fillScreen(CP_BG);
+
     String apModeHeader = apModeUseLanSource ? "NETWORK" : "AP MODE";
-    drawGlitchText(apModeHeader, 72, 4, 1, apModeWebActive() ? CP_YELLOW : CP_CYAN, true, true);
+    drawGlitchText(apModeHeader, 72, 5, 1, apModeWebActive() ? CP_YELLOW : CP_CYAN, true, true);
     drawTopStatusIcons(132, 1);
     canvas.drawLine(5, 18, 235, 18, CP_DIM);
 
@@ -1125,6 +1251,18 @@ void drawApModeScreen() {
 }
 
 void handleApModeInput(Keyboard_Class::KeysState status) {
+    if (apModeQrViewActive) {
+        bool hasBack = status.del || status.enter;
+        for (char c : status.word) {
+            if (c == ',' || c == '`') hasBack = true;
+        }
+        if (hasBack) {
+            playSound(sound_select, sound_select_size);
+            apModeQrViewActive = false;
+        }
+        return;
+    }
+
     if (apModePromptActive) {
         bool hasUp = false, hasDown = false, hasBack = status.del;
         for (char c : status.word) {
@@ -1192,10 +1330,10 @@ void handleApModeInput(Keyboard_Class::KeysState status) {
         else if (c == '`') hasBack = true;
         else if (c == 'r' || c == 'R') resetDefaults = true;
         else if (c >= 32 && c <= 126) {
-            if (apModeFocus == 1 && apModeSsid.length() < AP_MODE_MAX_SSID_LEN) {
+            if (apModeFocus == 2 && apModeSsid.length() < AP_MODE_MAX_SSID_LEN) {
                 apModeSsid += c;
                 typed = true;
-            } else if (apModeFocus == 2 && apModePass.length() < AP_MODE_MAX_PASS_LEN) {
+            } else if (apModeFocus == 3 && apModePass.length() < AP_MODE_MAX_PASS_LEN) {
                 apModePass += c;
                 typed = true;
             }
@@ -1209,10 +1347,10 @@ void handleApModeInput(Keyboard_Class::KeysState status) {
     }
 
     if (status.del) {
-        if (apModeFocus == 1 && apModeSsid.length() > 0) {
+        if (apModeFocus == 2 && apModeSsid.length() > 0) {
             apModeSsid.remove(apModeSsid.length() - 1);
             typed = true;
-        } else if (apModeFocus == 2 && apModePass.length() > 0) {
+        } else if (apModeFocus == 3 && apModePass.length() > 0) {
             apModePass.remove(apModePass.length() - 1);
             typed = true;
         } else {
@@ -1225,7 +1363,7 @@ void handleApModeInput(Keyboard_Class::KeysState status) {
         return;
     }
 
-    if (hasBack || (hasLeft && apModeFocus != 3 && apModeFocus != 4)) {
+    if (hasBack || (hasLeft && apModeFocus != 4 && apModeFocus != 5)) {
         playSound(sound_select, sound_select_size);
         apModeSavePrefs();
         apModeReturnToSourcePrompt();
@@ -1241,12 +1379,12 @@ void handleApModeInput(Keyboard_Class::KeysState status) {
         apModeFocus = (apModeFocus + 1) % AP_MODE_FOCUS_COUNT;
     }
 
-    if (apModeFocus == 3 && (hasLeft || hasRight)) {
+    if (apModeFocus == 4 && (hasLeft || hasRight)) {
         playSound(sound_hover, sound_hover_size);
         apModeChannel += hasRight ? 1 : -1;
         apModeClampChannel();
         apModeStatus = "CHANNEL " + String(apModeChannel);
-    } else if (apModeFocus == 4 && (hasLeft || hasRight)) {
+    } else if (apModeFocus == 5 && (hasLeft || hasRight)) {
         playSound(sound_hover, sound_hover_size);
         apModeOpen = !apModeOpen;
         apModeStatus = apModeOpen ? "OPEN SECURITY" : "WPA2 SECURITY";
@@ -1258,11 +1396,17 @@ void handleApModeInput(Keyboard_Class::KeysState status) {
     if (apModeFocus == 0) {
         if (apModeWebActive()) apModeStopWebUi();
         else apModeStartSelectedWeb();
-    } else if (apModeFocus == 3) {
+    } else if (apModeFocus == 1) {
+        if (apModeWebActive() && apModeIp != "") {
+            apModeQrViewActive = true;
+        } else {
+            apModeStatus = "START WEB UI FIRST";
+        }
+    } else if (apModeFocus == 4) {
         apModeChannel++;
         apModeClampChannel();
         apModeStatus = "CHANNEL " + String(apModeChannel);
-    } else if (apModeFocus == 4) {
+    } else if (apModeFocus == 5) {
         apModeOpen = !apModeOpen;
         apModeStatus = apModeOpen ? "OPEN SECURITY" : "WPA2 SECURITY";
     } else {

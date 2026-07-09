@@ -576,6 +576,21 @@ static void bluetoothPerformScan() {
 #endif
 }
 
+void stopBluetoothForLowPower() {
+#if BREACH_BLE_SCAN_AVAILABLE
+    if (bluetoothBleStarted) {
+        BLEScan* scan = BLEDevice::getScan();
+        if (scan != nullptr) {
+            scan->stop();
+            scan->clearResults();
+        }
+        BLEDevice::deinit(true);
+        bluetoothBleStarted = false;
+        bluetoothStatus = "BLE OFF";
+    }
+#endif
+}
+
 void enterBluetoothScan() {
     appState = STATE_BLUETOOTH_SCAN;
     bluetoothPerformScan();
